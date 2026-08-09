@@ -4,9 +4,12 @@ Bookkeeping companion for the Warhammer Skirmishes variant. It is the game's
 **memory, not its eyes**: the tabletop decides what happened, the app tracks the
 consequences.
 
-Open `index.html` in any browser — no build step, no server, no network. It runs
-straight off the filesystem and saves to `localStorage`, so a refresh mid-game
-loses nothing.
+**Play it: https://maxlirio.github.io/warhammer-skirmishes/**
+
+Or open `index.html` in any browser — no build step, no server, no network. It
+runs straight off the filesystem and saves to `localStorage`, so a refresh
+mid-game loses nothing. On a phone, use *Add to Home Screen* for a fullscreen
+launcher.
 
 ## What it tracks
 
@@ -63,6 +66,10 @@ effects, or just print a reminder.
 - **Overwatch AP.** An overwatch shot is an interrupt: the defender gains no RP
   (per the card) and no survivor AP, and control does not change hands unless the
   target dies.
+- **Chain continuation.** A chain ends only when the action says it ends, or when
+  the player whose *turn* it is runs out of AP. An opponent with an empty pool
+  simply cannot respond — the chain stays open, play returns to the turn player,
+  and weapon lockouts and chain-duration effects carry on.
 - **DISTRACT** grants its 1 AP immediately, on top of the standard survivor AP.
 - **Elevation.** Shooting from higher ground is +1 to Hit; charging from higher
   ground is +1 to Wound and +1 Damage. Both are a checkbox in the attack flow
