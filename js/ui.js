@@ -685,7 +685,11 @@ const UI = (function () {
     if (f.step === 'opponent') return responderStep(g, f);
     if (f.step === 'pick') {
       const needs = Engine.effectsNeedingTarget(ab, { sourceUnitId: f.unitId });
-      const e = needs.find(x => !f.targets[x.id]) || needs[0];
+      const e = needs[f.pickIndex] || needs.find(x => !f.targets[x.id]) || needs[0];
+      if (e.pick === 'multi') {
+        return multiPick(g, f, e, 'picktarget', esc(ab.name),
+          'Everyone in range rolls. Tick the ones that failed.');
+      }
       return head(esc(ab.name), 'SELECT TARGET — ' + effectSummary(e).toUpperCase()) +
         '<div class="mbody">' + Store.get().units.filter(x => x.alive)
           .map(x => unitChoice(x, 'picktarget:' + e.id + ':' + x.id,
@@ -698,8 +702,7 @@ const UI = (function () {
           '<div class="big" style="font-size:20px">' + esc(ab.name) + '</div>' +
           '<div class="sub">' + esc(ab.text) + '</div></div>' +
         (ab.effects || []).map(e => '<div class="noteline">' + effectSummary(e) +
-          (f.targets[e.id] ? ' → <b>' + esc(Store.unit(f.targets[e.id]).name) + '</b>' : '') +
-          '</div>').join('') +
+          targetNames(f.targets[e.id]) + '</div>').join('') +
         '<div class="noteline warn">Costs ' + ab.cost + ' AP. ' +
           (ab.opponentGainsAP === 'default' || Number(ab.opponentGainsAP) > 0
             ? 'Your opponent gains ' + (ab.opponentGainsAP === 'default' ? 1 : ab.opponentGainsAP) +
@@ -707,6 +710,30 @@ const UI = (function () {
             : 'Your opponent gains no AP.') + '</div>' +
       '</div>' +
       footBack('confirmability', 'USE ABILITY');
+  }
+
+  /* One roll each: tick everyone the dice went against. */
+  function multiPick(g, f, e, actPrefix, title, sub) {
+    const chosen = Array.isArray(f.targets[e.id]) ? f.targets[e.id] : [];
+    return head(title, 'WHICH UNITS? — ' + effectSummary(e).toUpperCase()) +
+      '<div class="mbody">' +
+        '<div class="noteline">' + sub + '</div>' +
+        g.units.filter(x => x.alive).map(function (x) {
+          const on = chosen.indexOf(x.id) >= 0;
+          return '<button class="choice p' + x.owner + (on ? ' sel' : '') +
+            '" data-act="' + actPrefix + ':' + e.id + ':' + x.id + '">' +
+            '<div class="cmain"><div class="cname">' + esc(x.name) + '</div>' +
+            '<div class="cdesc">' + x.wounds + '/' + x.maxWounds + ' W · ' +
+              esc(g.players[x.owner].name) + '</div></div>' +
+            '<div class="ccost' + (on ? '' : ' free') + '">' + (on ? 'HIT' : '—') + '</div>' +
+          '</button>';
+        }).join('') +
+      '</div>' +
+      '<div class="mfoot">' +
+        '<button class="btn ghost sm" data-act="flowback">BACK</button>' +
+        '<button class="btn primary" data-act="donetargets">' +
+          (chosen.length ? 'THAT\u2019S ALL ' + chosen.length : 'NONE OF THEM') + '</button>' +
+      '</div>';
   }
 
   function effectSummary(e) {
@@ -730,6 +757,16 @@ const UI = (function () {
     return e.kind;
   }
 
+  function targetNames(t) {
+    if (!t) return '';
+    const list = Array.isArray(t) ? t : [t];
+    if (!list.length) return ' → <b>nobody</b>';
+    return ' → <b>' + list.map(id => {
+      const u = Store.unit(id);
+      return esc(u ? u.name : '?');
+    }).join(', ') + '</b>';
+  }
+
   function durLabel(id) {
     const d = RULES.durations.find(x => x.id === id);
     return d ? d.label.toLowerCase() : id;
@@ -744,7 +781,11 @@ const UI = (function () {
     const effects = Engine.tokenEffects(f.unitId, f.tokenId);
     if (f.step === 'pick') {
       const needs = Engine.effectsNeedingTarget({ effects: effects }, { sourceUnitId: f.unitId });
-      const e = needs.find(x => !f.targets[x.id]) || needs[0];
+      const e = needs[f.pickIndex] || needs.find(x => !f.targets[x.id]) || needs[0];
+      if (e.pick === 'multi') {
+        return multiPick(g, f, e, 'tokentarget', '[ ' + esc(t.label) + ' ]',
+          esc(t.text || 'Everyone in range rolls. Tick the ones that failed.'));
+      }
       return head('[ ' + esc(t.label) + ' ]', 'WHICH UNIT — ' + effectSummary(e).toUpperCase()) +
         '<div class="mbody">' + Store.get().units.filter(x => x.alive)
           .map(x => unitChoice(x, 'tokentarget:' + e.id + ':' + x.id)).join('') + '</div>' +
@@ -755,7 +796,7 @@ const UI = (function () {
         (t.text ? '<div class="noteline">' + esc(t.text) + '</div>' : '') +
         (effects.length
           ? effects.map(e => '<div class="noteline">' + effectSummary(e) +
-              (f.targets[e.id] ? ' → <b>' + esc(Store.unit(f.targets[e.id]).name) + '</b>' : '') + '</div>').join('')
+              targetNames(f.targets[e.id]) + '</div>').join('')
           : '<div class="noteline">This token has no stored mechanical effects — it is a reminder only. ' +
             'Adjust wounds or AP by hand if needed.</div>') +
         (t.expiry === 'used' ? '<div class="noteline warn">The button is removed after this.</div>' : '') +

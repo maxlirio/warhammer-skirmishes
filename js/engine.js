@@ -674,6 +674,7 @@ const Engine = (function () {
     });
   }
 
+  /* May return a single unit id or, for a 'multi' pick, an array of them. */
   function resolveEffectTarget(e, ctx) {
     const pick = e.pick || 'prompt';
     if (pick === 'self') return ctx.sourceUnitId;
@@ -681,6 +682,8 @@ const Engine = (function () {
     if (pick === 'defender' && ctx.attack) return ctx.attack.targetId;
     return (ctx.targets && ctx.targets[e.id]) || null;
   }
+
+  const asList = t => (t === null || t === undefined) ? [] : (Array.isArray(t) ? t : [t]);
 
   /* ctx: { sourceUnitId, sourcePlayer, targets:{effectId:unitId}, attack, label } */
   function applyEffects(effects, ctx) {
@@ -704,16 +707,12 @@ const Engine = (function () {
           break;
         case 'vp_self':     scoreVP(me, v, ctx.label); break;
         case 'vp_opponent': scoreVP(opp, v, ctx.label); break;
-        case 'damage': {
-          const tid = resolveEffectTarget(e, ctx);
-          if (tid) dealDamage(tid, v, me, ctx.label + ': ');
+        case 'damage':
+          asList(resolveEffectTarget(e, ctx)).forEach(tid => dealDamage(tid, v, me, ctx.label + ': '));
           break;
-        }
-        case 'heal': {
-          const tid = resolveEffectTarget(e, ctx);
-          if (tid) heal(tid, v);
+        case 'heal':
+          asList(resolveEffectTarget(e, ctx)).forEach(tid => heal(tid, v));
           break;
-        }
         case 'mod_hit':
         case 'mod_wound': {
           const tid = resolveEffectTarget(e, ctx);
@@ -1150,12 +1149,37 @@ const Engine = (function () {
     Store.commit('select target', function () {
       const g = S();
       const f = g.flow;
-      f.targets[effectId] = unitId;
       const ab = findAbility(f.unitId, f.abilityId);
       const needs = effectsNeedingTarget(ab, { sourceUnitId: f.unitId });
-      const done = needs.every(e => f.targets[e.id]);
+      const e = needs.find(x => x.id === effectId);
+      if (e && e.pick === 'multi') { toggleMulti(f, effectId, unitId); return; }
+      f.targets[effectId] = unitId;
+      const done = needs.every(x => filled(f.targets[x.id]));
       if (done) f.step = f.askOpponent ? 'opponent' : 'confirm';
-      else f.pickIndex = needs.findIndex(e => !f.targets[e.id]);
+      else f.pickIndex = needs.findIndex(x => !filled(f.targets[x.id]));
+    });
+  }
+
+  const filled = t => Array.isArray(t) ? t.length > 0 : !!t;
+
+  function toggleMulti(f, effectId, unitId) {
+    const cur = Array.isArray(f.targets[effectId]) ? f.targets[effectId] : [];
+    f.targets[effectId] = cur.indexOf(unitId) >= 0
+      ? cur.filter(x => x !== unitId) : cur.concat([unitId]);
+  }
+
+  /* "That's everyone" on a multi-unit pick. */
+  function flowDoneTargets() {
+    Store.commit('targets chosen', function () {
+      const g = S();
+      const f = g.flow;
+      if (!f) return;
+      const list = f.kind === 'token'
+        ? effectsNeedingTarget({ effects: tokenEffects(f.unitId, f.tokenId) }, { sourceUnitId: f.unitId })
+        : effectsNeedingTarget(findAbility(f.unitId, f.abilityId), { sourceUnitId: f.unitId });
+      const next = list.findIndex(x => !filled(f.targets[x.id]));
+      if (next >= 0) { f.pickIndex = next; return; }
+      f.step = (f.kind !== 'token' && f.askOpponent) ? 'opponent' : 'confirm';
     });
   }
 
@@ -1747,10 +1771,12 @@ const Engine = (function () {
   function tokenPickTarget(effectId, unitId) {
     Store.commit('token target', function () {
       const f = S().flow;
-      f.targets[effectId] = unitId;
       const list = tokenEffects(f.unitId, f.tokenId);
       const needs = effectsNeedingTarget({ effects: list }, { sourceUnitId: f.unitId });
-      if (needs.every(e => f.targets[e.id])) f.step = 'confirm';
+      const e = needs.find(x => x.id === effectId);
+      if (e && e.pick === 'multi') { toggleMulti(f, effectId, unitId); return; }
+      f.targets[effectId] = unitId;
+      if (needs.every(x => filled(f.targets[x.id]))) f.step = 'confirm';
     });
   }
 
@@ -1928,7 +1954,8 @@ const Engine = (function () {
     missionCard, missionEndTurnItems, toggleUnitFlag, controlledCount,
     relicCarrier, setRelicCarrier, killValue, endGameNow,
     confirmSimple, confirmPass, confirmOverwatch,
-    flowPickAbility, flowPickTarget, confirmAbility, useFreeAbility, usePhaseAbility,
+    flowPickAbility, flowPickTarget, flowDoneTargets, confirmAbility,
+    useFreeAbility, usePhaseAbility,
     flowPickAttackTarget, flowPickWeapon, flowPickReaction, flowEligibility,
     flowHit, flowWound, flowDamage, attackNumbers, setElevation,
     applicableAuras, toggleAura, blockedReactions, flowRedirect, openFreeAttack,

@@ -532,6 +532,7 @@ const Setup = (function () {
       inner += field('APPLIES TO',
         '<select data-bind="' + base + ':pick">' +
           '<option value="prompt"' + (e.pick === 'prompt' ? ' selected' : '') + '>Ask me when it fires</option>' +
+          '<option value="multi"' + (e.pick === 'multi' ? ' selected' : '') + '>Ask me — several units at once</option>' +
           '<option value="self"' + (e.pick === 'self' ? ' selected' : '') + '>This unit</option>' +
           '<option value="attacker"' + (e.pick === 'attacker' ? ' selected' : '') + '>The attacking unit (reactions)</option>' +
           '<option value="defender"' + (e.pick === 'defender' ? ' selected' : '') + '>The defending unit (reactions)</option>' +

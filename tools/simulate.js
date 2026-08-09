@@ -765,6 +765,47 @@ console.log('\n== Da Hunta marks his quarry for the game ==');
   check('the button is spent', Engine.usableFreeAbilities(U('Da Hunta')).length, 0);
 })();
 
+console.log('\n== an area effect: one roll each, tick the failures ==');
+(function () {
+  const mob = buildPreset(orks, 0);
+  const foes = [
+    mkUnit(1, 'Guard A', 3, 4, [{ name: 'Lasgun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], []),
+    mkUnit(1, 'Guard B', 3, 4, [{ name: 'Lasgun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], [])
+  ];
+  Engine.startGame({ playerNames: ['Orks', 'Guard'], vpTarget: 10, firstPlayer: 0,
+                     mission: { id: null }, objectives: [] }, mob.concat(foes));
+  Engine.confirmStartPhase();
+  Engine.adjustAP(0, 4);
+  const rik = U('Riksnik');
+  const spray = rik.abilities.find(a => a.name === "Spin an' spray");
+  Engine.beginAction('ability');
+  Engine.flowPickUnit(rik.id);
+  Engine.flowPickAbility(spray.id);
+  check('it asks who was caught', G().flow.step, 'pick');
+  const eff = Engine.effectsNeedingTarget(spray, { sourceUnitId: rik.id })[0];
+  check('and takes several at once', eff.pick, 'multi');
+  Engine.flowPickTarget(eff.id, U('Guard A').id);
+  Engine.flowPickTarget(eff.id, U('Guard B').id);
+  Engine.flowPickTarget(eff.id, rik.id);          // Riksnik rolls too
+  check('three ticked', G().flow.targets[eff.id].length, 3);
+  Engine.flowPickTarget(eff.id, U('Guard B').id); // Guard B actually passed — untick
+  check('and one untickable again', G().flow.targets[eff.id].length, 2);
+  Engine.flowDoneTargets();
+  check('then it confirms', G().flow.step, 'confirm');
+  Engine.confirmAbility();
+  check('Guard A took 1', U('Guard A').wounds, 2);
+  check('Guard B was spared', U('Guard B').wounds, 3);
+  check('Riksnik took his own spray', U('Riksnik').alive, false);
+})();
+
+console.log('\n== the Astra lasguns ==');
+const astraAlfred = astra.units.find(u => u.name.indexOf('Alfred') >= 0);
+const astraNick = astra.units.find(u => u.name.indexOf('Nick') >= 0);
+check('Alfred carries a Lasgun and a Dagger',
+  astraAlfred.weapons.map(w => w.name), ['Lasgun', 'Dagger']);
+check('Nick carries a Lasgun and a Bayonet',
+  astraNick.weapons.map(w => w.name), ['Lasgun', 'Bayonet']);
+
 console.log('\n== summary ==');
 console.log((checks - fails) + '/' + checks + ' checks passed');
 process.exit(fails ? 1 : 0);

@@ -331,7 +331,6 @@ const PRESETS = [
       notes: 'Don\'t cross his crosshairs.',
       weapons: [
         { name: 'Lasgun', type: 'ranged', range: 18, hit: 2, strength: 4, damage: 1 },
-        { name: 'Bolt Pistol', type: 'ranged', range: 12, hit: 3, strength: 3, damage: 1 },
         { name: 'Dagger', type: 'melee', range: 1, hit: 3, strength: 3, damage: 1, unlimited: true }
       ],
       abilities: [
@@ -391,7 +390,6 @@ const PRESETS = [
       notes: 'Legend has it he once made a nick in a Chaos Lord\'s armor.',
       weapons: [
         { name: 'Lasgun', type: 'ranged', range: 18, hit: 3, strength: 4, damage: 1 },
-        { name: 'Bolt Pistol', type: 'ranged', range: 12, hit: 3, strength: 3, damage: 1 },
         { name: 'Bayonet', type: 'melee', range: 2, hit: 4, strength: 4, damage: 1 }
       ],
       abilities: [
@@ -399,9 +397,9 @@ const PRESETS = [
           text: 'Place a mine token up to D6" away from this unit\'s position. It deals 1 damage ' +
                 'to each unit within 3" of it at the end of this action chain.',
           effects: [{ kind: 'token', label: 'GRENADE', expiry: 'chain',
-                      text: 'At the end of the chain: 1 damage to each unit within 3". Press once ' +
-                            'per unit caught in it.',
-                      tokenEffects: [{ kind: 'damage', value: 1, pick: 'prompt' }] }] },
+                      text: 'At the end of this action chain, tick every unit within 3" of the ' +
+                            'token — each takes 1 damage.',
+                      tokenEffects: [{ kind: 'damage', value: 1, pick: 'multi' }] }] },
         { name: 'Cloaked', trigger: 'ap', cost: 1,
           text: 'Enemy units greater than 6" away have -1 to hit this unit.',
           effects: [{ kind: 'aura', stat: 'hit', value: -1, side: 'enemy', onlyVsOwner: true,
@@ -573,10 +571,10 @@ const PRESETS = [
         { name: "Spin an' spray", trigger: 'ap', cost: 1,
           text: 'Each unit within 6", including this one, make a save 3+ or takes 1 damage. If ' +
                 'this unit dies, nobody gets VP. Your opponent gains 1 AP.',
-          effects: [{ kind: 'token', label: "SPIN AN' SPRAY", expiry: 'chain',
-                      text: 'Press once for each unit within 6" that failed its 3+ — including ' +
-                            'Riksnik. If Riksnik dies to this, nobody scores VP.',
-                      tokenEffects: [{ kind: 'damage', value: 1, pick: 'prompt' }] }] }
+          effects: [{ kind: 'damage', value: 1, pick: 'multi' },
+                    { kind: 'note',
+                      text: 'Every unit within 6" — Riksnik included — rolls a D6. On 1-2 it ' +
+                            'takes 1 damage. If Riksnik dies to this, nobody scores VP.' }] }
       ]
     }
   ]

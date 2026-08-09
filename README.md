@@ -140,6 +140,13 @@ if it kills the attacker their attack never happens.
 
 Space Marines are included as a clearly-labelled example.
 
+## Area effects
+
+*Spin an' spray* and *Grenade* both work the same way: everyone in range rolls,
+and the app shows the whole board so you **tick the ones that failed** and apply
+the damage to all of them at once. Any custom ability can do this — set a damage
+or heal effect to "Ask me — several units at once".
+
 ## When the app cannot model an ability
 
 Make it a button. Three ways, in increasing order of automation:

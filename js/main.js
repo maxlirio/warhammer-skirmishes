@@ -233,6 +233,7 @@
 
       case 'pickab': Engine.flowPickAbility(p[1]); return;
       case 'picktarget': Engine.flowPickTarget(p[1], p[2]); return;
+      case 'donetargets': Engine.flowDoneTargets(); return;
       case 'confirmability': Engine.confirmAbility(); return;
 
       case 'confirmsimple': Engine.confirmSimple(); return;
