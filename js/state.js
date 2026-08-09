@@ -15,10 +15,12 @@ const Store = (function () {
 
   /* ---------------------------------------------------------------- model */
 
+  /* Datasheet weapon line: RANGE / HIT / STRENGTH / DAMAGE.
+     Range is a reminder only — the app never checks it. */
   function newWeapon(patch) {
     return Object.assign({
       id: nextId('w'), name: 'Weapon', type: 'ranged',
-      hit: 3, strength: 4, damage: 1, notes: ''
+      range: 12, hit: 3, strength: 4, damage: 1, notes: ''
     }, patch || {});
   }
 
@@ -45,14 +47,15 @@ const Store = (function () {
 
   function newSpecialObjective(patch) {
     return Object.assign({
-      id: nextId('so'), name: '', text: '', effects: [], repeat: false, completed: 0
+      id: nextId('so'), name: '', text: '', vp: 1, effects: [], repeat: false, completed: 0
     }, patch || {});
   }
 
+  /* Datasheet: MOV / W / T / OC. There is no saving throw in this game. */
   function newUnit(owner, patch) {
     return Object.assign({
       id: nextId('u'), owner: owner, name: 'Unit',
-      maxWounds: 2, wounds: 2, toughness: 4, save: 3, move: 6, hit: 3,
+      move: 6, maxWounds: 1, wounds: 1, toughness: 4, oc: 0,
       weapons: [], abilities: [], notes: '',
       alive: true, effects: [], tokens: []
     }, patch || {});
@@ -82,6 +85,7 @@ const Store = (function () {
       mission: (config && config.mission) || { name: '', text: '', objectives: [] },
       objectiveScores: {},
       units: [],
+      vpPrompts: [],
       turn: { number: 0, player: (config && config.firstPlayer) || 0, phase: 'start' },
       control: { player: 0, forcedUnitId: null, reason: '' },
       chain: { active: false, id: 0, initiator: null, entries: [], weaponsUsed: [] },
@@ -186,6 +190,66 @@ const Store = (function () {
     return all;
   }
 
+  /* ---------------------------------------------------------------- library
+     Everything you type in once — units, missions, special objectives — is kept
+     in this browser so the next game is a few taps instead of a rebuild.
+     Entries are keyed by name, so re-saving an edited unit replaces it.        */
+
+  const KEY_LIB = 'whsk.library.v1';
+  const LIB_KINDS = ['units', 'missions', 'objectives'];
+
+  function library() {
+    let lib;
+    try { lib = JSON.parse(localStorage.getItem(KEY_LIB) || '{}'); }
+    catch (e) { lib = {}; }
+    LIB_KINDS.forEach(k => { if (!Array.isArray(lib[k])) lib[k] = []; });
+    return lib;
+  }
+
+  function writeLibrary(lib) {
+    try { localStorage.setItem(KEY_LIB, JSON.stringify(lib)); } catch (e) {}
+    return lib;
+  }
+
+  function libSave(kind, entry) {
+    if (!entry || !entry.name || !String(entry.name).trim()) return null;
+    const lib = library();
+    const copy = JSON.parse(JSON.stringify(entry));
+    copy.savedAt = new Date().toISOString();
+    const key = String(copy.name).trim().toLowerCase();
+    lib[kind] = lib[kind].filter(x => String(x.name).trim().toLowerCase() !== key);
+    lib[kind].push(copy);
+    lib[kind].sort((a, b) => String(a.name).localeCompare(String(b.name)));
+    writeLibrary(lib);
+    return copy;
+  }
+
+  function libDelete(kind, name) {
+    const lib = library();
+    const key = String(name).trim().toLowerCase();
+    lib[kind] = lib[kind].filter(x => String(x.name).trim().toLowerCase() !== key);
+    return writeLibrary(lib);
+  }
+
+  function libGet(kind, name) {
+    const key = String(name).trim().toLowerCase();
+    return library()[kind].find(x => String(x.name).trim().toLowerCase() === key) || null;
+  }
+
+  /* Fresh ids for anything pulled back out of the library. */
+  function rekeyOne(entry) {
+    const c = JSON.parse(JSON.stringify(entry));
+    delete c.savedAt;
+    if (c.effects) c.effects.forEach(e => {
+      e.id = nextId('ef');
+      if (e.tokenEffects) e.tokenEffects.forEach(t => { t.id = nextId('ef'); });
+    });
+    if (c.objectives) c.objectives.forEach(o => { o.id = nextId('mo'); });
+    if (c.completed !== undefined) c.completed = 0;
+    c.id = nextId('lib');
+    return c;
+  }
+
   /* Re-key a roster's units so the same roster can be loaded twice safely. */
   function rekey(units, owner) {
     return units.map(u => {
@@ -228,8 +292,9 @@ const Store = (function () {
     // runtime
     get, setState, commit, quiet, undo, canUndo, undoLabel, subscribe, emit,
     save, load, clear,
-    // rosters
+    // rosters + library
     rosters, saveRoster, deleteRoster, rekey,
+    library, libSave, libDelete, libGet, rekeyOne,
     // lookups
     unit, owner, player, opponentOf, unitsOf, allTokens
   };
@@ -242,10 +307,10 @@ const Store = (function () {
 const SAMPLES = {
   imperial: [
     {
-      name: 'Intercessor Sergeant', maxWounds: 3, wounds: 3, toughness: 4, save: 3, move: 6, hit: 3,
+      name: 'Intercessor Sergeant', move: 6, maxWounds: 3, wounds: 3, toughness: 4, oc: 2,
       weapons: [
-        { name: 'Bolt Rifle', type: 'ranged', hit: 3, strength: 4, damage: 1, notes: '' },
-        { name: 'Power Fist', type: 'melee', hit: 3, strength: 8, damage: 2, notes: '' }
+        { name: 'Bolt Rifle', type: 'ranged', range: 24, hit: 3, strength: 4, damage: 1, notes: '' },
+        { name: 'Power Fist', type: 'melee', range: 1, hit: 3, strength: 8, damage: 2, notes: '' }
       ],
       abilities: [
         { name: 'Rapid Fire', trigger: 'ap', cost: 1,
@@ -258,10 +323,10 @@ const SAMPLES = {
       ]
     },
     {
-      name: 'Scout with Sniper', maxWounds: 2, wounds: 2, toughness: 3, save: 4, move: 6, hit: 3,
+      name: 'Scout with Sniper', move: 6, maxWounds: 2, wounds: 2, toughness: 3, oc: 1,
       weapons: [
-        { name: 'Sniper Rifle', type: 'ranged', hit: 3, strength: 5, damage: 2, notes: '' },
-        { name: 'Combat Knife', type: 'melee', hit: 4, strength: 3, damage: 1, notes: '' }
+        { name: 'Sniper Rifle', type: 'ranged', range: 36, hit: 3, strength: 5, damage: 2, notes: '' },
+        { name: 'Combat Knife', type: 'melee', range: 1, hit: 4, strength: 3, damage: 1, notes: '' }
       ],
       abilities: [
         { name: 'Proximity Mine', trigger: 'ap', cost: 1,
@@ -275,10 +340,10 @@ const SAMPLES = {
   ],
   ork: [
     {
-      name: 'Ork Nob', maxWounds: 4, wounds: 4, toughness: 5, save: 4, move: 6, hit: 3,
+      name: 'Ork Nob', move: 6, maxWounds: 4, wounds: 4, toughness: 5, oc: 2,
       weapons: [
-        { name: 'Kombi-Shoota', type: 'ranged', hit: 4, strength: 4, damage: 1, notes: '' },
-        { name: 'Big Choppa', type: 'melee', hit: 3, strength: 7, damage: 2, notes: '' }
+        { name: 'Kombi-Shoota', type: 'ranged', range: 18, hit: 4, strength: 4, damage: 1, notes: '' },
+        { name: 'Big Choppa', type: 'melee', range: 1, hit: 3, strength: 7, damage: 2, notes: '' }
       ],
       abilities: [
         { name: 'WAAAGH!', trigger: 'ap', cost: 1,
@@ -290,10 +355,10 @@ const SAMPLES = {
       ]
     },
     {
-      name: 'Ork Boy', maxWounds: 2, wounds: 2, toughness: 5, save: 5, move: 6, hit: 4,
+      name: 'Ork Boy', move: 6, maxWounds: 2, wounds: 2, toughness: 5, oc: 1,
       weapons: [
-        { name: 'Shoota', type: 'ranged', hit: 4, strength: 4, damage: 1, notes: '' },
-        { name: 'Choppa', type: 'melee', hit: 3, strength: 4, damage: 1, notes: '' }
+        { name: 'Shoota', type: 'ranged', range: 18, hit: 4, strength: 4, damage: 1, notes: '' },
+        { name: 'Choppa', type: 'melee', range: 1, hit: 3, strength: 4, damage: 1, notes: '' }
       ],
       abilities: [
         { name: 'Mob Rule', trigger: 'start', cost: 0,

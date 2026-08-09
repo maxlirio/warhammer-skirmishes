@@ -81,7 +81,7 @@ const Setup = (function () {
 
           (S.tab === 0 ? p0 : p1).map(unitCard).join('') +
 
-          '<button class="addbtn" data-act="addUnit:' + S.tab + '">+ ADD UNIT</button>' +
+          '<button class="addbtn" data-act="openPicker:unit">+ ADD UNIT</button>' +
 
           '<div class="grid2" style="margin-top:10px">' +
             '<button class="btn sm" style="flex:1" data-act="saveRoster:' + S.tab + '">SAVE THIS ROSTER</button>' +
@@ -113,7 +113,7 @@ const Setup = (function () {
           '</button>' +
           '<div style="height:26px"></div>' +
         '</div>' +
-      '</div>';
+      '</div>' + pickerOverlay();
   }
 
   function field(label, inner) {
@@ -151,21 +151,20 @@ const Setup = (function () {
                   'border-radius:6px;padding:7px;min-height:36px">' +
                 '<button class="iconbtn" data-act="delMissionObj:' + o.id + '">✕</button>' +
               '</div>' +
-              field('How it is scored (reminder text)',
-                '<input type="text" data-bind="missionobj:' + o.id + ':text" value="' + esc(o.text) +
-                '" placeholder="Control the central ruin at the end of your turn">') +
-              '<div class="grid2">' +
-                field('VP AWARDED', '<input type="number" min="0" data-bind="missionobj:' + o.id +
+              field('The text the app reads back to you at the end of each turn',
+                '<textarea data-bind="missionobj:' + o.id + ':text" ' +
+                'placeholder="Control the central ruin at the end of your turn — 2 VP.">' +
+                esc(o.text) + '</textarea>') +
+              field('TYPICAL VP (just pre-fills the entry — you always type the real number)',
+                '<input type="number" min="0" data-bind="missionobj:' + o.id +
                   ':vp" value="' + esc(o.vp) + '">') +
-                field('HOW OFTEN',
-                  '<select data-bind="missionobj:' + o.id + ':repeat">' +
-                    '<option value="true"' + (o.repeat ? ' selected' : '') + '>Every End Phase</option>' +
-                    '<option value="false"' + (!o.repeat ? ' selected' : '') + '>Once per player, per game</option>' +
-                  '</select>') +
-              '</div>' +
             '</div>';
           }).join('') +
           '<button class="addbtn" data-act="addMissionObj">+ ADD OBJECTIVE</button>' +
+        '</div>' +
+        '<div style="display:flex;gap:7px">' +
+          '<button class="btn sm" style="flex:1" data-act="openPicker:mission">LOAD SAVED MISSION</button>' +
+          '<button class="btn sm" style="flex:1" data-act="libSaveMission">SAVE TO LIBRARY</button>' +
         '</div>' +
       '</div>';
   }
@@ -184,20 +183,79 @@ const Setup = (function () {
         'Checked in the End Phase, after END: abilities. Leave the name blank to skip it.</div>' +
       field('Objective name', '<input type="text" data-bind="obj:' + owner + ':name" data-rerender="1" value="' +
         esc(o.name) + '" placeholder="Blood for the Blood God">') +
-      field('Requirement (reminder text)',
+      field('The text the app reads back to you at the end of each turn',
         '<textarea data-bind="obj:' + owner + ':text" placeholder="Destroy an enemy unit in melee in each of two consecutive turns.">' +
           esc(o.text) + '</textarea>') +
-      field('HOW OFTEN',
-        '<select data-bind="obj:' + owner + ':repeat">' +
-          '<option value="false"' + (!o.repeat ? ' selected' : '') + '>Once per game</option>' +
-          '<option value="true"' + (o.repeat ? ' selected' : '') + '>Every time it is completed</option>' +
-        '</select>') +
+      '<div class="grid2">' +
+        field('TYPICAL VP (pre-fills only)',
+          '<input type="number" min="0" data-bind="obj:' + owner + ':vp" value="' + esc(o.vp || 0) + '">') +
+        field('HOW OFTEN',
+          '<select data-bind="obj:' + owner + ':repeat">' +
+            '<option value="false"' + (!o.repeat ? ' selected' : '') + '>Once per game</option>' +
+            '<option value="true"' + (o.repeat ? ' selected' : '') + '>Every time it is completed</option>' +
+          '</select>') +
+      '</div>' +
       '<div style="font-size:10px;letter-spacing:.14em;color:var(--ink-mute);font-weight:800;margin:8px 0 5px">' +
-        'REWARD — what the app grants when it is claimed</div>' +
+        'EXTRA REWARDS BEYOND VP — optional (an AP bonus, a modifier, a token)</div>' +
       (o.effects || []).map(e => effectRow(e, 'objeffect:' + owner + ':' + e.id,
         'delObjEffect:' + owner + ':' + e.id, { allow: RULES.objectiveEffectKinds })).join('') +
       '<button class="addbtn" data-act="addObjEffect:' + owner + '">+ ADD REWARD</button>' +
+      '<div style="display:flex;gap:7px;margin-top:8px">' +
+        '<button class="btn sm" style="flex:1" data-act="openPicker:objective:' + owner + '">LOAD SAVED</button>' +
+        '<button class="btn sm" style="flex:1" data-act="libSaveObjective:' + owner + '">SAVE TO LIBRARY</button>' +
+      '</div>' +
     '</div>';
+  }
+
+  /* ------------------------------------------------------------- library
+     Pick anything you have entered before instead of typing it again. */
+
+  function pickerOverlay() {
+    if (!S.picker) return '';
+    const kind = S.picker.kind;
+    const lib = Store.library();
+    const list = lib[kind === 'unit' ? 'units' : kind === 'mission' ? 'missions' : 'objectives'];
+    const title = kind === 'unit' ? 'YOUR UNITS'
+                : kind === 'mission' ? 'YOUR MISSIONS' : 'YOUR SPECIAL OBJECTIVES';
+
+    const rows = list.map(function (x, i) {
+      let sub = '';
+      if (kind === 'unit') {
+        sub = 'MOV ' + x.move + '" · W ' + x.maxWounds + ' · T ' + x.toughness + ' · OC ' + (x.oc || 0) +
+          ' · ' + (x.weapons || []).length + ' weapons · ' + (x.abilities || []).length + ' abilities';
+      } else if (kind === 'mission') {
+        sub = (x.objectives || []).length + ' objectives' + (x.text ? ' · ' + x.text.slice(0, 70) : '');
+      } else {
+        sub = (x.text || '').slice(0, 90);
+      }
+      return '<div style="display:flex;gap:6px;align-items:stretch;margin-bottom:7px">' +
+        '<button class="choice" style="margin:0;flex:1" data-act="pickLib:' + kind + ':' + i + '">' +
+          '<div class="cmain"><div class="cname">' + esc(x.name) + '</div>' +
+          '<div class="cdesc">' + esc(sub) + '</div></div></button>' +
+        '<button class="iconbtn" data-act="delLib:' + kind + ':' + i + '">✕</button>' +
+      '</div>';
+    }).join('');
+
+    return '<div class="overlay" data-overlay="1"><div class="modal">' +
+      '<div class="mhead"><div><div class="mtitle">' + title + '</div>' +
+        '<div class="mstep">SAVED IN THIS BROWSER</div></div>' +
+        '<button class="mclose" data-act="closePicker">✕</button></div>' +
+      '<div class="mbody">' +
+        (list.length ? rows
+          : '<div class="noteline">Nothing saved yet. Everything you enter is added to this list ' +
+            'when you start a game, so the next one is a few taps.</div>') +
+        (kind === 'unit'
+          ? '<button class="addbtn" data-act="addUnit:' + S.tab + '">+ BLANK UNIT INSTEAD</button>' : '') +
+      '</div>' +
+      '<div class="mfoot"><button class="btn ghost" data-act="closePicker">CLOSE</button></div>' +
+    '</div></div>';
+  }
+
+  /* Called when a game starts: remember everything the player typed. */
+  function stashEverything() {
+    S.units.forEach(u => Store.libSave('units', u));
+    if (S.mission && S.mission.name) Store.libSave('missions', S.mission);
+    S.objectives.forEach(o => { if (o && o.name) Store.libSave('objectives', o); });
   }
 
   /* ------------------------------------------------------------ unit card */
@@ -218,7 +276,8 @@ const Setup = (function () {
     return '<div class="card">' +
       '<div class="chd">' +
         '<div class="t">' + esc(u.name) + '</div>' +
-        '<button class="iconbtn" data-act="dupUnit:' + u.id + '">DUPLICATE</button>' +
+        '<button class="iconbtn" data-act="libSaveUnit:' + u.id + '">SAVE</button>' +
+        '<button class="iconbtn" data-act="dupUnit:' + u.id + '">COPY</button>' +
         '<button class="iconbtn" data-act="open:' + u.id + '">CLOSE</button>' +
         '<button class="iconbtn" data-act="delUnit:' + u.id + '">✕</button>' +
       '</div>' +
@@ -226,13 +285,13 @@ const Setup = (function () {
       field('Unit name', '<input type="text" data-bind="unit:' + u.id + ':name" data-rerender="1" value="' + esc(u.name) + '">') +
 
       '<div class="grid4">' +
-        field('WOUNDS', '<input type="number" min="1" data-bind="unit:' + u.id + ':maxWounds" value="' + esc(u.maxWounds) + '">') +
-        field('TOUGH', '<input type="number" min="1" data-bind="unit:' + u.id + ':toughness" value="' + esc(u.toughness) + '">') +
-        field('SAVE', '<input type="number" min="1" max="7" data-bind="unit:' + u.id + ':save" value="' + esc(u.save) + '">') +
-        field('MOVE&quot;', '<input type="number" min="0" data-bind="unit:' + u.id + ':move" value="' + esc(u.move) + '">') +
+        field('MOV&quot;', '<input type="number" min="0" data-bind="unit:' + u.id + ':move" value="' + esc(u.move) + '">') +
+        field('W', '<input type="number" min="1" data-bind="unit:' + u.id + ':maxWounds" value="' + esc(u.maxWounds) + '">') +
+        field('T', '<input type="number" min="1" data-bind="unit:' + u.id + ':toughness" value="' + esc(u.toughness) + '">') +
+        field('OC', '<input type="number" min="0" data-bind="unit:' + u.id + ':oc" value="' + esc(u.oc || 0) + '">') +
       '</div>' +
-      '<div class="hint">Wounds, Toughness and Move come off the datasheet. Toughness feeds the ' +
-        'wound-table reminder the app shows during attacks.</div>' +
+      '<div class="hint">Straight off the datasheet. Toughness feeds the wound-table reminder ' +
+        'the app shows during attacks; OC is tracked for you to read, never judged.</div>' +
 
       '<div class="sub">' +
         '<div class="shd">WEAPONS</div>' +
@@ -259,15 +318,16 @@ const Setup = (function () {
           'border-radius:6px;padding:7px;min-height:36px">' +
         '<button class="iconbtn" data-act="delWeapon:' + u.id + ':' + w.id + '">✕</button>' +
       '</div>' +
+      field('TYPE',
+        '<select data-bind="weapon:' + u.id + ':' + w.id + ':type">' +
+          '<option value="ranged"' + (w.type === 'ranged' ? ' selected' : '') + '>Ranged</option>' +
+          '<option value="melee"' + (w.type === 'melee' ? ' selected' : '') + '>Melee</option>' +
+        '</select>') +
       '<div class="grid4">' +
-        field('TYPE',
-          '<select data-bind="weapon:' + u.id + ':' + w.id + ':type">' +
-            '<option value="ranged"' + (w.type === 'ranged' ? ' selected' : '') + '>Ranged</option>' +
-            '<option value="melee"' + (w.type === 'melee' ? ' selected' : '') + '>Melee</option>' +
-          '</select>') +
-        field('HIT +', '<input type="number" min="2" max="6" data-bind="weapon:' + u.id + ':' + w.id + ':hit" value="' + esc(w.hit) + '">') +
-        field('STR', '<input type="number" min="1" data-bind="weapon:' + u.id + ':' + w.id + ':strength" value="' + esc(w.strength) + '">') +
-        field('DMG', '<input type="number" min="0" data-bind="weapon:' + u.id + ':' + w.id + ':damage" value="' + esc(w.damage) + '">') +
+        field('RANGE&quot;', '<input type="number" min="0" data-bind="weapon:' + u.id + ':' + w.id + ':range" value="' + esc(w.range === undefined ? 0 : w.range) + '">') +
+        field('HIT', '<input type="number" min="2" max="6" data-bind="weapon:' + u.id + ':' + w.id + ':hit" value="' + esc(w.hit) + '">') +
+        field('STRENGTH', '<input type="number" min="1" data-bind="weapon:' + u.id + ':' + w.id + ':strength" value="' + esc(w.strength) + '">') +
+        field('DAMAGE', '<input type="number" min="0" data-bind="weapon:' + u.id + ':' + w.id + ':damage" value="' + esc(w.damage) + '">') +
       '</div>' +
     '</div>';
   }
@@ -422,14 +482,14 @@ const Setup = (function () {
     if (kind === 'unit') {
       const u = findUnit(p[1]); if (!u) return;
       const key = p[2];
-      u[key] = ['maxWounds', 'toughness', 'save', 'move', 'hit'].indexOf(key) >= 0 ? Number(value) : value;
+      u[key] = ['maxWounds', 'toughness', 'oc', 'move'].indexOf(key) >= 0 ? Number(value) : value;
       if (key === 'maxWounds') u.wounds = u.maxWounds;
       return;
     }
     if (kind === 'weapon') {
       const w = findWeapon(p[1], p[2]); if (!w) return;
       const key = p[3];
-      w[key] = ['hit', 'strength', 'damage'].indexOf(key) >= 0 ? Number(value) : value;
+      w[key] = ['range', 'hit', 'strength', 'damage'].indexOf(key) >= 0 ? Number(value) : value;
       return;
     }
     if (kind === 'ability') {
@@ -464,7 +524,7 @@ const Setup = (function () {
     if (kind === 'obj') {
       const o = S.objectives[Number(p[1])]; if (!o) return;
       const key = p[2];
-      o[key] = key === 'repeat' ? value === 'true' : value;
+      o[key] = key === 'vp' ? Number(value) : (key === 'repeat' ? value === 'true' : value);
       return;
     }
     if (kind === 'objeffect') {
@@ -486,10 +546,11 @@ const Setup = (function () {
 
       case 'addUnit': {
         const u = Store.newUnit(Number(p[1]), { name: 'New Unit' });
-        u.weapons.push(Store.newWeapon({ name: 'Ranged Weapon', type: 'ranged' }));
-        u.weapons.push(Store.newWeapon({ name: 'Melee Weapon', type: 'melee', strength: 4, damage: 1 }));
+        u.weapons.push(Store.newWeapon({ name: 'Ranged Weapon', type: 'ranged', range: 12 }));
+        u.weapons.push(Store.newWeapon({ name: 'Melee Weapon', type: 'melee', range: 1, strength: 4, damage: 1 }));
         S.units.push(u);
         S.open = {}; S.open[u.id] = true;
+        S.picker = null;
         return true;
       }
       case 'dupUnit': {
@@ -548,6 +609,54 @@ const Setup = (function () {
       }
 
       case 'showMission': S.showMission = true; return true;
+
+      /* ---- library ---- */
+      case 'openPicker':
+        S.picker = { kind: p[1], owner: p[2] === undefined ? null : Number(p[2]) };
+        return true;
+      case 'closePicker': S.picker = null; return true;
+      case 'pickLib': {
+        const kind = p[1];
+        const lib = Store.library();
+        const list = lib[kind === 'unit' ? 'units' : kind === 'mission' ? 'missions' : 'objectives'];
+        const entry = list[Number(p[2])];
+        if (!entry) return false;
+        if (kind === 'unit') {
+          const u = Store.rekey([entry], S.tab)[0];
+          S.units.push(u);
+          S.open = {};
+        } else if (kind === 'mission') {
+          S.mission = Store.rekeyOne(entry);
+          S.showMission = true;
+        } else {
+          const owner = S.picker && S.picker.owner !== null ? S.picker.owner : S.tab;
+          S.objectives[owner] = Store.rekeyOne(entry);
+        }
+        S.picker = null;
+        return true;
+      }
+      case 'delLib': {
+        const kind = p[1];
+        const key = kind === 'unit' ? 'units' : kind === 'mission' ? 'missions' : 'objectives';
+        const entry = Store.library()[key][Number(p[2])];
+        if (entry) Store.libDelete(key, entry.name);
+        return true;
+      }
+      case 'libSaveUnit': {
+        const u = findUnit(p[1]);
+        if (u) Store.libSave('units', u);
+        return true;
+      }
+      case 'libSaveMission':
+        if (S.mission && S.mission.name) Store.libSave('missions', S.mission);
+        else alert('Give the mission a name first.');
+        return true;
+      case 'libSaveObjective': {
+        const o = S.objectives[Number(p[1])];
+        if (o && o.name) Store.libSave('objectives', o);
+        else alert('Give the objective a name first.');
+        return true;
+      }
       case 'addMissionObj':
         S.mission.objectives.push(Store.newMissionObjective());
         return true;
@@ -571,8 +680,8 @@ const Setup = (function () {
         const src = owner === 0 ? SAMPLES.imperial : SAMPLES.ork;
         const built = src.map(function (spec) {
           const u = Store.newUnit(owner, {
-            name: spec.name, maxWounds: spec.maxWounds, wounds: spec.maxWounds,
-            toughness: spec.toughness, save: spec.save, move: spec.move, hit: spec.hit
+            name: spec.name, move: spec.move, maxWounds: spec.maxWounds,
+            wounds: spec.maxWounds, toughness: spec.toughness, oc: spec.oc || 0
           });
           u.weapons = spec.weapons.map(w => Store.newWeapon(w));
           u.abilities = spec.abilities.map(function (a) {
@@ -643,6 +752,7 @@ const Setup = (function () {
 
       case 'start': {
         if (!unitsOf(0).length || !unitsOf(1).length) return false;
+        stashEverything();
         const units = JSON.parse(JSON.stringify(S.units));
         units.forEach(u => { u.wounds = u.maxWounds; u.alive = true; u.effects = []; u.tokens = []; });
         const objectives = S.objectives.map(function (o) {

@@ -6,6 +6,7 @@ const UI = (function () {
 
   let modal = null;          // UI-only overlays: 'actions' | 'menu' | 'log' | {unit:id}
   let damageDraft = null;
+  let vpDraft = null;
 
   const esc = s => String(s === null || s === undefined ? '' : s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -115,7 +116,8 @@ const UI = (function () {
       return '<div class="row' + (used ? ' used' : '') + '">' +
         '<span class="tag">' + (w.type === 'melee' ? 'M' : 'R') + '</span>' +
         '<span class="nm">' + esc(w.name) + '</span>' +
-        '<span>' + w.hit + '+ · S' + w.strength + ' · D' + w.damage + '</span>' +
+        '<span>' + (w.range ? w.range + '" · ' : '') +
+          w.hit + '+ · S' + w.strength + ' · D' + w.damage + '</span>' +
       '</div>';
     }).join('');
 
@@ -142,9 +144,9 @@ const UI = (function () {
           '<span class="max"> / ' + u.maxWounds + ' W</span></div>' +
       '</div>' +
       '<div class="pips">' + pips + '</div>' +
-      '<div class="ustats"><span><b>T</b> ' + u.toughness + '</span>' +
-        '<span><b>Sv</b> ' + u.save + '+</span>' +
-        '<span><b>M</b> ' + u.move + '"</span>' +
+      '<div class="ustats"><span><b>MOV</b> ' + u.move + '"</span>' +
+        '<span><b>T</b> ' + u.toughness + '</span>' +
+        '<span><b>OC</b> ' + (u.oc || 0) + '</span>' +
         (u.alive ? '' : '<span style="color:var(--bad)"><b>DESTROYED</b></span>') + '</div>' +
       '<div class="uwep">' + weapons + '</div>' +
       (u.notes ? '<div class="hint" style="margin:6px 0 0">' + esc(u.notes) + '</div>' : '') +
@@ -199,6 +201,9 @@ const UI = (function () {
 
   function overlay(g) {
     if (g.flow) return wrap(flowModal(g));
+    // Anything that might score sits at the front of the queue: nothing else
+    // matters until the player has said what it was worth.
+    if ((g.vpPrompts || []).length) return wrap(vpModal(g));
     if (modal === 'actions') return wrap(actionListModal(g));
     if (modal === 'menu') return wrap(menuModal(g));
     if (modal === 'log') return wrap(logModal(g));
@@ -323,12 +328,15 @@ const UI = (function () {
           ? '<div class="noteline warn">' + esc(g.players[p.player].name) +
               ' gains 1 AP for the Start Phase (they will have ' + (g.players[p.player].ap + 1) + ' AP).</div>'
           : missionCheck(g) + specialObjectiveCheck(g) +
-            '<div style="font-size:10px;letter-spacing:.14em;color:var(--ink-mute);font-weight:800;margin:12px 0 6px">' +
+            '<div style="font-size:10px;letter-spacing:.14em;color:var(--gold);font-weight:800;margin:12px 0 6px">' +
             'ANY OTHER VP</div>' +
-            '<div class="noteline">Award anything the app cannot know about. Killing is not the only source of VP.</div>' +
+            '<div class="noteline">Anything else you scored this turn — the app has no idea what your ' +
+              'mission rewards, so tell it.</div>' +
             '<div style="display:flex;gap:7px;margin-bottom:8px">' +
-              '<button class="btn sm" data-act="vp:0:1">+1 VP ' + esc(g.players[0].name) + '</button>' +
-              '<button class="btn sm" data-act="vp:1:1">+1 VP ' + esc(g.players[1].name) + '</button>' +
+              '<button class="btn sm" style="flex:1" data-act="askvp:0">VP FOR ' +
+                esc(g.players[0].name).toUpperCase() + '</button>' +
+              '<button class="btn sm" style="flex:1" data-act="askvp:1">VP FOR ' +
+                esc(g.players[1].name).toUpperCase() + '</button>' +
             '</div>') +
       '</div>' +
       '<div class="mfoot">' +
@@ -337,7 +345,8 @@ const UI = (function () {
       '</div>';
   }
 
-  /* Mission objectives are checked in the End Phase, after END: abilities. */
+  /* End of turn: the app reads the objective text back to you and you say
+     whether it was scored and for how much. It works nothing out itself. */
   function missionCheck(g) {
     const m = g.mission || {};
     const objs = m.objectives || [];
@@ -349,22 +358,17 @@ const UI = (function () {
         ? objs.map(function (o) {
             const c0 = Engine.objectiveScoredBy(o.id, 0);
             const c1 = Engine.objectiveScoredBy(o.id, 1);
-            const lock0 = !o.repeat && c0 > 0;
-            const lock1 = !o.repeat && c1 > 0;
             return '<div class="sub" style="background:#0f161d;margin-bottom:7px">' +
-              '<div style="font-weight:700;font-size:13px">' + esc(o.name) +
-                ' <span style="color:var(--gold);font-size:11px">' + o.vp + ' VP</span></div>' +
-              (o.text ? '<div class="cdesc" style="color:var(--ink-dim);font-size:11.5px;margin:3px 0 6px">' +
+              '<div style="font-weight:700;font-size:13px">' + esc(o.name) + '</div>' +
+              (o.text ? '<div style="color:var(--ink-dim);font-size:11.5px;margin:3px 0 7px;line-height:1.4">' +
                 esc(o.text) + '</div>' : '<div style="height:6px"></div>') +
+              '<div style="font-size:10px;color:var(--ink-mute);letter-spacing:.1em;font-weight:800;margin-bottom:4px">' +
+                'SCORED BY?</div>' +
               '<div style="display:flex;gap:6px">' +
-                '<button class="btn sm' + (lock0 ? ' ghost' : '') + '" style="flex:1"' +
-                  (lock0 ? ' disabled' : ' data-act="scoreobj:' + o.id + ':0"') + '>' +
+                '<button class="btn sm" style="flex:1" data-act="scoreobj:' + o.id + ':0">' +
                   esc(g.players[0].name) + (c0 ? ' ·' + c0 : '') + '</button>' +
-                '<button class="btn sm' + (lock1 ? ' ghost' : '') + '" style="flex:1"' +
-                  (lock1 ? ' disabled' : ' data-act="scoreobj:' + o.id + ':1"') + '>' +
+                '<button class="btn sm" style="flex:1" data-act="scoreobj:' + o.id + ':1">' +
                   esc(g.players[1].name) + (c1 ? ' ·' + c1 : '') + '</button>' +
-                ((c0 || c1) ? '<button class="btn sm ghost" data-act="unscoreobj:' + o.id + ':' +
-                  (c1 && !c0 ? 1 : 0) + '">↺</button>' : '') +
               '</div>' +
             '</div>';
           }).join('')
@@ -384,17 +388,46 @@ const UI = (function () {
           (done ? 'opacity:.55' : '') + '">' +
           '<div style="font-weight:700;font-size:13px">' + esc(o.name) +
             ' <span style="color:var(--ink-mute);font-size:11px">· ' + esc(p.name) + '</span></div>' +
-          (o.text ? '<div style="color:var(--ink-dim);font-size:11.5px;margin:3px 0 6px">' +
+          (o.text ? '<div style="color:var(--ink-dim);font-size:11.5px;margin:3px 0 6px;line-height:1.4">' +
             esc(o.text) + '</div>' : '<div style="height:6px"></div>') +
-          '<div style="color:var(--gold);font-size:11px;margin-bottom:6px">' +
-            ((o.effects || []).length ? o.effects.map(effectSummary).join(' · ') : 'No automatic reward stored') +
-          '</div>' +
+          ((o.effects || []).length
+            ? '<div style="color:var(--gold);font-size:11px;margin-bottom:6px">Also grants: ' +
+              o.effects.map(effectSummary).join(' · ') + '</div>' : '') +
           (done
             ? '<div class="noteline">Already completed this game.</div>'
             : '<button class="btn sm" style="width:100%" data-act="claimobj:' + p.id + '">' +
-              'COMPLETED — CLAIM REWARD</button>') +
+              'COMPLETED — ENTER VP</button>') +
         '</div>';
       }).join('');
+  }
+
+  /* --------------------------------------------------------- VP entry pad */
+
+  function vpModal(g) {
+    const p = g.vpPrompts[0];
+    const draft = vpDraft === null ? (Number(p.suggested) || 0) : vpDraft;
+    return head('VICTORY POINTS', esc(g.players[p.player].name).toUpperCase(), 'vpok:0') +
+      '<div class="mbody">' +
+        '<div class="rollbox">' +
+          '<div class="lbl">' + esc(p.reason).toUpperCase() + '</div>' +
+          '<div class="big">' + draft + '</div>' +
+          '<div class="sub">How many VP does ' + esc(g.players[p.player].name) +
+            ' score for this? They are on ' + g.players[p.player].vp + ' VP of ' +
+            g.settings.vpTarget + '.</div>' +
+        '</div>' +
+        '<div class="numpad">' +
+          [0, 1, 2, 3, 4, 5, 6, 7].map(x =>
+            '<button data-act="vpset:' + x + '">' + x + '</button>').join('') +
+        '</div>' +
+        '<div style="display:flex;gap:7px">' +
+          '<button class="btn sm" style="flex:1" data-act="vpadd:-1">− 1</button>' +
+          '<button class="btn sm" style="flex:1" data-act="vpadd:1">+ 1</button>' +
+        '</div>' +
+      '</div>' +
+      '<div class="mfoot">' +
+        '<button class="btn ghost sm" data-act="vpok:0">NONE</button>' +
+        '<button class="btn primary" data-act="vpok:' + draft + '">SCORE ' + draft + ' VP</button>' +
+      '</div>';
   }
 
   /* =============================================================== FLOWS */
@@ -824,12 +857,13 @@ const UI = (function () {
     return head(esc(u.name), esc(g.players[u.owner].name).toUpperCase() + ' · ' +
       u.wounds + '/' + u.maxWounds + ' W') +
       '<div class="mbody">' +
-        '<div class="noteline">T' + u.toughness + ' · Sv ' + u.save + '+ · M ' + u.move + '"</div>' +
+        '<div class="noteline">MOV ' + u.move + '" · W ' + u.maxWounds + ' · T ' + u.toughness +
+          ' · OC ' + (u.oc || 0) + '</div>' +
         (u.notes ? '<div class="noteline">' + esc(u.notes) + '</div>' : '') +
         '<div style="font-size:10px;letter-spacing:.14em;color:var(--ink-mute);font-weight:800;margin:10px 0 5px">WEAPONS</div>' +
         (u.weapons || []).map(w => '<div class="noteline">' + esc(w.name) + ' — ' +
-          (w.type === 'melee' ? 'Melee' : 'Ranged') + ' · Hit ' + w.hit + '+ · S' + w.strength +
-          ' · D' + w.damage + '</div>').join('') +
+          (w.type === 'melee' ? 'Melee' : 'Ranged') + ' · ' + (w.range || 0) + '" · Hit ' + w.hit +
+          '+ · S' + w.strength + ' · D' + w.damage + '</div>').join('') +
         '<div style="font-size:10px;letter-spacing:.14em;color:var(--ink-mute);font-weight:800;margin:10px 0 5px">ABILITIES</div>' +
         ((u.abilities || []).length
           ? u.abilities.map(a => '<div class="noteline"><b>' + esc(a.name) + '</b> — ' +
@@ -882,5 +916,11 @@ const UI = (function () {
   function clearDamageDraft() { damageDraft = null; }
   function getDamageDraft() { return damageDraft; }
 
-  return { render, setModal, getModal: () => modal, setDamageDraft, clearDamageDraft, getDamageDraft, esc };
+  function setVPDraft(v) { vpDraft = Math.max(0, v); render(); }
+  function clearVPDraft() { vpDraft = null; }
+  function getVPDraft() { return vpDraft; }
+
+  return { render, setModal, getModal: () => modal,
+           setDamageDraft, clearDamageDraft, getDamageDraft,
+           setVPDraft, clearVPDraft, getVPDraft, esc };
 })();

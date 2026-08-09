@@ -134,14 +134,13 @@ const Engine = (function () {
 
   /* The heart of the turn machine: who gets to act after an action resolves.
 
-     A chain only ends for two reasons: the action says so, or the player whose
-     TURN it is runs out of AP. An opponent with an empty pool simply cannot
-     respond — the chain stays open and play returns to the turn player, so
-     weapon lockouts and chain-duration effects carry on. */
+     A chain ends when the action says so, or when the player who is now owed a
+     response has an empty AP pool — either player running dry closes it. The
+     TURN is a separate question: it keeps going as long as the current player
+     still has AP to open a new chain with, and only passes when they hit 0. */
   function afterAction(opts) {
     const g = S();
     const actor = opts.actor;
-    const turnPlayer = g.turn.player;
     expireEffects('nextAP', actor);
 
     if (opts.endsChain) {
@@ -165,34 +164,27 @@ const Engine = (function () {
       chainEntry('→ ' + pname(opp) + ' responds' +
         (forced ? ' with ' + uname(forced) : ' (any unit)') +
         ' — ' + g.players[opp].ap + ' AP available.', 'control');
-    } else if (g.players[turnPlayer].ap > 0) {
-      g.chain.active = true;
-      g.control = {
-        player: turnPlayer,
-        forcedUnitId: null,
-        reason: 'chain continues — opponent has no AP to respond'
-      };
-      chainEntry('→ ' + pname(opp) + ' has no AP to respond. The chain continues with ' +
-        pname(turnPlayer) + ' — ' + g.players[turnPlayer].ap + ' AP left.', 'control');
     } else {
-      closeChain('the turn player has no AP left');
+      closeChain(pname(opp) + ' has no AP to respond');
       handOffToTurnPlayer();
     }
     checkVictory();
   }
 
+  /* The chain is over — the turn only passes if the current player is dry. */
   function handOffToTurnPlayer() {
     const g = S();
     const tp = g.turn.player;
     if (g.players[tp].ap > 0) {
       g.control = { player: tp, forcedUnitId: null, reason: 'may start a new action chain' };
-      log(pname(tp) + ' still has ' + g.players[tp].ap + ' AP.', 'muted');
+      chainEntry(pname(tp) + ' still has ' + g.players[tp].ap +
+        ' AP — the turn continues with a new chain.', 'control');
     } else {
       const opp = Store.opponentOf(tp);
       if (g.players[opp].ap > 0) {
         log(pname(opp) + ' keeps ' + g.players[opp].ap + ' AP — it carries into their turn.', 'muted');
       }
-      beginEndPhase('turn player has no AP');
+      beginEndPhase('the current player has no AP left');
     }
   }
 
@@ -286,11 +278,40 @@ const Engine = (function () {
       u.effects = [];
       chainEntry(u.name + ' is DESTROYED and removed from the battlefield.', 'kill');
       if (sourcePlayer !== null && sourcePlayer !== undefined) {
-        scoreVP(sourcePlayer, 1, 'destroyed ' + u.name);
+        askVP(sourcePlayer, 'destroyed ' + u.name, 1);
       }
       return true;
     }
     return false;
+  }
+
+  /* VP is never assumed. Anything that could score queues a prompt and the
+     player types the number their mission actually gives them. */
+  function askVP(playerId, reason, suggested) {
+    const g = S();
+    if (!g.vpPrompts) g.vpPrompts = [];
+    g.vpPrompts.push({
+      id: Store.nextId('vp'),
+      player: playerId,
+      reason: reason,
+      suggested: suggested === undefined ? 1 : suggested
+    });
+  }
+
+  function promptVP(playerId, reason, suggested) {
+    Store.commit('score VP', function () { askVP(playerId, reason, suggested); });
+  }
+
+  function resolveVP(promptId, amount) {
+    Store.commit('enter VP', function () {
+      const g = S();
+      const p = (g.vpPrompts || []).find(x => x.id === promptId);
+      g.vpPrompts = (g.vpPrompts || []).filter(x => x.id !== promptId);
+      if (!p) return;
+      const n = Math.max(0, Number(amount) || 0);
+      if (n > 0) scoreVP(p.player, n, p.reason);
+      else log(pname(p.player) + ' scores no VP for ' + p.reason + '.', 'muted');
+    });
   }
 
   function heal(unitId, amount) {
@@ -1090,6 +1111,8 @@ const Engine = (function () {
     return rec ? (rec[playerId] || 0) : 0;
   }
 
+  /* The app never works out whether an objective was met or what it is worth —
+     it shows you the text at the end of the turn and takes your number. */
   function scoreMissionObjective(objId, playerId) {
     Store.commit('score objective', function () {
       const g = S();
@@ -1097,21 +1120,7 @@ const Engine = (function () {
       if (!o) return;
       if (!g.objectiveScores[objId]) g.objectiveScores[objId] = { 0: 0, 1: 0 };
       g.objectiveScores[objId][playerId] = (g.objectiveScores[objId][playerId] || 0) + 1;
-      scoreVP(playerId, Number(o.vp) || 0, 'mission objective: ' + o.name);
-    });
-  }
-
-  function unscoreMissionObjective(objId, playerId) {
-    Store.commit('undo objective', function () {
-      const g = S();
-      const o = (g.mission.objectives || []).find(x => x.id === objId);
-      if (!o) return;
-      const rec = g.objectiveScores[objId];
-      if (!rec || !rec[playerId]) return;
-      rec[playerId] -= 1;
-      g.players[playerId].vp = Math.max(0, g.players[playerId].vp - (Number(o.vp) || 0));
-      log('Objective “' + o.name + '” un-scored for ' + pname(playerId) +
-        ' — now ' + g.players[playerId].vp + ' VP.', 'manual');
+      askVP(playerId, 'objective: ' + o.name, Number(o.vp) || 1);
     });
   }
 
@@ -1125,6 +1134,7 @@ const Engine = (function () {
       applyEffects(o.effects, {
         sourceUnitId: null, sourcePlayer: playerId, targets: {}, label: o.name
       });
+      askVP(playerId, 'Special Objective: ' + o.name, Number(o.vp) || 1);
       checkVictory();
     });
   }
@@ -1173,7 +1183,7 @@ const Engine = (function () {
       if (!u) return;
       u.wounds = 0; u.alive = false; u.tokens = []; u.effects = [];
       log('Manual: ' + u.name + ' removed from the battlefield.', 'kill');
-      if (awardVP) scoreVP(Store.opponentOf(u.owner), 1, 'destroyed ' + u.name);
+      if (awardVP) askVP(Store.opponentOf(u.owner), 'destroyed ' + u.name, 1);
     });
   }
 
@@ -1251,7 +1261,7 @@ const Engine = (function () {
     triggerToken, confirmToken, tokenPickTarget, tokenEffects, removeToken,
     adjustAP, adjustVP, adjustWounds, removeUnit, removeEffect,
     addManualEffect, addManualToken, forceControl, forceEndChain, forceEndTurn,
-    setPendingVP, scoreVP, log,
-    scoreMissionObjective, unscoreMissionObjective, claimSpecialObjective, objectiveScoredBy
+    setPendingVP, scoreVP, promptVP, resolveVP, log,
+    scoreMissionObjective, claimSpecialObjective, objectiveScoredBy
   };
 })();

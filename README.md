@@ -17,8 +17,8 @@ launcher.
 |---|---|
 | **AP** | Start-phase AP, action costs, survivor AP, reaction AP, ability AP, carry-over between turns |
 | **RP** | Granted per attack, spent on a reaction, cleared when the attack ends |
-| **VP** | Kills, mission objectives, special objectives, manual awards; game ends at the target |
-| **Wounds** | Damage applied automatically; destroyed units removed, VP scored |
+| **VP** | Never assumed — anything that could score asks you for the number, and the running totals are always on screen |
+| **Wounds** | Damage applied automatically; a unit at 0 W is removed and its killer is asked what that was worth |
 | **Action chains** | Who initiated, who is acting, who is targeted, whether the chain is still alive |
 | **Turn machine** | Start → Action → End phase, whose AP forces whose activation, when the turn passes |
 | **Effects** | Reaction modifiers, ability modifiers, their durations and expiry |
@@ -43,10 +43,32 @@ the app the outcome. It never asks "is the target in range?".
 4. **Persistent buttons** appear for OVERWATCH and any ability that places a
    token. You press them when the trigger happens on the table.
 5. Every End Phase runs END: abilities → mission objectives → special objectives
-   → any other VP.
+   → any other VP. For each objective it simply reads the text back to you and
+   asks who scored it and for how much — it works nothing out itself.
 
 Every number can be corrected by hand (±AP, ±VP, ±wounds), and **UNDO** rolls
 back the last 40 changes.
+
+## Victory Points are always yours to enter
+
+Missions vary too much for the app to guess. Anything that *might* score — a
+kill, a mission objective, a Special Objective — opens a keypad asking how many
+VP that is worth to that player, pre-filled with a sensible default you can
+override or zero out. The app adds up what you tell it and nothing else.
+
+## Datasheets
+
+Units carry exactly what the card carries: **MOV, W, T, OC**, then ranged and
+melee weapons with **RANGE, HIT, STRENGTH, DAMAGE**. There is no saving throw in
+this game. Range is stored as a reminder and never checked.
+
+## It remembers what you typed
+
+Every unit, mission and Special Objective is saved to this browser's library when
+a game starts, and **+ ADD UNIT** offers them back to you instead of a blank
+form. There are **SAVE TO LIBRARY** buttons for saving mid-edit, whole-roster
+save/load for a full team at once, and JSON export/import to move everything to
+another device.
 
 ## Custom abilities
 
@@ -59,17 +81,17 @@ effects, or just print a reminder.
 ## Rules choices worth knowing
 
 - **Overwatch expiry.** The card says "until the end of this action chain", but a
-  chain usually closes the moment the opponent runs out of AP, which would delete
-  the token before anyone could walk into it. The default is the practical
+  chain closes as soon as the opponent has no AP to respond with, which would
+  delete the token before anyone could walk into it. The default is the practical
   reading — the token lives until its unit moves or attacks. Menu → *Overwatch
   ends with the chain* switches to the strict wording.
 - **Overwatch AP.** An overwatch shot is an interrupt: the defender gains no RP
   (per the card) and no survivor AP, and control does not change hands unless the
   target dies.
-- **Chain continuation.** A chain ends only when the action says it ends, or when
-  the player whose *turn* it is runs out of AP. An opponent with an empty pool
-  simply cannot respond — the chain stays open, play returns to the turn player,
-  and weapon lockouts and chain-duration effects carry on.
+- **Chain continuation.** A chain ends when the action says it ends, or when
+  either player's AP pool is empty at the moment they are owed a response. The
+  *turn* is separate: it keeps going as long as the current player still has AP
+  to open a new chain with, and only passes when they hit 0.
 - **DISTRACT** grants its 1 AP immediately, on top of the standard survivor AP.
 - **Elevation.** Shooting from higher ground is +1 to Hit; charging from higher
   ground is +1 to Wound and +1 Damage. Both are a checkbox in the attack flow

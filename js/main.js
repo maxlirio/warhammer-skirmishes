@@ -129,9 +129,27 @@
 
       /* ---- missions & special objectives ---- */
       case 'showmission':  UI.setModal('mission'); return;
-      case 'scoreobj':     Engine.scoreMissionObjective(p[1], Number(p[2])); return;
-      case 'unscoreobj':   Engine.unscoreMissionObjective(p[1], Number(p[2])); return;
-      case 'claimobj':     Engine.claimSpecialObjective(Number(p[1])); return;
+      case 'scoreobj':     UI.clearVPDraft(); Engine.scoreMissionObjective(p[1], Number(p[2])); return;
+      case 'claimobj':     UI.clearVPDraft(); Engine.claimSpecialObjective(Number(p[1])); return;
+      case 'askvp':
+        UI.clearVPDraft();
+        Engine.promptVP(Number(p[1]), 'objectives and mission scoring', 1);
+        return;
+
+      /* ---- VP entry ---- */
+      case 'vpset': UI.setVPDraft(Number(p[1])); return;
+      case 'vpadd': {
+        const q = g.vpPrompts[0];
+        const cur = UI.getVPDraft() === null ? (Number(q && q.suggested) || 0) : UI.getVPDraft();
+        UI.setVPDraft(cur + Number(p[1]));
+        return;
+      }
+      case 'vpok': {
+        const q = g.vpPrompts[0];
+        UI.clearVPDraft();
+        if (q) Engine.resolveVP(q.id, Number(p[1]));
+        return;
+      }
 
       /* ---- overrides ---- */
       case 'forceendchain': UI.setModal(null); Engine.forceEndChain(); return;
@@ -152,7 +170,12 @@
         const st = {
           p1: cur.players[0].name, p2: cur.players[1].name,
           vpTarget: cur.settings.vpTarget, firstPlayer: 0, tab: 0,
-          units: JSON.parse(JSON.stringify(cur.units)), open: {}
+          units: JSON.parse(JSON.stringify(cur.units)), open: {},
+          mission: JSON.parse(JSON.stringify(cur.mission || { name: '', text: '', objectives: [] })),
+          objectives: cur.players.map(p => p.objective
+            ? Object.assign(JSON.parse(JSON.stringify(p.objective)), { completed: 0 })
+            : Store.newSpecialObjective()),
+          showMission: !!(cur.mission && cur.mission.name)
         };
         st.units.forEach(u => { u.wounds = u.maxWounds; u.alive = true; u.effects = []; u.tokens = []; });
         Store.clear();

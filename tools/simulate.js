@@ -143,7 +143,11 @@ Engine.flowHit(true);
 Engine.flowWound(true);
 Engine.flowDamage(3);
 check('Nob destroyed', U('Ork Nob').alive, false);
-check('P1 scores 1 VP', vp(0), 1);
+check('a VP prompt is queued, nothing assumed', G().vpPrompts.length, 1);
+check('the prompt names the reason', G().vpPrompts[0].reason, 'destroyed Ork Nob');
+check('no VP scored until it is answered', vp(0), 0);
+Engine.resolveVP(G().vpPrompts[0].id, 3);   // this mission pays 3 for a kill
+check('the entered VP is what lands', vp(0), 3);
 check('chain ended', G().chain.active, false);
 check('both AP pools empty → End Phase', G().pending.type, 'end');
 
@@ -262,6 +266,8 @@ const boyBefore = U('Ork Boy').wounds;
 Engine.confirmToken();
 check('mine deals 2 damage', Math.max(0, boyBefore - 2), U('Ork Boy').alive ? U('Ork Boy').wounds : 0);
 check('mine removed after use', U('Scout').tokens.length, 0);
+check('a mine kill also asks for its VP', G().vpPrompts.length, 1);
+Engine.resolveVP(G().vpPrompts[0].id, 1);
 
 console.log('\n== mission objectives & special objectives ==');
 Store.commit('add mission', function () {
@@ -274,15 +280,21 @@ Store.commit('add mission', function () {
 });
 const vpBefore = vp(0);
 Engine.scoreMissionObjective(Store.get().mission.objectives[0].id, 0);
-check('objective scores 2 VP', vp(0), vpBefore + 2);
+check('objective queues a VP prompt', G().vpPrompts.length, 1);
+check('pre-filled with the typical value', G().vpPrompts[0].suggested, 2);
+Engine.resolveVP(G().vpPrompts[0].id, 5);   // but you can type anything
+check('the entered VP is what lands', vp(0), vpBefore + 5);
 check('objective counted', Engine.objectiveScoredBy(Store.get().mission.objectives[0].id, 0), 1);
+
 const vpBefore2 = vp(0), apBefore2 = ap(0);
 Engine.claimSpecialObjective(0);
-check('special objective grants VP', vp(0), vpBefore2 + 2);
-check('special objective grants AP', ap(0), apBefore2 + 1);
+check('stored non-VP rewards apply immediately', ap(0), apBefore2 + 1);
+check('and its VP is asked for', G().vpPrompts.length, 1);
+Engine.resolveVP(G().vpPrompts[0].id, 2);
+check('special objective VP', vp(0), vpBefore2 + 2 + 2);   // +2 stored effect, +2 entered
 check('marked completed', Store.get().players[0].objective.completed, 1);
 
-console.log('\n== the chain only ends on the turn player running dry ==');
+console.log('\n== either empty pool ends the chain; the turn keeps going ==');
 // Turn player holds AP, opponent has none: the chain must stay open and the
 // weapon lockout must survive.
 Store.commit('setup', function () {
@@ -306,21 +318,21 @@ Store.commit('drain opponent', function () {
   g.players[1].ap = 0;
   g.control = { player: 0, forcedUnitId: null, reason: 'test' };
 });
-Engine.beginAction('overwatch');           // Passive, grants no AP, does not end the chain
+Engine.beginAction('overwatch');           // Passive, grants the opponent no AP
 Engine.flowPickUnit(U('Intercessor').id);
 Engine.confirmOverwatch();
-check('opponent had no AP, so the chain stays open', G().chain.active, true);
-check('control returns to the turn player', G().control.player, 0);
+check('opponent at 0 AP closes the chain', G().chain.active, false);
+check('but the turn continues with the current player', G().control.player, 0);
 check('no forced unit', G().control.forcedUnitId, null);
-check('weapon lockout persists in the same chain',
-  Engine.weaponsFor(U('Intercessor').id, 'ranged')[0].used, true);
+check('a new chain starts clean — weapon lockout cleared',
+  Engine.weaponsFor(U('Intercessor').id, 'ranged')[0].used, false);
+check('turn player still holds AP', ap(0), 1);
 
-// Now drain the turn player: that is what ends it.
-check('turn player AP', ap(0), 1);
+// Spend the last AP: now the turn itself passes.
 Engine.beginAction('overwatch');
 Engine.flowPickUnit(U('Scout').id);
 Engine.confirmOverwatch();
-check('turn player at 0 AP ends the chain', G().chain.active, false);
+check('current player at 0 AP ends the turn', G().chain.active, false);
 check('and rolls into the End Phase', G().pending.type, 'end');
 
 console.log('\n== undo ==');
