@@ -641,6 +641,130 @@ check('with no RP for the defender', G().flow.noReaction, true);
 check('and no to-hit penalty', G().flow.sourceHitMod, 0);
 check('the button is spent', U('Guardsman "Fred" 434-436').tokens.length, 0);
 
+/* ------------------------------------------------------------- the Orks */
+
+console.log('\n== the Orks preset ==');
+const orks = sandbox.PRESETS.find(f => f.id === 'orks');
+check('five units on the card', orks.units.length, 5);
+
+const mob = buildPreset(orks, 0);
+const marks = [mkUnit(1, 'Guardsman', 3, 4,
+  [{ name: 'Lasgun', type: 'ranged', hit: 3, strength: 4, damage: 1 },
+   { name: 'Bayonet', type: 'melee', hit: 3, strength: 4, damage: 1 }], [])];
+Engine.startGame({ playerNames: ['Orks', 'Guard'], vpTarget: 10, firstPlayer: 0,
+                   mission: { id: null }, objectives: [] }, mob.concat(marks));
+Engine.confirmStartPhase();
+
+const nob = U('Boss Nob Blikker');
+const snitch = U('Snitcherz');
+const mika = U('Mikaaaaghhh');
+const hunta = U('Da Hunta');
+const guardsman = U('Guardsman');
+
+console.log('\n== Small: an always-on aura needs no tick-box ==');
+Engine.adjustAP(1, 6);
+Engine.forceControl(1, null);
+Engine.beginAction('shoot');
+Engine.flowPickUnit(guardsman.id);
+Engine.flowPickAttackTarget(snitch.id);
+Engine.flowPickWeapon(guardsman.weapons[0].id);
+Engine.flowPickReaction('none');
+const small = Engine.applicableAuras(G().flow);
+check('it is listed as always-on', small.map(a => a.always), [true]);
+check('Lasgun 3+ becomes 4+ with no interaction', Engine.attackNumbers().hitTarget, 4);
+Engine.flowHit(false);
+
+console.log('\n== Boss Nob: a Strength aura moves the wound table ==');
+Engine.forceControl(0, null);
+Engine.adjustAP(0, 6);
+Engine.beginAction('shoot');
+Engine.flowPickUnit(hunta.id);              // Shoota S4 vs T4 → 4+
+Engine.flowPickAttackTarget(guardsman.id);
+Engine.flowPickWeapon(hunta.weapons[0].id);
+Engine.flowPickReaction('none');
+check('S4 vs T4 wounds on 4+', Engine.attackNumbers().woundTarget, 4);
+const nobAura = Engine.applicableAuras(G().flow).find(a => a.stat === 'strength');
+check('the Boss aura is offered', !!nobAura, true);
+Engine.toggleAura(nobAura.key);
+const boosted = Engine.attackNumbers();
+check('within 6" it is S5', boosted.strength, 5);
+check('so it wounds on 3+', boosted.woundTarget, 3);
+Engine.flowHit(false);
+
+console.log('\n== Snitcherz: D3 damage is asked for, not assumed ==');
+Engine.forceControl(0, null);
+Engine.adjustAP(0, 4);
+Engine.beginAction('fight');
+Engine.flowPickUnit(snitch.id);
+Engine.flowPickAttackTarget(guardsman.id);
+Engine.flowPickWeapon(snitch.weapons.find(w => w.name === 'Klaw').id);
+Engine.flowPickReaction('none');
+const klaw = Engine.attackNumbers();
+check('the app knows the damage is variable', klaw.variableDamage, true);
+check('and shows the card wording', klaw.damageText, 'D3');
+Engine.flowHit(true);
+Engine.flowWound(true);
+Engine.flowDamage(3);                        // the player rolled a 3
+check('the rolled damage lands', U('Guardsman').wounds, 0);
+Engine.resolveVP(G().vpPrompts[0].id, 1);
+
+console.log('\n== Kwik Dakka: the reaction shoots first ==');
+(function () {
+  const mob2 = buildPreset(orks, 0);
+  const foe = [mkUnit(1, 'Guardsman', 3, 4,
+    [{ name: 'Lasgun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], [])];
+  Engine.startGame({ playerNames: ['Orks', 'Guard'], vpTarget: 10, firstPlayer: 1,
+                     mission: { id: null }, objectives: [] }, mob2.concat(foe));
+  Engine.confirmStartPhase();
+  Engine.adjustAP(1, 4);
+  const gm = U('Guardsman'), mk = U('Mikaaaaghhh');
+  Engine.beginAction('shoot');
+  Engine.flowPickUnit(gm.id);
+  Engine.flowPickAttackTarget(mk.id);
+  Engine.flowPickReaction('special', mk.abilities.find(a => a.name === 'Kwik Dakka').id);
+  check('the counter-attack takes over', G().flow.attackerId, mk.id);
+  check('aimed back at the attacker', G().flow.targetId, gm.id);
+  check('the original attack is parked', !!G().flow.resumeFlow, true);
+  Engine.flowHit(false);                     // the counter misses
+  check('so the original attack resumes', G().flow.attackerId, gm.id);
+  check('at its Hit roll', G().flow.step, 'hit');
+  Engine.flowHit(false);
+
+  // Now kill the attacker with the counter.
+  Engine.forceControl(1, null);
+  Engine.adjustAP(1, 4);
+  Engine.beginAction('shoot');
+  Engine.flowPickUnit(gm.id);
+  Engine.flowPickAttackTarget(mk.id);
+  Engine.flowPickReaction('special', mk.abilities.find(a => a.name === 'Kwik Dakka').id);
+  Engine.flowHit(true); Engine.flowWound(true); Engine.flowDamage(9);
+  check('the attacker is down', U('Guardsman').alive, false);
+  check('and their attack never resolves', G().flow, null);
+})();
+
+console.log('\n== Da Hunta marks his quarry for the game ==');
+(function () {
+  const mob3 = buildPreset(orks, 0);
+  const foe = [mkUnit(1, 'Guardsman', 3, 4,
+    [{ name: 'Lasgun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], [])];
+  Engine.startGame({ playerNames: ['Orks', 'Guard'], vpTarget: 10, firstPlayer: 0,
+                     mission: { id: null }, objectives: [] }, mob3.concat(foe));
+  Engine.confirmStartPhase();
+  const h = U('Da Hunta'), gm = U('Guardsman');
+  const ab = h.abilities.find(a => a.name === 'Da Hunta');
+  const need = Engine.effectsNeedingTarget(ab, { sourceUnitId: h.id });
+  check('it asks which enemy is the quarry', need.length, 1);
+  Engine.useFreeAbility(h.id, ab.id);
+  check('so it opens a picker instead of firing blind', G().flow.step, 'pick');
+  check('and knows it costs nothing', G().flow.freeUse, true);
+  Engine.flowPickTarget(need[0].id, gm.id);
+  Engine.confirmAbility();
+  check('the quarry is chipped for the game',
+    (U('Guardsman').effects || []).map(e => e.label), ["DA HUNTA'S QUARRY"]);
+  check('no AP was spent', ap(0), 1);
+  check('the button is spent', Engine.usableFreeAbilities(U('Da Hunta')).length, 0);
+})();
+
 console.log('\n== summary ==');
 console.log((checks - fails) + '/' + checks + ' checks passed');
 process.exit(fails ? 1 : 0);

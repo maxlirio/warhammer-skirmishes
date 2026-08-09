@@ -442,11 +442,13 @@ const Engine = (function () {
   }
 
   function auraLabel(e) {
-    const mode = e.mode === 'beyond' ? 'further than' : 'within';
+    const what = e.stat === 'wound' ? 'Wound' : e.stat === 'strength' ? 'Strength' : 'Hit';
     const scope = e.weapon === 'ranged' ? ' (ranged only)'
                 : e.weapon === 'melee' ? ' (melee only)' : '';
-    return (e.value > 0 ? '+' : '') + (Number(e.value) || 0) + ' to ' +
-      (e.stat === 'wound' ? 'Wound' : 'Hit') + ' · ' + mode + ' ' + (e.range || 6) + '"' + scope;
+    const where = e.mode === 'always' ? 'always'
+                : (e.mode === 'beyond' ? 'further than ' : 'within ') + (e.range || 6) + '"';
+    return (e.value > 0 ? '+' : '') + (Number(e.value) || 0) + ' to ' + what +
+      ' · ' + where + scope;
   }
 
   /* Auras that could bear on the attack currently in the flow. */
@@ -470,8 +472,9 @@ const Engine = (function () {
           key: u.id + '|' + a.id,
           unit: u.name,
           source: a.src,
-          stat: e.stat === 'wound' ? 'wound' : 'hit',
+          stat: e.stat === 'wound' ? 'wound' : e.stat === 'strength' ? 'strength' : 'hit',
           value: Number(e.value) || 0,
+          always: e.mode === 'always',   // no radius to judge, so it just applies
           label: auraLabel(e),
           text: e.text || ''
         });
@@ -490,13 +493,15 @@ const Engine = (function () {
   }
 
   function auraMods(f) {
-    let hit = 0, wound = 0;
-    if (!f || !f.auras) return { hit: hit, wound: wound };
+    let hit = 0, wound = 0, strength = 0;
+    if (!f) return { hit: hit, wound: wound, strength: strength };
     applicableAuras(f).forEach(function (a) {
-      if (!f.auras[a.key]) return;
-      if (a.stat === 'wound') wound += a.value; else hit += a.value;
+      if (!a.always && !(f.auras && f.auras[a.key])) return;
+      if (a.stat === 'wound') wound += a.value;
+      else if (a.stat === 'strength') strength += a.value;
+      else hit += a.value;
     });
-    return { hit: hit, wound: wound };
+    return { hit: hit, wound: wound, strength: strength };
   }
 
   /* Reactions a friendly aura forbids — shown struck through, with the source. */
@@ -521,6 +526,12 @@ const Engine = (function () {
     const u = Store.unit(unitId);
     if (!u) return 0;
     return (u.effects || []).reduce((n, e) => n + (Number(e.hitMod) || 0), 0);
+  }
+
+  function unitStrengthMod(unitId) {
+    const u = Store.unit(unitId);
+    if (!u) return 0;
+    return (u.effects || []).reduce((n, e) => n + (Number(e.strengthMod) || 0), 0);
   }
 
   function unitWoundMod(unitId) {
@@ -655,7 +666,7 @@ const Engine = (function () {
   /* Which effect rows need the player to pick a unit before they resolve. */
   function effectsNeedingTarget(ability, ctx) {
     return (ability.effects || []).filter(function (e) {
-      if (e.kind !== 'damage' && e.kind !== 'heal' && e.kind !== 'mod_hit' && e.kind !== 'mod_wound') return false;
+      if (['damage', 'heal', 'mod_hit', 'mod_wound', 'mod_strength', 'mark'].indexOf(e.kind) < 0) return false;
       const pick = e.pick || 'prompt';
       if (pick === 'self') return false;
       if ((pick === 'attacker' || pick === 'defender') && ctx && ctx.attack) return false;
@@ -794,6 +805,34 @@ const Engine = (function () {
             label: ctx.label
           };
           break;
+        case 'mod_strength': {
+          const tid = resolveEffectTarget(e, ctx) || ctx.sourceUnitId;
+          if (!tid) break;
+          const dur = e.duration || 'chain';
+          if (dur === 'attack' && ctx.attack && tid === ctx.attack.attackerId) {
+            ctx.attack.strengthMod = (ctx.attack.strengthMod || 0) + v;
+            ctx.attack.notes.push(ctx.label + ': ' + (v > 0 ? '+' : '') + v + ' Strength.');
+          } else {
+            addEffect(tid, {
+              label: ctx.label + ' (' + (v > 0 ? '+' : '') + v + ' S)',
+              detail: e.text || '', strengthMod: v, duration: dur,
+              ownerPlayer: Store.owner(tid)
+            });
+            chainEntry(uname(tid) + ': ' + (v > 0 ? '+' : '') + v +
+              ' Strength (' + ctx.label + ').', 'effect');
+          }
+          break;
+        }
+        case 'mark': {
+          const tid = resolveEffectTarget(e, ctx) || (ctx.targets && ctx.targets[e.id]);
+          if (!tid) break;
+          addEffect(tid, {
+            label: (e.label || ctx.label).toUpperCase(), detail: e.text || '',
+            duration: e.duration || 'manual', ownerPlayer: Store.owner(tid)
+          });
+          chainEntry(uname(tid) + ' is marked: ' + (e.label || ctx.label) + '.', 'effect');
+          break;
+        }
         case 'note':
           chainEntry(ctx.label + ': ' + (e.text || 'see ability text'), 'note');
           break;
@@ -846,6 +885,11 @@ const Engine = (function () {
       list = list.filter(u => u.id === g.control.forcedUnitId);
     }
     return list;
+  }
+
+  function usableFreeAbilities(u) {
+    return (u.abilities || []).filter(a => a.trigger === 'free' &&
+      (!a.usesPerGame || (a.used || 0) < a.usesPerGame));
   }
 
   function usableAPAbilities(u) {
@@ -1125,6 +1169,13 @@ const Engine = (function () {
     Store.commit('use ability', function () {
       const g = S();
       const f = g.flow;
+      /* A card button, not a Standard Action: no AP, no effect on the chain. */
+      if (f.freeUse) {
+        const uid = f.unitId, aid = f.abilityId, tg = f.targets;
+        g.flow = null;
+        resolveFreeAbility(uid, aid, tg);
+        return;
+      }
       const actor = g.control.player;
       const ab = findAbility(f.unitId, f.abilityId);
       if (!ab) { g.flow = null; return; }
@@ -1162,20 +1213,34 @@ const Engine = (function () {
     });
   }
 
-  /* Free/manual ability button on a unit card — no action, no AP economy. */
+  /* Free/manual ability button on a unit card — no action, no AP economy.
+     If any of its effects needs a unit chosen, ask first. */
   function useFreeAbility(unitId, abilityId) {
     Store.commit('free ability', function () {
       const g = S();
-      const u = Store.unit(unitId);
       const ab = findAbility(unitId, abilityId);
       if (!ab) return;
-      ab.used = (ab.used || 0) + 1;
-      chainEntry(u.name + ' uses “' + ab.name + '”.', 'action');
-      applyEffects(ab.effects, {
-        sourceUnitId: unitId, sourcePlayer: u.owner, targets: {}, label: ab.name
-      });
-      checkVictory();
+      const needs = effectsNeedingTarget(ab, { sourceUnitId: unitId });
+      if (needs.length) {
+        g.flow = { kind: 'ability', freeUse: true, actionId: 'ability', unitId: unitId,
+                   abilityId: abilityId, targets: {}, pickIndex: 0,
+                   askOpponent: false, responder: null, step: 'pick' };
+        return;
+      }
+      resolveFreeAbility(unitId, abilityId, {});
     });
+  }
+
+  function resolveFreeAbility(unitId, abilityId, targets) {
+    const u = Store.unit(unitId);
+    const ab = findAbility(unitId, abilityId);
+    if (!ab || !u) return;
+    ab.used = (ab.used || 0) + 1;
+    chainEntry(u.name + ' uses “' + ab.name + '”.', 'action');
+    const ctx = { sourceUnitId: unitId, sourcePlayer: u.owner, targets: targets || {}, label: ab.name };
+    applyEffects(ab.effects, ctx);
+    checkVictory();
+    if (ctx.freeAttack) openFreeAttack(unitId, ctx.freeAttack);
   }
 
   /* START:/END: abilities fired from the phase modal. */
@@ -1292,11 +1357,28 @@ const Engine = (function () {
         f.reaction = { id: 'special', name: ab.name, abilityId: abilityId };
         ab.used = (ab.used || 0) + 1;
         chainEntry(defender.name + ' reacts: SPECIAL RP “' + ab.name + '”.', 'reaction');
-        applyEffects(ab.effects, {
+        const ctxSpecial = {
           sourceUnitId: f.targetId, sourcePlayer: defPlayer, targets: {},
           label: ab.name, attack: f
-        });
+        };
+        applyEffects(ab.effects, ctxSpecial);
         primeAttackMods();
+
+        /* "Kwik Dakka": the reaction attacks first. Park the original attack,
+           run the counter, and resume — or drop it if the attacker dies. */
+        if (ctxSpecial.freeAttack) {
+          const parked = JSON.parse(JSON.stringify(f));
+          parked.step = 'hit';
+          const counterOn = f.attackerId;
+          openFreeAttack(f.targetId, Object.assign({}, ctxSpecial.freeAttack, { label: ab.name }));
+          if (S().flow) {
+            S().flow.targetId = counterOn;
+            S().flow.step = S().flow.weaponId ? 'hit' : 'weapon';
+            S().flow.resumeFlow = parked;
+          }
+          return;
+        }
+
         f.step = f.redirect ? 'redirect' : 'hit';
         return;
       }
@@ -1376,16 +1458,23 @@ const Engine = (function () {
     const au = auraMods(f);
     const hitMod = f.hitMod + elevHit + (f.sourceHitMod || 0) + au.hit;
     const woundMod = f.woundMod + elevWound + au.wound;
+    const strMod = au.strength + unitStrengthMod(f.attackerId) + (f.strengthMod || 0);
+    const baseStrength = Number(weapon.strength) || 0;
+    const strength = Math.max(1, baseStrength + strMod);
     const baseHit = Number(weapon.hit) || Number(attacker.hit) || 4;
     const hit = RULES.applyMod(baseHit, hitMod);
-    const baseWound = RULES.woundTarget(weapon.strength, target.toughness);
+    const baseWound = RULES.woundTarget(strength, target.toughness);
     const wound = RULES.applyMod(baseWound, woundMod);
     return {
       weapon: weapon, attacker: attacker, target: target,
       baseHit: baseHit, hitMod: hitMod, hitTarget: hit.target, hitCapped: hit.capped,
       baseWound: baseWound, woundMod: woundMod, woundTarget: wound.target, woundCapped: wound.capped,
-      woundReason: RULES.woundLabel(weapon.strength, target.toughness),
+      woundReason: RULES.woundLabel(strength, target.toughness),
+      strength: strength, baseStrength: baseStrength, strMod: strMod,
       elevKind: elevKind, elevHit: elevHit, elevWound: elevWound, elevDamage: elevDamage,
+      /* Damage may be written as D3 or D6 — the app shows it and takes your roll. */
+      damageText: String(weapon.damage),
+      variableDamage: !isFinite(Number(weapon.damage)),
       baseDamage: Number(weapon.damage) || 0,
       damage: (Number(weapon.damage) || 0) + elevDamage
     };
@@ -1483,6 +1572,25 @@ const Engine = (function () {
     }
 
     g.flow = null;
+
+    /* A counter-attack made as a reaction: the original attack was parked. */
+    if (f.resumeFlow) {
+      const parked = f.resumeFlow;
+      const originalAttacker = Store.unit(parked.attackerId);
+      if (!originalAttacker || !originalAttacker.alive) {
+        chainEntry(uname(parked.attackerId) + ' is down — their attack never resolves.', 'reaction');
+        g.flow = null;
+        closeChain('the attacker was defeated first');
+        handOffToTurnPlayer();
+        checkVictory();
+        return;
+      }
+      chainEntry('The counter-attack is done — ' + originalAttacker.name +
+        '\u2019s attack now resolves.', 'reaction');
+      g.flow = parked;
+      checkVictory();
+      return;
+    }
 
     /* An ability that spawned this attack told us what to do afterwards. */
     if (f.pendingAfter) {
@@ -1813,7 +1921,8 @@ const Engine = (function () {
 
   return {
     startGame, beginTurn, confirmStartPhase, confirmEndPhase, beginEndPhase,
-    actionAvailability, eligibleUnits, usableAPAbilities, weaponsFor, findAbility,
+    actionAvailability, eligibleUnits, usableAPAbilities, usableFreeAbilities,
+    weaponsFor, findAbility,
     beginAction, cancelFlow, flowBack, flowPickUnit, flowPickResponder,
     flowPickControlPoint, confirmSecure, confirmRelic,
     missionCard, missionEndTurnItems, toggleUnitFlag, controlledCount,

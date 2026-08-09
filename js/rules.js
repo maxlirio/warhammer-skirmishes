@@ -367,6 +367,8 @@ const RULES = (function () {
       { id: 'mod_hit',      label: 'Modify Hit rolls',         num: true,  unit: '', signed: true, pick: 'any', dur: true },
       { id: 'mod_wound',    label: 'Modify Wound rolls',       num: true,  unit: '', signed: true, pick: 'any', dur: true },
       { id: 'aura',         label: 'Aura — a radius that modifies rolls', aura: true },
+      { id: 'mod_strength', label: 'Modify weapon Strength',    num: true, unit: '', signed: true, pick: 'any', dur: true },
+      { id: 'mark',         label: 'Mark a unit (a reminder chip)', mark: true },
       { id: 'attack',       label: 'Make a free attack',       attack: true },
       { id: 'stat',         label: 'Change a stat permanently', stat: true },
       { id: 'redirect',     label: 'Redirect the attack to another unit', redirect: true },
@@ -383,7 +385,13 @@ const RULES = (function () {
     ],
     auraModes: [
       { id: 'within', label: 'within' },
-      { id: 'beyond', label: 'further than' }
+      { id: 'beyond', label: 'further than' },
+      { id: 'always', label: 'always — no radius to check' }
+    ],
+    auraStats: [
+      { id: 'hit',      label: 'Hit rolls' },
+      { id: 'wound',    label: 'Wound rolls' },
+      { id: 'strength', label: 'the attacking weapon’s Strength' }
     ],
     weaponScopes: [
       { id: 'any',    label: 'any attack' },

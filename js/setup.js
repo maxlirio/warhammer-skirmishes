@@ -432,7 +432,7 @@ const Setup = (function () {
         field('RANGE&quot;', '<input type="number" min="0" data-bind="weapon:' + u.id + ':' + w.id + ':range" value="' + esc(w.range === undefined ? 0 : w.range) + '">') +
         field('HIT', '<input type="number" min="2" max="6" data-bind="weapon:' + u.id + ':' + w.id + ':hit" value="' + esc(w.hit) + '">') +
         field('STRENGTH', '<input type="number" min="1" data-bind="weapon:' + u.id + ':' + w.id + ':strength" value="' + esc(w.strength) + '">') +
-        field('DAMAGE', '<input type="number" min="0" data-bind="weapon:' + u.id + ':' + w.id + ':damage" value="' + esc(w.damage) + '">') +
+        field('DAMAGE', '<input type="text" data-bind="weapon:' + u.id + ':' + w.id + ':damage" value="' + esc(w.damage) + '" placeholder="1 or D3">') +
       '</div>' +
       '<button class="toggle' + (w.unlimited ? ' on' : '') + '" data-act="togUnlimited:' +
         u.id + ':' + w.id + '">' +
@@ -555,8 +555,8 @@ const Setup = (function () {
         '<div class="grid2">' +
           field('MODIFIES',
             '<select data-bind="' + base + ':stat">' +
-              '<option value="hit"' + (e.stat !== 'wound' ? ' selected' : '') + '>Hit rolls</option>' +
-              '<option value="wound"' + (e.stat === 'wound' ? ' selected' : '') + '>Wound rolls</option>' +
+              RULES.auraStats.map(x => '<option value="' + x.id + '"' +
+                (e.stat === x.id ? ' selected' : '') + '>' + x.label + '</option>').join('') +
             '</select>') +
           field('BY', '<input type="number" data-bind="' + base + ':value" value="' + esc(e.value) + '">') +
         '</div>' +
@@ -620,6 +620,23 @@ const Setup = (function () {
         field('CHANGE BY', '<input type="number" data-bind="' + base + ':value" value="' + esc(e.value) + '">') +
       '</div>' +
       '<div class="hint">Permanent — it stays changed for the rest of the game.</div>';
+    }
+    if (kind.mark) {
+      inner += field('CHIP LABEL',
+        '<input type="text" data-bind="' + base + ':label" data-rerender="1" value="' +
+        esc(e.label) + '" placeholder="QUARRY">');
+      inner += field('APPLIES TO',
+        '<select data-bind="' + base + ':pick">' +
+          '<option value="prompt"' + (e.pick === 'prompt' ? ' selected' : '') + '>Ask me when it fires</option>' +
+          '<option value="self"' + (e.pick === 'self' ? ' selected' : '') + '>This unit</option>' +
+        '</select>');
+      inner += field('LASTS FOR',
+        '<select data-bind="' + base + ':duration">' +
+          RULES.durations.map(d => '<option value="' + d.id + '"' +
+            (e.duration === d.id ? ' selected' : '') + '>' + d.label + '</option>').join('') +
+        '</select>');
+      inner += field('REMINDER TEXT',
+        '<input type="text" data-bind="' + base + ':text" value="' + esc(e.text) + '">');
     }
     if (kind.redirect) {
       inner += '<div class="hint">On an RP reaction: the app will ask the defender which of their ' +
@@ -773,7 +790,8 @@ const Setup = (function () {
     if (kind === 'weapon') {
       const w = findWeapon(p[1], p[2]); if (!w) return;
       const key = p[3];
-      w[key] = ['range', 'hit', 'strength', 'damage'].indexOf(key) >= 0 ? Number(value) : value;
+      // Damage may be written as D3 or D6, so it stays as text.
+      w[key] = ['range', 'hit', 'strength'].indexOf(key) >= 0 ? Number(value) : value;
       return;
     }
     if (kind === 'ability') {

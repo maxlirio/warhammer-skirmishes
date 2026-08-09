@@ -118,7 +118,7 @@ const UI = (function () {
         '<span class="tag">' + (w.type === 'melee' ? 'M' : 'R') + '</span>' +
         '<span class="nm">' + esc(w.name) + '</span>' +
         '<span>' + (w.range ? w.range + '" · ' : '') +
-          w.hit + '+ · S' + w.strength + ' · D' + w.damage + '</span>' +
+          w.hit + '+ · S' + w.strength + ' · D' + esc(w.damage) + '</span>' +
       '</div>';
     }).join('');
 
@@ -141,7 +141,7 @@ const UI = (function () {
       '<button class="tokenbtn" data-act="tok:' + u.id + ':' + t.id + '">[ ' + esc(t.label) + ' ]' +
         '<span class="x" data-act="rmtok:' + u.id + ':' + t.id + '">✕</span></button>').join('');
 
-    const freeAbils = (u.abilities || []).filter(a => a.trigger === 'free' && u.alive)
+    const freeAbils = (u.alive ? Engine.usableFreeAbilities(u) : [])
       .map(a => '<button class="abilbtn" data-act="freeab:' + u.id + ':' + a.id + '">' +
         esc(a.name) + '</button>').join('');
 
@@ -768,17 +768,28 @@ const UI = (function () {
 
   /* Auras are radii the app cannot measure, so each one that could apply is a
      toggle next to the roll it would change. */
-  function auraToggles(f, stat) {
-    const list = Engine.applicableAuras(f).filter(a => a.stat === stat);
+  function auraToggles(f, stats) {
+    const want = [].concat(stats);
+    const list = Engine.applicableAuras(f).filter(a => want.indexOf(a.stat) >= 0);
     if (!list.length) return '';
-    return '<div style="font-size:10px;letter-spacing:.14em;color:var(--gold);font-weight:800;' +
-        'margin:10px 0 5px">AURAS IN RANGE?</div>' +
-      list.map(a => '<button class="toggle' + (f.auras && f.auras[a.key] ? ' on' : '') +
-        '" data-act="aura:' + a.key + '">' +
-        '<span class="box">' + (f.auras && f.auras[a.key] ? '✓' : '') + '</span>' +
-        '<span><b>' + esc(a.unit) + ' — ' + esc(a.source) + '</b><br>' +
-        '<span style="color:var(--ink-dim);font-size:11.5px">' +
-          esc(a.text || a.label) + '</span></span></button>').join('');
+    const auto = list.filter(a => a.always);
+    const ask = list.filter(a => !a.always);
+    return (auto.length
+      ? '<div style="font-size:10px;letter-spacing:.14em;color:var(--gold);font-weight:800;' +
+          'margin:10px 0 5px">ALWAYS ON</div>' +
+        auto.map(a => '<div class="noteline warn"><b>' + esc(a.unit) + ' — ' + esc(a.source) +
+          '</b><br>' + esc(a.text || a.label) + '</div>').join('')
+      : '') +
+      (ask.length
+        ? '<div style="font-size:10px;letter-spacing:.14em;color:var(--gold);font-weight:800;' +
+            'margin:10px 0 5px">AURAS IN RANGE?</div>' +
+          ask.map(a => '<button class="toggle' + (f.auras && f.auras[a.key] ? ' on' : '') +
+            '" data-act="aura:' + a.key + '">' +
+            '<span class="box">' + (f.auras && f.auras[a.key] ? '✓' : '') + '</span>' +
+            '<span><b>' + esc(a.unit) + ' — ' + esc(a.source) + '</b><br>' +
+            '<span style="color:var(--ink-dim);font-size:11.5px">' +
+              esc(a.text || a.label) + '</span></span></button>').join('')
+        : '');
   }
 
   /* High ground is a tabletop fact, so the player tells the app about it. */
@@ -935,13 +946,16 @@ const UI = (function () {
           '<div class="rollbox">' +
             '<div class="lbl">ROLL 1 DICE — YOU NEED</div>' +
             '<div class="big">' + n.woundTarget + '+</div>' +
-            '<div class="sub">S' + n.weapon.strength + ' vs T' + n.target.toughness + ' — ' +
+            '<div class="sub">S' + n.strength +
+              (n.strMod ? ' <span style="color:var(--warn)">(' + n.baseStrength +
+                (n.strMod > 0 ? '+' : '') + n.strMod + ')</span>' : '') +
+              ' vs T' + n.target.toughness + ' — ' +
               n.woundReason + ' (' + n.baseWound + '+) · ' + modTxt +
               (n.woundCapped ? ' <span style="color:var(--warn)">(capped)</span>' : '') + '</div>' +
             (n.elevWound ? '<div class="modline">High ground: +1 to Wound and +1 Damage.</div>' : '') +
           '</div>' +
           elevToggle(f, action) +
-          auraToggles(f, 'wound') +
+          auraToggles(f, ['wound', 'strength']) +
         '</div>' +
         '<div class="mfoot">' +
           '<button class="btn bad" data-act="wound:0">FAILED</button>' +
@@ -950,15 +964,16 @@ const UI = (function () {
     }
 
     if (f.step === 'damage') {
-      const dmg = damageDraft === null ? n.damage : damageDraft;
+      const dmg = damageDraft === null ? (n.variableDamage ? 0 : n.damage) : damageDraft;
       const lethal = dmg >= n.target.wounds;
       return head(title, 'DAMAGE DEALT') + crumb +
         '<div class="mbody">' +
           '<div class="rollbox">' +
             '<div class="lbl">DAMAGE TO ' + esc(n.target.name).toUpperCase() + '</div>' +
             '<div class="big">' + dmg + '</div>' +
-            '<div class="sub">' + esc(n.weapon.name) + ' deals ' + n.baseDamage +
-              (n.elevDamage ? ' +1 from the high-ground charge' : '') + ' by default · ' +
+            '<div class="sub">' + esc(n.weapon.name) + ' deals ' + esc(n.damageText) +
+              (n.variableDamage ? ' — roll it and tap the result' : '') +
+              (n.elevDamage ? ' +1 from the high-ground charge' : '') + ' · ' +
               n.target.name + ' has ' + n.target.wounds + ' W left' +
               (lethal ? ' — <b style="color:var(--bad)">this destroys it</b>' : '') + '</div>' +
           '</div>' +

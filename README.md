@@ -83,7 +83,9 @@ target's owner is the opponent and no question is needed.
 
 Units carry exactly what the card carries: **MOV, W, T, OC**, then ranged and
 melee weapons with **RANGE, HIT, STRENGTH, DAMAGE**. There is no saving throw in
-this game. Range is stored as a reminder and never checked.
+this game. Range is stored as a reminder and never checked. Damage may be written
+as `D3` or `D6` — the app shows the card's wording and takes your roll rather than
+pre-filling a guess.
 
 ## It remembers what you typed
 
@@ -103,23 +105,40 @@ or don't. Modifiers, the wound table, capping at the edge of the die: all handle
 from there.
 
 The same mechanism carries `Cloaked`-style defensive auras (enemies attacking
-*this* unit) via the "only when this unit is the one being attacked" switch.
+*this* unit) via the "only when this unit is the one being attacked" switch, and
+an aura may modify the attacking weapon's **Strength**, which moves the whole
+wound table. An aura with no radius at all — *Small: enemy units have -1 to hit
+this unit* — is applied automatically and shown as **ALWAYS ON**, because there
+is nothing for you to judge.
 
 Related escape hatches on the same effect list: **make a free attack** (no AP,
 optionally no RP and no wound roll, for "make an attack with this unit's …"
 abilities), **change a stat permanently**, **redirect the attack to another
-unit** on an RP reaction, and **stop friends using a Reaction** — which renders
-that reaction struck through with the reason, but still tappable if you both
-agree it doesn't apply.
+unit** on an RP reaction, **stop friends using a Reaction** — struck through with
+the reason, but still tappable if you both agree it doesn't apply — **mark a
+unit** with a reminder chip for the rest of the game, and **modify Strength**.
+
+A free attack used *as an RP reaction* interrupts: the counter resolves first and
+the original attack is parked, then either resumes or is dropped if its attacker
+was killed.
 
 ## Preset factions
 
-**Astra Militarum** is the official line-up, entered from the cards: Guardsmen
-"Alfred", "Al", "Fred" and "Nick", Commissar Briant, and the *Unconventional
-Tactics* Special Objective. Every ability is wired up — the Commissar's 6" aura
-and his WITHDRAW ban, Nick's Cloaked and Grenade, Fred's Snap Shot and Choke
-Hold, Al's Kill Count, Alfred's unlimited dagger. Space Marines and Orks are
-included as clearly-labelled examples.
+Both official line-ups ship with every ability wired up, not just written out.
+
+**Astra Militarum** — Guardsmen "Alfred", "Al", "Fred" and "Nick", Commissar
+Briant, and the *Unconventional Tactics* Special Objective. The Commissar's 6"
+aura and his WITHDRAW ban, Nick's Cloaked and Grenade, Fred's Snap Shot and Choke
+Hold, Al's Kill Count, Alfred's unlimited dagger.
+
+**Orks** — Boss Nob Blikker, Da Hunta, Mikaaaaghhh, Snitcherz and Riksnik. The
+Boss's +1 Strength aura moves the wound table for anyone who ticks it; *Small* is
+an always-on aura that needs no tick at all; Snitcherz's Klaw is D3, so the app
+asks for the roll instead of assuming; Da Hunta chips his quarry for the whole
+game; *Kwik Dakka* genuinely interrupts — the counter-attack resolves first, and
+if it kills the attacker their attack never happens.
+
+Space Marines are included as a clearly-labelled example.
 
 ## When the app cannot model an ability
 

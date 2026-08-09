@@ -476,33 +476,107 @@ const PRESETS = [
 {
   id: 'orks',
   name: 'Orks',
-  note: 'An example roster, not an official card.',
+  note: 'The official line-up.',
   units: [
     {
-      name: 'Ork Nob', move: 6, maxWounds: 4, toughness: 5, oc: 2,
+      name: 'Boss Nob Blikker', move: 4, maxWounds: 3, toughness: 5, oc: 2,
+      notes: '"You think dat is imprezzive? You ain\'t seen ME go dakka."',
       weapons: [
-        { name: 'Kombi-Shoota', type: 'ranged', range: 18, hit: 4, strength: 4, damage: 1 },
-        { name: 'Big Choppa', type: 'melee', range: 1, hit: 3, strength: 7, damage: 2 }
+        { name: 'Slugga', type: 'ranged', range: 12, hit: 4, strength: 4, damage: 1 },
+        { name: 'Power Klaw', type: 'melee', range: 1, hit: 3, strength: 5, damage: 2 }
       ],
       abilities: [
-        { name: 'WAAAGH!', trigger: 'ap', cost: 1,
-          text: 'This unit gets +1 to hit until the end of the action chain.',
-          effects: [{ kind: 'mod_hit', value: 1, pick: 'self', duration: 'chain' }] },
-        { name: 'Ard as Nails', trigger: 'rp', cost: 1,
-          text: 'Subtract 1 from the attacker\'s Wound roll.',
-          effects: [{ kind: 'mod_wound', value: -1, pick: 'attacker', duration: 'attack' }] }
+        { name: 'Boss Presence', trigger: 'passive', cost: 0,
+          text: 'Friendly units within 6" of this unit have +1 Strength.',
+          effects: [{ kind: 'aura', stat: 'strength', value: 1, side: 'friendly',
+                      onlyVsOwner: false, weapon: 'any', range: 6, mode: 'within',
+                      text: 'Friendly units within 6" of Boss Nob Blikker have +1 Strength.' }] },
+        { name: 'WAAAAAGH', trigger: 'ap', cost: 1, usesPerGame: 1, endsChain: 'yes',
+          text: 'Usable only once per game. Move each of your units up to D6". End the action chain.',
+          effects: [{ kind: 'note', text: 'Roll D6 and move each of your units up to that many inches.' }] }
       ]
     },
     {
-      name: 'Ork Boy', move: 6, maxWounds: 2, toughness: 5, oc: 1,
+      name: 'Da Hunta', move: 4, maxWounds: 2, toughness: 4, oc: 1,
+      notes: '"I smell you..."',
       weapons: [
-        { name: 'Shoota', type: 'ranged', range: 18, hit: 4, strength: 4, damage: 1 },
+        { name: 'Shoota', type: 'ranged', range: 18, hit: 3, strength: 4, damage: 1 },
         { name: 'Choppa', type: 'melee', range: 1, hit: 3, strength: 4, damage: 1 }
       ],
       abilities: [
-        { name: 'Mob Rule', trigger: 'start', cost: 0,
-          text: 'Gain 1 AP if a friendly unit was destroyed last turn.',
-          effects: [{ kind: 'ap_self', value: 1 }] }
+        { name: 'Da Hunta', trigger: 'free', cost: 0, usesPerGame: 1,
+          text: 'At the beginning of the game choose one enemy unit. This unit\'s Shoota gains ' +
+                '+1 damage against that unit.',
+          effects: [{ kind: 'mark', label: 'DA HUNTA\'S QUARRY', pick: 'prompt', duration: 'manual',
+                      text: 'Da Hunta\'s Shoota does +1 damage against this unit.' }] },
+        { name: 'Rage', trigger: 'rp', cost: 1,
+          text: 'During its next attack this unit\'s Shoota gains +1 on the hit roll and ' +
+                '+1 Strength. Your next AP must be spent on a SHOOT action targeting the enemy ' +
+                'unit that shot this unit, if possible.',
+          effects: [
+            { kind: 'mod_hit', value: 1, pick: 'self', duration: 'nextAP' },
+            { kind: 'mod_strength', value: 1, pick: 'self', duration: 'nextAP' },
+            { kind: 'note', text: 'Your next AP must be a SHOOT action against the unit that shot this one, if possible.' }
+          ] }
+      ]
+    },
+    {
+      name: 'Mikaaaaghhh', move: 4, maxWounds: 2, toughness: 4, oc: 1,
+      notes: '"MIKAAAAGHHH wut did you do dat for?!"',
+      weapons: [
+        { name: 'Slugga', type: 'ranged', range: 12, hit: 5, strength: 3, damage: 1 },
+        { name: 'Choppa', type: 'melee', range: 1, hit: 3, strength: 5, damage: 1 }
+      ],
+      abilities: [
+        { name: 'Get In Front of Me', trigger: 'rp', cost: 1,
+          text: 'Move a friendly unit within 3" up to 3". If that unit is now in the line of ' +
+                'fire, that unit is targeted by the attack instead.',
+          effects: [{ kind: 'redirect' }] },
+        { name: 'Kwik Dakka', trigger: 'rp', cost: 1,
+          text: 'This unit makes an attack against the attacking enemy unit before their attack ' +
+                'resolves. The enemy unit gets no RP. If the enemy unit is defeated, they do not ' +
+                'get to resolve their attack.',
+          effects: [{ kind: 'attack', weapon: 'ranged', noRP: true, hitMod: 0, skipWound: false }] }
+      ]
+    },
+    {
+      name: 'Snitcherz', move: 2, maxWounds: 1, toughness: 3, oc: 1,
+      notes: '"GIMME DAT!"',
+      weapons: [
+        { name: 'Blasta', type: 'ranged', range: 12, hit: 5, strength: 3, damage: 1 },
+        { name: 'Klaw', type: 'melee', range: 1, hit: 5, strength: 4, damage: 'D3' }
+      ],
+      abilities: [
+        { name: 'Small', trigger: 'passive', cost: 0,
+          text: 'Enemy units have -1 to hit this unit.',
+          effects: [{ kind: 'aura', stat: 'hit', value: -1, side: 'enemy', onlyVsOwner: true,
+                      weapon: 'any', mode: 'always',
+                      text: 'Small: enemy units have -1 to hit this unit.' }] },
+        { name: 'Unpredictable', trigger: 'passive', cost: 0,
+          text: 'Instead of moving this unit may roll a D6 and move that many inches.',
+          effects: [] }
+      ]
+    },
+    {
+      name: 'Riksnik', move: 3, maxWounds: 1, toughness: 3, oc: 1,
+      notes: '"RRRREEEEEEEEEEEETTTTTTT!!!!!!!!!!!!"',
+      weapons: [
+        { name: 'Blasta', type: 'ranged', range: 12, hit: 5, strength: 3, damage: 1 },
+        { name: 'Fast Fists', type: 'melee', range: 1, hit: 4, strength: 3, damage: 1 }
+      ],
+      abilities: [
+        { name: 'Small', trigger: 'passive', cost: 0,
+          text: 'Enemy units have -1 to hit this unit.',
+          effects: [{ kind: 'aura', stat: 'hit', value: -1, side: 'enemy', onlyVsOwner: true,
+                      weapon: 'any', mode: 'always',
+                      text: 'Small: enemy units have -1 to hit this unit.' }] },
+        { name: "Spin an' spray", trigger: 'ap', cost: 1,
+          text: 'Each unit within 6", including this one, make a save 3+ or takes 1 damage. If ' +
+                'this unit dies, nobody gets VP. Your opponent gains 1 AP.',
+          effects: [{ kind: 'token', label: "SPIN AN' SPRAY", expiry: 'chain',
+                      text: 'Press once for each unit within 6" that failed its 3+ — including ' +
+                            'Riksnik. If Riksnik dies to this, nobody scores VP.',
+                      tokenEffects: [{ kind: 'damage', value: 1, pick: 'prompt' }] }] }
       ]
     }
   ]
