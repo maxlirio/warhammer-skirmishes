@@ -288,10 +288,15 @@ const Setup = (function () {
       list.map(u => unitCard(u)).join('') +
       '<button class="addbtn" data-act="openPicker:unit:' + owner + '">+ ADD UNIT</button>' +
 
-      '<div class="grid2" style="margin-top:10px">' +
-        '<button class="btn sm" style="flex:1" data-act="saveRoster:' + owner + '">SAVE THIS ROSTER</button>' +
-        '<button class="btn sm" style="flex:1" data-act="sample:' + owner + '">LOAD EXAMPLE</button>' +
-      '</div>' +
+      '<div style="font-size:10px;letter-spacing:.14em;color:var(--gold);font-weight:800;margin:14px 0 6px">' +
+        'PRESET FACTIONS</div>' +
+      PRESETS.map(f => '<button class="choice" data-act="preset:' + owner + ':' + f.id + '">' +
+        '<div class="cmain"><div class="cname">' + esc(f.name) + '</div>' +
+        '<div class="cdesc">' + f.units.length + ' units' +
+          (f.objective ? ' · Special Objective “' + esc(f.objective.name) + '”' : '') +
+          ' — ' + esc(f.note) + '</div></div></button>').join('') +
+      '<button class="btn sm" style="width:100%;margin-top:6px" data-act="saveRoster:' + owner + '">' +
+        'SAVE THIS ROSTER TO REUSE</button>' +
 
       (rosterList.length
         ? '<div class="sub" style="margin-top:9px">' +
@@ -429,6 +434,10 @@ const Setup = (function () {
         field('STRENGTH', '<input type="number" min="1" data-bind="weapon:' + u.id + ':' + w.id + ':strength" value="' + esc(w.strength) + '">') +
         field('DAMAGE', '<input type="number" min="0" data-bind="weapon:' + u.id + ':' + w.id + ':damage" value="' + esc(w.damage) + '">') +
       '</div>' +
+      '<button class="toggle' + (w.unlimited ? ' on' : '') + '" data-act="togUnlimited:' +
+        u.id + ':' + w.id + '">' +
+        '<span class="box">' + (w.unlimited ? '✓' : '') + '</span>' +
+        '<span>Can be used any number of times in the same action chain</span></button>' +
     '</div>';
   }
 
@@ -538,6 +547,93 @@ const Setup = (function () {
     if (kind.note) {
       inner += field('REMINDER TEXT',
         '<input type="text" data-bind="' + base + ':text" value="' + esc(e.text) + '">');
+    }
+    if (kind.aura) {
+      inner += '<div class="hint" style="margin:0 0 8px">The app cannot measure the radius, so ' +
+        'during an attack it offers this as a tick-box on the roll it would change. You look at ' +
+        'the table and decide.</div>' +
+        '<div class="grid2">' +
+          field('MODIFIES',
+            '<select data-bind="' + base + ':stat">' +
+              '<option value="hit"' + (e.stat !== 'wound' ? ' selected' : '') + '>Hit rolls</option>' +
+              '<option value="wound"' + (e.stat === 'wound' ? ' selected' : '') + '>Wound rolls</option>' +
+            '</select>') +
+          field('BY', '<input type="number" data-bind="' + base + ':value" value="' + esc(e.value) + '">') +
+        '</div>' +
+        field('WHOSE ATTACK',
+          '<select data-bind="' + base + ':side">' +
+            RULES.auraSides.map(x => '<option value="' + x.id + '"' +
+              (e.side === x.id ? ' selected' : '') + '>' + x.label + '</option>').join('') +
+          '</select>') +
+        '<div class="grid2">' +
+          field('RADIUS',
+            '<select data-bind="' + base + ':mode">' +
+              RULES.auraModes.map(x => '<option value="' + x.id + '"' +
+                (e.mode === x.id ? ' selected' : '') + '>' + x.label + '</option>').join('') +
+            '</select>') +
+          field('INCHES', '<input type="number" min="0" data-bind="' + base + ':range" value="' +
+            esc(e.range === undefined ? 6 : e.range) + '">') +
+        '</div>' +
+        field('APPLIES TO',
+          '<select data-bind="' + base + ':weapon">' +
+            RULES.weaponScopes.map(x => '<option value="' + x.id + '"' +
+              (e.weapon === x.id ? ' selected' : '') + '>' + x.label + '</option>').join('') +
+          '</select>') +
+        '<button class="toggle' + (e.onlyVsOwner ? ' on' : '') + '" data-act="' +
+          base.replace(/^effect:/, 'togAura:').replace(/^objeffect:/, 'togAuraObj:') + '">' +
+          '<span class="box">' + (e.onlyVsOwner ? '✓' : '') + '</span>' +
+          '<span>Only when <b>this unit</b> is the one being attacked</span></button>' +
+        field('THE WORDING SHOWN ON THE TICK-BOX',
+          '<input type="text" data-bind="' + base + ':text" value="' + esc(e.text) +
+          '" placeholder="Units in your squad within 6&quot; have +1 to hit for ranged attacks.">');
+    }
+    if (kind.attack) {
+      inner += '<div class="hint" style="margin:0 0 8px">Opens the normal attack flow with no AP ' +
+        'cost. Use it for “make an attack with this unit’s …” abilities.</div>' +
+        '<div class="grid2">' +
+          field('WEAPON',
+            '<select data-bind="' + base + ':weapon">' +
+              '<option value="ranged"' + (e.weapon !== 'melee' ? ' selected' : '') + '>A ranged weapon</option>' +
+              '<option value="melee"' + (e.weapon === 'melee' ? ' selected' : '') + '>A melee weapon</option>' +
+            '</select>') +
+          field('HIT MODIFIER', '<input type="number" data-bind="' + base + ':hitMod" value="' +
+            esc(e.hitMod || 0) + '">') +
+        '</div>' +
+        field('THE DEFENDER GETS RP?',
+          '<select data-bind="' + base + ':noRP">' +
+            '<option value="true"' + (e.noRP !== false ? ' selected' : '') + '>No RP — no reaction</option>' +
+            '<option value="false"' + (e.noRP === false ? ' selected' : '') + '>Yes, the normal 1 RP</option>' +
+          '</select>') +
+        field('THE WOUND ROLL',
+          '<select data-bind="' + base + ':skipWound">' +
+            '<option value="false"' + (!e.skipWound ? ' selected' : '') + '>Roll to wound as normal</option>' +
+            '<option value="true"' + (e.skipWound ? ' selected' : '') + '>No wound roll — a hit is all it needs</option>' +
+          '</select>');
+    }
+    if (kind.stat) {
+      inner += '<div class="grid2">' +
+        field('STAT',
+          '<select data-bind="' + base + ':stat">' +
+            RULES.statKinds.map(x => '<option value="' + x.id + '"' +
+              (e.stat === x.id ? ' selected' : '') + '>' + x.label + '</option>').join('') +
+          '</select>') +
+        field('CHANGE BY', '<input type="number" data-bind="' + base + ':value" value="' + esc(e.value) + '">') +
+      '</div>' +
+      '<div class="hint">Permanent — it stays changed for the rest of the game.</div>';
+    }
+    if (kind.redirect) {
+      inner += '<div class="hint">On an RP reaction: the app will ask the defender which of their ' +
+        'units takes the attack instead, then carry on with the new target.</div>';
+    }
+    if (kind.block) {
+      inner += field('REACTION FRIENDS CANNOT USE',
+        '<select data-bind="' + base + ':reaction">' +
+          RULES.rangedReactions.concat(RULES.meleeReactions).filter(r => !r.isSpecial)
+            .map(r => '<option value="' + r.id + '"' + (e.reaction === r.id ? ' selected' : '') +
+              '>' + r.name + '</option>').join('') +
+        '</select>') +
+        '<div class="hint">Shown struck through with your unit named, but still tappable — the ' +
+          'app will not stop you if you both agree it does not apply.</div>';
     }
     if (kind.token && !parentEffectId && opts.tokenChildren) {
       inner += field('BUTTON LABEL',
@@ -689,7 +785,8 @@ const Setup = (function () {
     if (kind === 'effect') {
       const e = findEffect(p[1], p[2], p[3]); if (!e) return;
       const key = p[4];
-      e[key] = key === 'value' ? Number(value) : value;
+      e[key] = ['value', 'range', 'hitMod'].indexOf(key) >= 0 ? Number(value)
+             : (['noRP', 'skipWound'].indexOf(key) >= 0 ? value === 'true' : value);
       if (key === 'kind' && e.kind === 'token' && !e.tokenEffects) e.tokenEffects = [];
       return;
     }
@@ -709,7 +806,7 @@ const Setup = (function () {
       const o = S.objectives[Number(p[1])]; if (!o) return;
       const e = (o.effects || []).find(x => x.id === p[2]); if (!e) return;
       const key = p[3];
-      e[key] = key === 'value' ? Number(value) : value;
+      e[key] = ['value', 'range', 'hitMod'].indexOf(key) >= 0 ? Number(value) : value;
       return;
     }
   }
@@ -749,6 +846,22 @@ const Setup = (function () {
       }
 
       case 'open': S.open[p[1]] = !S.open[p[1]]; return true;
+      case 'togAura': {
+        const e = findEffect(p[1], p[2], p[3]);
+        if (e) e.onlyVsOwner = !e.onlyVsOwner;
+        return true;
+      }
+      case 'togAuraObj': {
+        const o = S.objectives[Number(p[1])];
+        const e = o && (o.effects || []).find(x => x.id === p[2]);
+        if (e) e.onlyVsOwner = !e.onlyVsOwner;
+        return true;
+      }
+      case 'togUnlimited': {
+        const w = findWeapon(p[1], p[2]);
+        if (w) w.unlimited = !w.unlimited;
+        return true;
+      }
 
       case 'addUnit': {
         const owner = Number(p[1]);
@@ -894,23 +1007,39 @@ const Setup = (function () {
       }
 
       /* ---- rosters ---- */
-      case 'sample': {
+      case 'preset': {
         const owner = Number(p[1]);
-        const src = (owner % 2 === 0) ? SAMPLES.imperial : SAMPLES.ork;
-        const built = src.map(function (spec) {
+        const faction = PRESETS.find(f => f.id === p[2]);
+        if (!faction) return false;
+        const built = faction.units.map(function (spec) {
           const u = Store.newUnit(owner, {
             name: spec.name, move: spec.move, maxWounds: spec.maxWounds,
-            wounds: spec.maxWounds, toughness: spec.toughness, oc: spec.oc || 0
+            wounds: spec.maxWounds, toughness: spec.toughness, oc: spec.oc || 0,
+            notes: spec.notes || ''
           });
           u.weapons = spec.weapons.map(w => Store.newWeapon(w));
-          u.abilities = spec.abilities.map(function (a) {
-            const ab = Store.newAbility({ name: a.name, trigger: a.trigger, cost: a.cost, text: a.text });
-            ab.effects = (a.effects || []).map(e => Store.newEffectRow(e));
+          u.abilities = (spec.abilities || []).map(function (a) {
+            const ab = Store.newAbility({
+              name: a.name, trigger: a.trigger, cost: a.cost, text: a.text,
+              usesPerGame: a.usesPerGame || 0,
+              endsChain: a.endsChain || 'default'
+            });
+            ab.effects = (a.effects || []).map(function (e) {
+              const row = Store.newEffectRow(e);
+              if (e.tokenEffects) row.tokenEffects = e.tokenEffects.map(t => Store.newEffectRow(t));
+              return row;
+            });
             return ab;
           });
           return u;
         });
         S.units = S.units.filter(x => x.owner !== owner).concat(built);
+        if (faction.objective) {
+          S.objectives[owner] = Store.newSpecialObjective(
+            Object.assign({}, faction.objective, {
+              effects: (faction.objective.effects || []).map(e => Store.newEffectRow(e))
+            }));
+        }
         S.open = {};
         return true;
       }

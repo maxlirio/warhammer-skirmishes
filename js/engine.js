@@ -421,6 +421,102 @@ const Engine = (function () {
     if (t) log('Token removed by hand: [' + t.label + '] (' + u.name + ').', 'muted');
   }
 
+  /* ---------------------------------------------------------------- auras
+
+     The app cannot measure 6". So every aura that *could* apply to the attack
+     being resolved is offered as a toggle on the roll it would change, and the
+     player — who can see the table — says whether it does. */
+
+  function unitAuras(u) {
+    const out = [];
+    (u.abilities || []).forEach(function (a) {
+      if (a.trigger !== 'passive') return;
+      (a.effects || []).forEach(function (e) {
+        if (e.kind === 'aura') out.push({ src: a.name, e: e, id: a.id + ':' + e.id });
+      });
+    });
+    (u.effects || []).forEach(function (ue) {
+      if (ue.aura) out.push({ src: ue.label, e: ue.aura, id: ue.id });
+    });
+    return out;
+  }
+
+  function auraLabel(e) {
+    const mode = e.mode === 'beyond' ? 'further than' : 'within';
+    const scope = e.weapon === 'ranged' ? ' (ranged only)'
+                : e.weapon === 'melee' ? ' (melee only)' : '';
+    return (e.value > 0 ? '+' : '') + (Number(e.value) || 0) + ' to ' +
+      (e.stat === 'wound' ? 'Wound' : 'Hit') + ' · ' + mode + ' ' + (e.range || 6) + '"' + scope;
+  }
+
+  /* Auras that could bear on the attack currently in the flow. */
+  function applicableAuras(f) {
+    const g = S();
+    if (!f || f.kind !== 'attack' || !f.attackerId || !f.targetId) return [];
+    const action = RULES.actionById(f.actionId);
+    const weaponType = action ? action.attackRange : 'ranged';
+    const attacker = Store.unit(f.attackerId);
+    if (!attacker) return [];
+    const out = [];
+    g.units.filter(u => u.alive).forEach(function (u) {
+      unitAuras(u).forEach(function (a) {
+        const e = a.e;
+        if (e.weapon && e.weapon !== 'any' && e.weapon !== weaponType) return;
+        const friendlyToAura = u.owner === attacker.owner;
+        if (e.side === 'friendly' && !friendlyToAura) return;
+        if (e.side === 'enemy' && friendlyToAura) return;
+        if (e.onlyVsOwner && f.targetId !== u.id) return;
+        out.push({
+          key: u.id + '|' + a.id,
+          unit: u.name,
+          source: a.src,
+          stat: e.stat === 'wound' ? 'wound' : 'hit',
+          value: Number(e.value) || 0,
+          label: auraLabel(e),
+          text: e.text || ''
+        });
+      });
+    });
+    return out;
+  }
+
+  function toggleAura(key) {
+    Store.commit('aura', function () {
+      const f = S().flow;
+      if (!f) return;
+      if (!f.auras) f.auras = {};
+      f.auras[key] = !f.auras[key];
+    });
+  }
+
+  function auraMods(f) {
+    let hit = 0, wound = 0;
+    if (!f || !f.auras) return { hit: hit, wound: wound };
+    applicableAuras(f).forEach(function (a) {
+      if (!f.auras[a.key]) return;
+      if (a.stat === 'wound') wound += a.value; else hit += a.value;
+    });
+    return { hit: hit, wound: wound };
+  }
+
+  /* Reactions a friendly aura forbids — shown struck through, with the source. */
+  function blockedReactions(defenderId) {
+    const g = S();
+    const def = Store.unit(defenderId);
+    if (!def) return {};
+    const out = {};
+    g.units.filter(u => u.alive && u.owner === def.owner).forEach(function (u) {
+      (u.abilities || []).filter(a => a.trigger === 'passive').forEach(function (a) {
+        (a.effects || []).forEach(function (e) {
+          if (e.kind === 'blockreact' && e.reaction) {
+            out[e.reaction] = u.name + ': ' + a.name;
+          }
+        });
+      });
+    });
+    return out;
+  }
+
   function unitHitMod(unitId) {
     const u = Store.unit(unitId);
     if (!u) return 0;
@@ -647,12 +743,57 @@ const Engine = (function () {
             expiry: e.expiry || 'chain',
             text: e.text || '',
             isAttack: !!e.tokenAttack,
+            attackOpts: e.tokenAttack
+              ? { weapon: e.tokenWeapon || 'ranged', noRP: e.tokenNoRP !== false,
+                  hitMod: Number(e.tokenHitMod) || 0 }
+              : null,
             effects: JSON.parse(JSON.stringify(e.tokenEffects || [])),
             sourceAbility: ctx.label
           });
           chainEntry('[' + (e.label || 'TOKEN').toUpperCase() + '] placed by ' + u.name + '.', 'token');
           break;
         }
+        case 'stat': {
+          const tid = resolveEffectTarget(e, ctx) || ctx.sourceUnitId;
+          const tu = Store.unit(tid);
+          if (!tu) break;
+          const key = e.stat || 'oc';
+          tu[key] = Math.max(0, (Number(tu[key]) || 0) + v);
+          if (key === 'maxWounds') tu.wounds = Math.min(tu.wounds + v, tu.maxWounds);
+          chainEntry(tu.name + ': ' + key.toUpperCase() + ' is permanently now ' + tu[key] +
+            ' (' + ctx.label + ').', 'effect');
+          break;
+        }
+        case 'aura': {
+          // A granted aura rides on the unit as an effect until it expires.
+          const tid = resolveEffectTarget(e, ctx) || ctx.sourceUnitId;
+          if (!tid) break;
+          addEffect(tid, {
+            label: ctx.label, detail: e.text || auraLabel(e),
+            duration: e.duration || 'manual', ownerPlayer: Store.owner(tid),
+            aura: JSON.parse(JSON.stringify(e))
+          });
+          chainEntry(uname(tid) + ' gains the aura “' + ctx.label + '” — ' + auraLabel(e) + '.', 'effect');
+          break;
+        }
+        case 'redirect':
+          if (ctx.attack) {
+            ctx.attack.redirect = true;
+            chainEntry(ctx.label + ': the attack will be redirected to another unit.', 'reaction');
+          }
+          break;
+        case 'attack':
+          // Queued: the attack flow opens once this ability has finished.
+          ctx.freeAttack = {
+            unitId: ctx.sourceUnitId,
+            weapon: e.weapon || 'any',
+            noRP: e.noRP !== false,
+            hitMod: Number(e.hitMod) || 0,
+            skipWound: !!e.skipWound,
+            endsChain: !!e.endsChainAfter,
+            label: ctx.label
+          };
+          break;
         case 'note':
           chainEntry(ctx.label + ': ' + (e.text || 'see ability text'), 'note');
           break;
@@ -724,7 +865,7 @@ const Engine = (function () {
       .map(function (w, i) {
         const key = unitId + '|' + w.id;
         return Object.assign({}, w, {
-          used: g.chain.weaponsUsed.indexOf(key) >= 0,
+          used: !w.unlimited && g.chain.weaponsUsed.indexOf(key) >= 0,
           primary: i === 0
         });
       });
@@ -817,7 +958,7 @@ const Engine = (function () {
       const f = S().flow;
       if (!f) return;
       const order = {
-        attack: ['attacker', 'target', 'weapon', 'reaction', 'eligible', 'hit', 'wound', 'damage'],
+        attack: ['attacker', 'target', 'weapon', 'reaction', 'redirect', 'eligible', 'hit', 'wound', 'damage'],
         ability: ['unit', 'ability', 'pick', 'opponent', 'confirm'],
         overwatch: ['unit', 'opponent', 'confirm'],
         secure: ['unit', 'point', 'opponent', 'confirm'],
@@ -993,14 +1134,29 @@ const Engine = (function () {
       spendAP(actor, Number(ab.cost) || 0);
       ab.used = (ab.used || 0) + 1;
       chainEntry(pname(actor) + ': ' + uname(f.unitId) + ' → SPECIAL ABILITY “' + ab.name + '”.', 'action');
-      applyEffects(ab.effects, {
+      const ctx = {
         sourceUnitId: f.unitId, sourcePlayer: actor, targets: f.targets,
         label: ab.name, opponent: responder
-      });
+      };
+      applyEffects(ab.effects, ctx);
       const oppAP = ab.opponentGainsAP === 'default' ? action.opponentGainsAP : Number(ab.opponentGainsAP) || 0;
       if (oppAP && responder !== null) grantAP(responder, oppAP, 'SPECIAL ABILITY');
       const ends = ab.endsChain === 'default' ? action.endsChain : ab.endsChain === 'yes';
+      const unitId = f.unitId;
       g.flow = null;
+
+      /* The ability says "make an attack" — hand straight over to the attack
+         flow and settle the chain once it resolves. */
+      if (ctx.freeAttack) {
+        openFreeAttack(unitId, ctx.freeAttack);
+        if (S().flow) {
+          S().flow.pendingAfter = {
+            actor: actor, endsChain: ends || ctx.freeAttack.endsChain,
+            responder: responder, reason: ab.name
+          };
+        }
+        return;
+      }
       afterAction({ actor: actor, endsChain: ends, forcedUnitId: null,
                     responder: responder, reason: ab.name });
     });
@@ -1141,7 +1297,7 @@ const Engine = (function () {
           label: ab.name, attack: f
         });
         primeAttackMods();
-        f.step = 'hit';
+        f.step = f.redirect ? 'redirect' : 'hit';
         return;
       }
 
@@ -1177,6 +1333,19 @@ const Engine = (function () {
     });
   }
 
+  /* "It's Your Job": the defender points the attack at one of their other units. */
+  function flowRedirect(newTargetId) {
+    Store.commit('redirect', function () {
+      const f = S().flow;
+      if (!f) return;
+      const from = uname(f.targetId);
+      f.targetId = newTargetId;
+      f.redirect = false;
+      chainEntry('The attack is redirected from ' + from + ' to ' + uname(newTargetId) + '.', 'reaction');
+      f.step = 'hit';
+    });
+  }
+
   function flowEligibility(stillEligible) {
     Store.commit('eligibility', function () {
       const g = S();
@@ -1204,8 +1373,9 @@ const Engine = (function () {
     const elevWound  = (high && elevKind === 'charge') ? 1 : 0;
     const elevDamage = (high && elevKind === 'charge') ? 1 : 0;
 
-    const hitMod = f.hitMod + elevHit + (f.sourceHitMod || 0);
-    const woundMod = f.woundMod + elevWound;
+    const au = auraMods(f);
+    const hitMod = f.hitMod + elevHit + (f.sourceHitMod || 0) + au.hit;
+    const woundMod = f.woundMod + elevWound + au.wound;
     const baseHit = Number(weapon.hit) || Number(attacker.hit) || 4;
     const hit = RULES.applyMod(baseHit, hitMod);
     const baseWound = RULES.woundTarget(weapon.strength, target.toughness);
@@ -1228,6 +1398,11 @@ const Engine = (function () {
       if (!didHit) {
         chainEntry(uname(f.attackerId) + ' MISSES ' + uname(f.targetId) + '.', 'miss');
         finishAttack({ hit: false });
+      } else if (f.skipWound) {
+        // e.g. Choke Hold: a hit resolves without a Wound roll.
+        chainEntry(uname(f.attackerId) + ' HITS ' + uname(f.targetId) +
+          ' — no Wound roll for this attack.', 'hitline');
+        finishAttack({ hit: true, wound: false });
       } else {
         chainEntry(uname(f.attackerId) + ' HITS ' + uname(f.targetId) + '.', 'hitline');
         f.step = 'wound';
@@ -1309,13 +1484,27 @@ const Engine = (function () {
 
     g.flow = null;
 
-    if (isOverwatch) {
+    /* An ability that spawned this attack told us what to do afterwards. */
+    if (f.pendingAfter) {
+      const after = f.pendingAfter;
+      afterAction({
+        actor: after.actor,
+        endsChain: after.endsChain || !!f.endsChainOverride || killed,
+        forcedUnitId: killed ? null : forcedUnitId,
+        responder: killed ? after.responder : Store.owner(f.targetId),
+        reason: after.reason
+      });
+      return;
+    }
+
+    if (isOverwatch || f.source === 'free') {
       // An interrupt: it does not hand control over unless the target died.
+      const what = isOverwatch ? 'Overwatch attack' : (f.freeLabel || 'Free attack');
       if (killed) {
-        closeChain('overwatch kill');
+        closeChain(what.toLowerCase() + ' kill');
         handOffToTurnPlayer();
       } else {
-        chainEntry('Overwatch attack resolved — play continues with ' +
+        chainEntry(what + ' resolved — play continues with ' +
           pname(g.control.player) + '.', 'control');
       }
       checkVictory();
@@ -1329,6 +1518,36 @@ const Engine = (function () {
       responder: defenderPlayer,     // an Aggressive Action always names its opponent
       reason: killed ? 'target destroyed' : (f.endsChainOverride ? 'WITHDRAW' : null)
     });
+  }
+
+  /* A free attack: no AP, no RP for the defender, optional roll modifier, and
+     optionally no wound roll at all. Used by reaction shots and by abilities
+     that say "make an attack with this unit's <weapon>". */
+  function openFreeAttack(unitId, opts) {
+    const g = S();
+    const o = opts || {};
+    const u = Store.unit(unitId);
+    if (!u) return;
+    const range = (o.weapon === 'melee') ? 'melee' : 'ranged';
+    const list = (u.weapons || []).filter(w => w.type === range);
+    g.flow = {
+      kind: 'attack',
+      actionId: range === 'melee' ? 'fight' : 'shoot',
+      attackerId: unitId, targetId: null,
+      weaponId: list.length === 1 ? list[0].id : null,
+      source: 'free', freeLabel: o.label || 'Free attack',
+      noReaction: o.noRP !== false, free: true, paid: true,
+      hitMod: 0, woundMod: 0, sourceHitMod: Number(o.hitMod) || 0,
+      skipWound: !!o.skipWound, elevation: false,
+      notes: [(o.label || 'Free attack') + ': no AP' +
+              (o.noRP !== false ? ', the defender gains no RP' : '') +
+              (o.hitMod ? ', ' + (o.hitMod > 0 ? '+' : '') + o.hitMod + ' to hit' : '') +
+              (o.skipWound ? ', no Wound roll' : '') + '.'],
+      reaction: null, cancelled: false, apGrant: false, auras: {},
+      freeChoice: false, chainLivesOnDeath: false,
+      endsChainOverride: o.endsChain ? true : null,
+      step: 'target'
+    };
   }
 
   /* ------------------------------------------------------ token triggers */
@@ -1356,6 +1575,17 @@ const Engine = (function () {
         };
         // Overwatch fires, so the token comes off the table.
         u.tokens = (u.tokens || []).filter(x => x.id !== tokenId);
+      });
+      return;
+    }
+
+    // A button that fires a free attack (a reaction shot, a trap that shoots).
+    if (t.attackOpts) {
+      Store.commit('trigger ' + t.label, function () {
+        const u2 = Store.unit(unitId);
+        chainEntry(u2.name + ' triggers [' + t.label + '].', 'token');
+        openFreeAttack(unitId, Object.assign({ label: t.label }, t.attackOpts));
+        if (t.expiry === 'used') u2.tokens = (u2.tokens || []).filter(x => x.id !== tokenId);
       });
       return;
     }
@@ -1592,6 +1822,7 @@ const Engine = (function () {
     flowPickAbility, flowPickTarget, confirmAbility, useFreeAbility, usePhaseAbility,
     flowPickAttackTarget, flowPickWeapon, flowPickReaction, flowEligibility,
     flowHit, flowWound, flowDamage, attackNumbers, setElevation,
+    applicableAuras, toggleAura, blockedReactions, flowRedirect, openFreeAttack,
     effectsNeedingTarget,
     triggerToken, confirmToken, tokenPickTarget, tokenEffects, removeToken,
     adjustAP, adjustVP, adjustWounds, removeUnit, removeEffect,

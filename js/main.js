@@ -217,6 +217,8 @@
       case 'reactionsp': Engine.flowPickReaction('special', p[1]); return;
       case 'eligible': Engine.flowEligibility(p[1] === '1'); return;
       case 'elev': Engine.setElevation(!g.flow.elevation); return;
+      case 'aura': Engine.toggleAura(cmd.slice(5)); return;
+      case 'redirect': Engine.flowRedirect(p[1]); return;
       case 'hit': Engine.flowHit(p[1] === '1'); return;
       case 'wound': UI.clearDamageDraft(); Engine.flowWound(p[1] === '1'); return;
 

@@ -766,6 +766,21 @@ const UI = (function () {
 
   /* ------------------------------------------------------------- attack */
 
+  /* Auras are radii the app cannot measure, so each one that could apply is a
+     toggle next to the roll it would change. */
+  function auraToggles(f, stat) {
+    const list = Engine.applicableAuras(f).filter(a => a.stat === stat);
+    if (!list.length) return '';
+    return '<div style="font-size:10px;letter-spacing:.14em;color:var(--gold);font-weight:800;' +
+        'margin:10px 0 5px">AURAS IN RANGE?</div>' +
+      list.map(a => '<button class="toggle' + (f.auras && f.auras[a.key] ? ' on' : '') +
+        '" data-act="aura:' + a.key + '">' +
+        '<span class="box">' + (f.auras && f.auras[a.key] ? '✓' : '') + '</span>' +
+        '<span><b>' + esc(a.unit) + ' — ' + esc(a.source) + '</b><br>' +
+        '<span style="color:var(--ink-dim);font-size:11.5px">' +
+          esc(a.text || a.label) + '</span></span></button>').join('');
+  }
+
   /* High ground is a tabletop fact, so the player tells the app about it. */
   function elevToggle(f, action) {
     if (!action.elevation) return '';
@@ -831,14 +846,19 @@ const UI = (function () {
       const specials = (target.abilities || []).filter(a => a.trigger === 'rp' &&
         (Number(a.cost) || 0) <= rp);
 
+      const blocked = Engine.blockedReactions(target.id);
       return head(esc(g.players[defPlayer].name) + ' REACTS',
         (range === 'melee' ? 'MELEE' : 'RANGED') + ' REACTION · ' + rp + ' RP') + crumb +
         '<div class="mbody">' +
           list.filter(r => !r.isSpecial).map(r =>
             '<button class="choice' + (r.cost > rp ? ' disabled' : '') + '" data-act="reaction:' + r.id + '">' +
-              '<div class="cmain"><div class="cname">' + r.name + '</div>' +
+              '<div class="cmain"><div class="cname">' + r.name +
+                (blocked[r.id] ? ' <span class="ctag agg">BLOCKED</span>' : '') + '</div>' +
               '<div class="cdesc">' + esc(r.text) + '</div>' +
-              '<div class="cflav">' + esc(r.flavour) + '</div></div>' +
+              (blocked[r.id]
+                ? '<div class="cflav" style="color:var(--bad)">' + esc(blocked[r.id]) +
+                  ' — tap only if you agree it applies.</div>'
+                : '<div class="cflav">' + esc(r.flavour) + '</div>') + '</div>' +
               '<div class="ccost">' + r.cost + ' RP</div></button>').join('') +
           specials.map(a =>
             '<button class="choice" data-act="reactionsp:' + a.id + '">' +
@@ -851,6 +871,21 @@ const UI = (function () {
             '<div class="cdesc">Spend nothing and take the attack as it comes. ' +
               'Unspent RP does not carry over.</div></div>' +
             '<div class="ccost free">0 RP</div></button>' +
+        '</div>' +
+        '<div class="mfoot"><button class="btn ghost sm" data-act="flowback">BACK</button></div>';
+    }
+
+    if (f.step === 'redirect') {
+      const friends = g.units.filter(u => u.alive && u.owner === target.owner && u.id !== target.id);
+      return head('REDIRECT', 'WHICH UNIT IS HIT INSTEAD?') + crumb +
+        '<div class="mbody">' +
+          '<div class="noteline">Choose one of your units that would be an eligible target for ' +
+            'this attack. You have checked that on the table.</div>' +
+          (friends.length ? friends.map(u => unitChoice(u, 'redirect:' + u.id)).join('')
+            : '<div class="noteline warn">No other friendly unit to take the hit.</div>') +
+          '<button class="choice" data-act="redirect:' + target.id + '">' +
+            '<div class="cmain"><div class="cname">KEEP THE ORIGINAL TARGET</div>' +
+            '<div class="cdesc">' + esc(target.name) + ' takes it after all.</div></div></button>' +
         '</div>' +
         '<div class="mfoot"><button class="btn ghost sm" data-act="flowback">BACK</button></div>';
     }
@@ -883,6 +918,7 @@ const UI = (function () {
             (f.notes.length ? '<div class="modline">' + f.notes.map(esc).join('<br>') + '</div>' : '') +
           '</div>' +
           elevToggle(f, action) +
+          auraToggles(f, 'hit') +
           '<div class="noteline">Roll it on the table, then tell the app what happened.</div>' +
         '</div>' +
         '<div class="mfoot">' +
@@ -905,6 +941,7 @@ const UI = (function () {
             (n.elevWound ? '<div class="modline">High ground: +1 to Wound and +1 Damage.</div>' : '') +
           '</div>' +
           elevToggle(f, action) +
+          auraToggles(f, 'wound') +
         '</div>' +
         '<div class="mfoot">' +
           '<button class="btn bad" data-act="wound:0">FAILED</button>' +

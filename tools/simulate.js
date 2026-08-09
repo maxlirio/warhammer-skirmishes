@@ -26,7 +26,7 @@ vm.createContext(sandbox);
 /* Top-level `const` in a script lives in the context's lexical scope, not on
    the global object (same as classic <script> tags in a browser), so pull the
    modules out explicitly. */
-vm.runInContext('globalThis.__mods = { RULES: RULES, Store: Store, Engine: Engine };', sandbox);
+vm.runInContext('globalThis.__mods = { RULES: RULES, Store: Store, Engine: Engine }; globalThis.PRESETS = PRESETS;', sandbox);
 const { RULES, Store, Engine } = sandbox.__mods;
 
 /* ------------------------------------------------------------------ setup */
@@ -474,6 +474,172 @@ Engine.flowHit(true); Engine.flowWound(true); Engine.flowDamage(1);
 check('the target’s owner is the one who responds', G().control.player, 2);
 check('and their unit is the forced one', G().control.forcedUnitId, U('Charlie').id);
 check('they gained the survivor AP', ap(2), 1);
+
+/* ------------------------------------------ auras and the Astra Militarum */
+
+console.log('\n== the Astra Militarum preset ==');
+const astra = sandbox.PRESETS.find(f => f.id === 'astra');
+check('five units on the card', astra.units.length, 5);
+check('and a Special Objective', astra.objective.name, 'Unconventional Tactics');
+
+function buildPreset(faction, owner) {
+  return faction.units.map(function (spec) {
+    const u = Store.newUnit(owner, {
+      name: spec.name, move: spec.move, maxWounds: spec.maxWounds, wounds: spec.maxWounds,
+      toughness: spec.toughness, oc: spec.oc || 0, notes: spec.notes || ''
+    });
+    u.weapons = spec.weapons.map(w => Store.newWeapon(w));
+    u.abilities = (spec.abilities || []).map(function (a) {
+      const ab = Store.newAbility({ name: a.name, trigger: a.trigger, cost: a.cost,
+        text: a.text, usesPerGame: a.usesPerGame || 0, endsChain: a.endsChain || 'default' });
+      ab.effects = (a.effects || []).map(function (e) {
+        const row = Store.newEffectRow(e);
+        if (e.tokenEffects) row.tokenEffects = e.tokenEffects.map(t => Store.newEffectRow(t));
+        return row;
+      });
+      return ab;
+    });
+    return u;
+  });
+}
+
+const guard = buildPreset(astra, 0);
+const foes = [mkUnit(1, 'Cultist', 3, 4,
+  [{ name: 'Autogun', type: 'ranged', hit: 4, strength: 3, damage: 1 },
+   { name: 'Knife', type: 'melee', hit: 4, strength: 3, damage: 1 }], [])];
+Engine.startGame({ playerNames: ['Guard', 'Chaos'], vpTarget: 10, firstPlayer: 0,
+                   mission: { id: null }, objectives: [] }, guard.concat(foes));
+Engine.confirmStartPhase();
+
+const alfred = U('Guardsman "Alfred" 434-434');
+const commissar = U('Commissar Briant');
+const nick = U('Guardsman "Nick" 847-832');
+const fred = U('Guardsman "Fred" 434-436');
+const cultist = U('Cultist');
+
+console.log('\n== the Commissar’s 6" aura ==');
+Engine.adjustAP(0, 6);
+Engine.beginAction('shoot');
+Engine.flowPickUnit(alfred.id);
+Engine.flowPickAttackTarget(cultist.id);
+Engine.flowPickWeapon(alfred.weapons[0].id);   // Lasgun, hits on 2+
+Engine.flowPickReaction('none');
+const auras = Engine.applicableAuras(G().flow);
+check('the aura is offered, not applied', auras.length, 1);
+check('it names its source', auras[0].source, "It's My Job");
+check('before ticking it, Lasgun hits on 2+', Engine.attackNumbers().hitTarget, 2);
+Engine.toggleAura(auras[0].key);
+check('ticked, the +1 is folded in (capped at 2+)', Engine.attackNumbers().hitTarget, 2);
+Engine.flowHit(false);
+
+// A melee attack must not see a ranged-only aura.
+Engine.forceControl(0, null);
+Engine.adjustAP(0, 3);
+Engine.beginAction('fight');
+Engine.flowPickUnit(alfred.id);
+Engine.flowPickAttackTarget(cultist.id);
+Engine.flowPickReaction('none');
+check('a ranged-only aura is not offered in melee', Engine.applicableAuras(G().flow).length, 0);
+Engine.flowHit(false);
+
+console.log('\n== Cloaked: an enemy-facing aura ==');
+Engine.forceControl(0, null);
+Engine.adjustAP(0, 3);
+Engine.beginAction('ability');
+Engine.flowPickUnit(nick.id);
+Engine.flowPickAbility(nick.abilities.find(a => a.name === 'Cloaked').id);
+Engine.confirmAbility();
+check('Nick carries the aura', (U('Guardsman "Nick" 847-832').effects || []).length, 1);
+Engine.forceControl(1, null);
+Engine.adjustAP(1, 3);
+Engine.beginAction('shoot');
+Engine.flowPickUnit(cultist.id);
+Engine.flowPickAttackTarget(nick.id);
+Engine.flowPickReaction('none');
+const cl = Engine.applicableAuras(G().flow);
+check('Cloaked is offered to the enemy shooting Nick', cl.length, 1);
+check('base Autogun hits on 4+', Engine.attackNumbers().hitTarget, 4);
+Engine.toggleAura(cl[0].key);
+check('further than 6" makes it 5+', Engine.attackNumbers().hitTarget, 5);
+Engine.flowHit(false);
+
+// ...but not when shooting someone else.
+Engine.forceControl(1, null);
+Engine.adjustAP(1, 3);
+Engine.beginAction('shoot');
+Engine.flowPickUnit(cultist.id);
+Engine.flowPickAttackTarget(alfred.id);
+Engine.flowPickReaction('none');
+check('Cloaked does not protect other units', Engine.applicableAuras(G().flow).length, 0);
+Engine.flowHit(false);
+
+console.log('\n== the Commissar blocks WITHDRAW ==');
+const blocked = Engine.blockedReactions(alfred.id);
+check('WITHDRAW is flagged for the squad', blocked.withdraw.indexOf('Commissar Briant') >= 0, true);
+check('and not for the enemy', Object.keys(Engine.blockedReactions(cultist.id)).length, 0);
+
+console.log('\n== Alfred’s dagger ignores the once-per-chain lock ==');
+Engine.forceControl(0, null);
+Engine.adjustAP(0, 4);
+Engine.beginAction('fight');
+Engine.flowPickUnit(alfred.id);
+Engine.flowPickAttackTarget(cultist.id);
+Engine.flowPickWeapon(alfred.weapons.find(w => w.name === 'Dagger').id);
+Engine.flowPickReaction('none');
+Engine.flowHit(false);
+check('the dagger is still available',
+  Engine.weaponsFor(alfred.id, 'melee').find(w => w.name === 'Dagger').used, false);
+
+console.log('\n== Choke Hold: free attack, no RP, no wound roll ==');
+Engine.forceControl(0, null);
+Engine.adjustAP(0, 4);
+const cultistWounds = U('Cultist').wounds;
+Engine.beginAction('ability');
+Engine.flowPickUnit(fred.id);
+Engine.flowPickAbility(fred.abilities.find(a => a.name === 'Choke Hold').id);
+Engine.confirmAbility();
+check('the ability hands over to an attack flow', G().flow.kind, 'attack');
+check('with no reaction for the defender', G().flow.noReaction, true);
+Engine.flowPickAttackTarget(cultist.id);
+check('it goes straight to the Hit roll', G().flow.step, 'hit');
+Engine.flowHit(true);
+check('a hit deals no damage', U('Cultist').wounds, cultistWounds);
+check('and the chain ends, as the card says', G().chain.active, false);
+
+console.log('\n== Kill Count raises OC for good ==');
+const ocBefore = U('Guardsman "Al" 434-435').oc;
+Engine.forceControl(0, null);
+Engine.adjustAP(0, 3);
+Engine.beginAction('ability');
+Engine.flowPickUnit(U('Guardsman "Al" 434-435').id);
+Engine.flowPickAbility(U('Guardsman "Al" 434-435').abilities.find(a => a.name === 'Kill Count').id);
+Engine.confirmAbility();
+check('OC permanently up by one', U('Guardsman "Al" 434-435').oc, ocBefore + 1);
+
+console.log('\n== It\'s Your Job redirects the attack ==');
+Engine.forceControl(1, null);
+Engine.adjustAP(1, 3);
+Engine.beginAction('shoot');
+Engine.flowPickUnit(cultist.id);
+Engine.flowPickAttackTarget(commissar.id);
+Engine.flowPickReaction('special', commissar.abilities.find(a => a.name === "It's Your Job").id);
+check('the app asks who takes it instead', G().flow.step, 'redirect');
+Engine.flowRedirect(alfred.id);
+check('the attack now points at Alfred', G().flow.targetId, alfred.id);
+check('and carries on to the Hit roll', G().flow.step, 'hit');
+Engine.flowHit(false);
+
+console.log('\n== Snap Shot: a one-use reaction shot button ==');
+Engine.forceControl(0, null);
+Engine.adjustAP(0, 3);
+Engine.useFreeAbility(fred.id, fred.abilities.find(a => a.name === 'Snap Shot').id);
+const snap = U('Guardsman "Fred" 434-436').tokens[0];
+check('the button is on the table', snap.label, 'SNAP SHOT');
+Engine.triggerToken(fred.id, snap.id);
+check('pressing it opens a free attack', G().flow.source, 'free');
+check('with no RP for the defender', G().flow.noReaction, true);
+check('and no to-hit penalty', G().flow.sourceHitMod, 0);
+check('the button is spent', U('Guardsman "Fred" 434-436').tokens.length, 0);
 
 console.log('\n== summary ==');
 console.log((checks - fails) + '/' + checks + ' checks passed');

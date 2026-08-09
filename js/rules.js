@@ -366,8 +366,35 @@ const RULES = (function () {
       { id: 'heal',         label: 'Restore wounds',           num: true,  unit: 'W', pick: 'friendly' },
       { id: 'mod_hit',      label: 'Modify Hit rolls',         num: true,  unit: '', signed: true, pick: 'any', dur: true },
       { id: 'mod_wound',    label: 'Modify Wound rolls',       num: true,  unit: '', signed: true, pick: 'any', dur: true },
+      { id: 'aura',         label: 'Aura — a radius that modifies rolls', aura: true },
+      { id: 'attack',       label: 'Make a free attack',       attack: true },
+      { id: 'stat',         label: 'Change a stat permanently', stat: true },
+      { id: 'redirect',     label: 'Redirect the attack to another unit', redirect: true },
+      { id: 'blockreact',   label: 'Stop friends using a Reaction', block: true },
       { id: 'token',        label: 'Place a token / button',   token: true },
       { id: 'note',         label: 'Reminder text only',       note: true }
+    ],
+
+    /* An aura is a radius the app cannot measure, so it is offered as a toggle
+       on the roll it would change and the player says whether it applies. */
+    auraSides: [
+      { id: 'friendly', label: 'Friendly units attacking' },
+      { id: 'enemy',    label: 'Enemy units attacking' }
+    ],
+    auraModes: [
+      { id: 'within', label: 'within' },
+      { id: 'beyond', label: 'further than' }
+    ],
+    weaponScopes: [
+      { id: 'any',    label: 'any attack' },
+      { id: 'ranged', label: 'ranged attacks only' },
+      { id: 'melee',  label: 'melee attacks only' }
+    ],
+    statKinds: [
+      { id: 'oc',        label: 'OC' },
+      { id: 'move',      label: 'MOV"' },
+      { id: 'toughness', label: 'Toughness' },
+      { id: 'maxWounds', label: 'Max Wounds' }
     ],
 
     durations: [

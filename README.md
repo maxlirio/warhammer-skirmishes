@@ -92,6 +92,35 @@ starts, and **+ ADD UNIT** offers them back to you instead of a blank form. Ther
 are **SAVE TO LIBRARY** buttons for saving mid-edit, whole-roster save/load for a
 full team at once, and JSON export/import to move everything to another device.
 
+## Auras — "+1 to hit within 6\""
+
+The app cannot measure 6", so it does not try. An aura is declared once on a
+passive ability — what it modifies, by how much, whose attack, within or beyond
+how many inches, and for ranged, melee or any attack — and from then on **every
+attack it could possibly bear on shows it as a tick-box next to the roll it
+would change**, naming the unit it comes from. You look at the table and tick it
+or don't. Modifiers, the wound table, capping at the edge of the die: all handled
+from there.
+
+The same mechanism carries `Cloaked`-style defensive auras (enemies attacking
+*this* unit) via the "only when this unit is the one being attacked" switch.
+
+Related escape hatches on the same effect list: **make a free attack** (no AP,
+optionally no RP and no wound roll, for "make an attack with this unit's …"
+abilities), **change a stat permanently**, **redirect the attack to another
+unit** on an RP reaction, and **stop friends using a Reaction** — which renders
+that reaction struck through with the reason, but still tappable if you both
+agree it doesn't apply.
+
+## Preset factions
+
+**Astra Militarum** is the official line-up, entered from the cards: Guardsmen
+"Alfred", "Al", "Fred" and "Nick", Commissar Briant, and the *Unconventional
+Tactics* Special Objective. Every ability is wired up — the Commissar's 6" aura
+and his WITHDRAW ban, Nick's Cloaked and Grenade, Fred's Snap Shot and Choke
+Hold, Al's Kill Count, Alfred's unlimited dagger. Space Marines and Orks are
+included as clearly-labelled examples.
+
 ## When the app cannot model an ability
 
 Make it a button. Three ways, in increasing order of automation:

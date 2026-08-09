@@ -312,20 +312,140 @@ const Store = (function () {
 
 
 /* =========================================================================
-   SAMPLE ROSTERS — used by the "load an example" button on the setup screen.
+   PRESET FACTIONS — offered on the army slide.
    ========================================================================= */
-const SAMPLES = {
-  imperial: [
+const PRESETS = [
+{
+  id: 'astra',
+  name: 'Astra Militarum',
+  note: 'The official line-up.',
+  objective: {
+    name: 'Unconventional Tactics', vp: 2,
+    text: 'Score this Special Objective if you defeat an enemy unit without using SHOOT, ' +
+          'FIGHT, or CHARGE.',
+    effects: [{ kind: 'ap_self', value: 2 }]
+  },
+  units: [
     {
-      name: 'Intercessor Sergeant', move: 6, maxWounds: 3, wounds: 3, toughness: 4, oc: 2,
+      name: 'Guardsman "Alfred" 434-434', move: 4, maxWounds: 2, toughness: 4, oc: 1,
+      notes: 'Don\'t cross his crosshairs.',
       weapons: [
-        { name: 'Bolt Rifle', type: 'ranged', range: 24, hit: 3, strength: 4, damage: 1, notes: '' },
-        { name: 'Power Fist', type: 'melee', range: 1, hit: 3, strength: 8, damage: 2, notes: '' }
+        { name: 'Lasgun', type: 'ranged', range: 18, hit: 2, strength: 4, damage: 1 },
+        { name: 'Bolt Pistol', type: 'ranged', range: 12, hit: 3, strength: 3, damage: 1 },
+        { name: 'Dagger', type: 'melee', range: 1, hit: 3, strength: 3, damage: 1, unlimited: true }
       ],
       abilities: [
-        { name: 'Rapid Fire', trigger: 'ap', cost: 1,
-          text: 'Take an extra shot with a ranged weapon already used this chain.',
-          effects: [{ kind: 'note', text: 'The chosen weapon may be used again this action chain.' }] },
+        { name: 'Practised Blade', trigger: 'passive', cost: 0,
+          text: 'This unit\'s dagger can be used any number of times in the same action chain.',
+          effects: [] },
+        { name: 'Grappling Hook', trigger: 'ap', cost: 1,
+          text: 'Use only if terrain is within 3". Move this unit up to 5" in the direction of ' +
+                'the terrain, ignoring height.',
+          effects: [{ kind: 'note', text: 'Move up to 5" toward the terrain, ignoring height.' }] }
+      ]
+    },
+    {
+      name: 'Guardsman "Al" 434-435', move: 4, maxWounds: 2, toughness: 3, oc: 1,
+      notes: 'He was chosen as one of 434-434\'s trio for his unnatural skill with the bayonet.',
+      weapons: [
+        { name: 'Lasgun', type: 'ranged', range: 18, hit: 4, strength: 4, damage: 1 },
+        { name: 'Bayonet', type: 'melee', range: 2, hit: 2, strength: 4, damage: 1 }
+      ],
+      abilities: [
+        { name: 'Bayonet Charge', trigger: 'passive', cost: 0,
+          text: 'When this unit charges, his Bayonet has +1 damage for the attack.',
+          effects: [] },
+        { name: 'Kill Count', trigger: 'ap', cost: 1,
+          text: 'Whenever this unit defeats an enemy unit with his Bayonet, permanently increase ' +
+                'his OC by one.',
+          effects: [{ kind: 'stat', stat: 'oc', value: 1, pick: 'self' }] }
+      ]
+    },
+    {
+      name: 'Guardsman "Fred" 434-436', move: 4, maxWounds: 2, toughness: 4, oc: 1,
+      notes: '434-436 was chosen by 434-434 not for his accuracy, but for his power.',
+      weapons: [
+        { name: 'Modded Lasgun', type: 'ranged', range: 12, hit: 4, strength: 4, damage: 2 },
+        { name: 'Leathered Fist', type: 'melee', range: 1, hit: 3, strength: 2, damage: 1 }
+      ],
+      abilities: [
+        { name: 'Snap Shot', trigger: 'free', cost: 0, usesPerGame: 1,
+          text: 'Once per game, when an enemy unit moves, if it is an eligible target, this unit ' +
+                'may make a ranged attack against that unit. This attack does not give your ' +
+                'opponent RP.',
+          effects: [{ kind: 'token', label: 'SNAP SHOT', expiry: 'used', tokenAttack: true,
+                      tokenWeapon: 'ranged', tokenHitMod: 0,
+                      text: 'Press when an enemy moves into your sights. No RP for them.' }] },
+        { name: 'Choke Hold', trigger: 'ap', cost: 1, endsChain: 'yes',
+          text: 'Make an attack with this unit\'s Leathered Fist. Your opponent gets no RP. If ' +
+                'the attack hits, don\'t make a wound roll. Instead end this action chain and ' +
+                'move this unit 3".',
+          effects: [
+            { kind: 'attack', weapon: 'melee', noRP: true, hitMod: 0, skipWound: true },
+            { kind: 'note', text: 'On a hit: end the action chain and move this unit 3".' }
+          ] }
+      ]
+    },
+    {
+      name: 'Guardsman "Nick" 847-832', move: 4, maxWounds: 2, toughness: 3, oc: 1,
+      notes: 'Legend has it he once made a nick in a Chaos Lord\'s armor.',
+      weapons: [
+        { name: 'Lasgun', type: 'ranged', range: 18, hit: 3, strength: 4, damage: 1 },
+        { name: 'Bolt Pistol', type: 'ranged', range: 12, hit: 3, strength: 3, damage: 1 },
+        { name: 'Bayonet', type: 'melee', range: 2, hit: 4, strength: 4, damage: 1 }
+      ],
+      abilities: [
+        { name: 'Grenade', trigger: 'rp', cost: 1,
+          text: 'Place a mine token up to D6" away from this unit\'s position. It deals 1 damage ' +
+                'to each unit within 3" of it at the end of this action chain.',
+          effects: [{ kind: 'token', label: 'GRENADE', expiry: 'chain',
+                      text: 'At the end of the chain: 1 damage to each unit within 3". Press once ' +
+                            'per unit caught in it.',
+                      tokenEffects: [{ kind: 'damage', value: 1, pick: 'prompt' }] }] },
+        { name: 'Cloaked', trigger: 'ap', cost: 1,
+          text: 'Enemy units greater than 6" away have -1 to hit this unit.',
+          effects: [{ kind: 'aura', stat: 'hit', value: -1, side: 'enemy', onlyVsOwner: true,
+                      weapon: 'any', range: 6, mode: 'beyond', duration: 'manual', pick: 'self',
+                      text: 'Cloaked: enemy units further than 6" away have -1 to hit this unit.' }] }
+      ]
+    },
+    {
+      name: 'Commissar Briant', move: 4, maxWounds: 2, toughness: 4, oc: 2,
+      notes: '"I don\'t even want to hear it." BLAM.',
+      weapons: [
+        { name: 'Bolt Pistol', type: 'ranged', range: 12, hit: 3, strength: 3, damage: 1 },
+        { name: 'Uppercut', type: 'melee', range: 1, hit: 3, strength: 2, damage: 1 }
+      ],
+      abilities: [
+        { name: "It's My Job", trigger: 'passive', cost: 0,
+          text: 'Units in your squad cannot WITHDRAW. Units in your squad within 6" have +1 to ' +
+                'hit for ranged attacks.',
+          effects: [
+            { kind: 'blockreact', reaction: 'withdraw' },
+            { kind: 'aura', stat: 'hit', value: 1, side: 'friendly', onlyVsOwner: false,
+              weapon: 'ranged', range: 6, mode: 'within',
+              text: 'Units in your squad within 6" of Commissar Briant have +1 to hit for ranged attacks.' }
+          ] },
+        { name: "It's Your Job", trigger: 'rp', cost: 1,
+          text: 'Choose one of your units that would be an eligible target for the enemy unit\'s ' +
+                'attack instead. It targets that unit instead.',
+          effects: [{ kind: 'redirect' }] }
+      ]
+    }
+  ]
+},
+{
+  id: 'marines',
+  name: 'Space Marines',
+  note: 'An example roster, not an official card.',
+  units: [
+    {
+      name: 'Intercessor Sergeant', move: 6, maxWounds: 3, toughness: 4, oc: 2,
+      weapons: [
+        { name: 'Bolt Rifle', type: 'ranged', range: 24, hit: 3, strength: 4, damage: 1 },
+        { name: 'Power Fist', type: 'melee', range: 1, hit: 3, strength: 8, damage: 2 }
+      ],
+      abilities: [
         { name: 'Squad Discipline', trigger: 'rp', cost: 1,
           text: 'Subtract 1 from the attacker\'s Wound roll and gain 1 AP.',
           effects: [{ kind: 'mod_wound', value: -1, pick: 'attacker', duration: 'attack' },
@@ -333,27 +453,36 @@ const SAMPLES = {
       ]
     },
     {
-      name: 'Scout with Sniper', move: 6, maxWounds: 2, wounds: 2, toughness: 3, oc: 1,
+      name: 'Scout with Sniper', move: 6, maxWounds: 2, toughness: 3, oc: 1,
       weapons: [
-        { name: 'Sniper Rifle', type: 'ranged', range: 36, hit: 3, strength: 5, damage: 2, notes: '' },
-        { name: 'Combat Knife', type: 'melee', range: 1, hit: 4, strength: 3, damage: 1, notes: '' }
+        { name: 'Sniper Rifle', type: 'ranged', range: 36, hit: 3, strength: 5, damage: 2 },
+        { name: 'Combat Knife', type: 'melee', range: 1, hit: 4, strength: 3, damage: 1 }
       ],
       abilities: [
         { name: 'Proximity Mine', trigger: 'ap', cost: 1,
           text: 'Place a mine. When an enemy triggers it, it suffers 2 damage.',
-          effects: [{ kind: 'token', label: 'PROXIMITY MINE', expiry: 'used', tokenAttack: false,
-                      text: 'Deals 2 damage to the unit that triggered it.' }] },
+          effects: [{ kind: 'token', label: 'PROXIMITY MINE', expiry: 'used',
+                      text: 'Deals 2 damage to the unit that triggered it.',
+                      tokenEffects: [{ kind: 'damage', value: 2, pick: 'prompt' }] }] },
         { name: 'Camo Cloak', trigger: 'passive', cost: 0,
-          text: 'Enemies shooting this unit are at -1 to hit.', effects: [] }
+          text: 'Enemies shooting this unit from further than 12" are at -1 to hit.',
+          effects: [{ kind: 'aura', stat: 'hit', value: -1, side: 'enemy', onlyVsOwner: true,
+                      weapon: 'ranged', range: 12, mode: 'beyond',
+                      text: 'Camo Cloak: shots from further than 12" are at -1 to hit.' }] }
       ]
     }
-  ],
-  ork: [
+  ]
+},
+{
+  id: 'orks',
+  name: 'Orks',
+  note: 'An example roster, not an official card.',
+  units: [
     {
-      name: 'Ork Nob', move: 6, maxWounds: 4, wounds: 4, toughness: 5, oc: 2,
+      name: 'Ork Nob', move: 6, maxWounds: 4, toughness: 5, oc: 2,
       weapons: [
-        { name: 'Kombi-Shoota', type: 'ranged', range: 18, hit: 4, strength: 4, damage: 1, notes: '' },
-        { name: 'Big Choppa', type: 'melee', range: 1, hit: 3, strength: 7, damage: 2, notes: '' }
+        { name: 'Kombi-Shoota', type: 'ranged', range: 18, hit: 4, strength: 4, damage: 1 },
+        { name: 'Big Choppa', type: 'melee', range: 1, hit: 3, strength: 7, damage: 2 }
       ],
       abilities: [
         { name: 'WAAAGH!', trigger: 'ap', cost: 1,
@@ -365,10 +494,10 @@ const SAMPLES = {
       ]
     },
     {
-      name: 'Ork Boy', move: 6, maxWounds: 2, wounds: 2, toughness: 5, oc: 1,
+      name: 'Ork Boy', move: 6, maxWounds: 2, toughness: 5, oc: 1,
       weapons: [
-        { name: 'Shoota', type: 'ranged', range: 18, hit: 4, strength: 4, damage: 1, notes: '' },
-        { name: 'Choppa', type: 'melee', range: 1, hit: 3, strength: 4, damage: 1, notes: '' }
+        { name: 'Shoota', type: 'ranged', range: 18, hit: 4, strength: 4, damage: 1 },
+        { name: 'Choppa', type: 'melee', range: 1, hit: 3, strength: 4, damage: 1 }
       ],
       abilities: [
         { name: 'Mob Rule', trigger: 'start', cost: 0,
@@ -377,4 +506,5 @@ const SAMPLES = {
       ]
     }
   ]
-};
+}
+];
