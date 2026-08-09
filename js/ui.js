@@ -28,8 +28,8 @@ const UI = (function () {
     return '<div class="screen">' +
       topbar(g) +
       controlbar(g) +
-      '<div class="board"><div class="rosters">' +
-        rosterCol(g, 0) + rosterCol(g, 1) +
+      '<div class="board"><div class="rosters cols' + Math.min(g.players.length, 2) + '">' +
+        g.players.map((p, i) => rosterCol(g, i)).join('') +
       '</div></div>' +
       tokenTray(g) +
       chainbox(g) +
@@ -38,16 +38,17 @@ const UI = (function () {
   }
 
   function topbar(g) {
-    return '<div class="topbar">' +
-      plate(g, 0) +
-      '<div class="turnplate">' +
-        '<div class="t1">TURN ' + g.turn.number + '</div>' +
-        '<div class="t2">' + esc(g.players[g.turn.player].name) + '</div>' +
-        '<div class="t3">' + (g.turn.phase === 'start' ? 'START PHASE'
-                            : g.turn.phase === 'end' ? 'END PHASE' : 'ACTION PHASE') + '</div>' +
+    const n = g.players.length;
+    return '<div class="turnstrip">' +
+        '<span class="tt">TURN ' + g.turn.number + '</span>' +
+        '<span class="tn">' + esc(g.players[g.turn.player].name) + '</span>' +
+        '<span class="tp">' + (g.turn.phase === 'start' ? 'START PHASE'
+                             : g.turn.phase === 'end' ? 'END PHASE' : 'ACTION PHASE') + '</span>' +
+        '<span class="tv">FIRST TO ' + g.settings.vpTarget + ' VP</span>' +
       '</div>' +
-      plate(g, 1) +
-    '</div>';
+      '<div class="topbar cols' + n + '">' +
+        g.players.map((p, i) => plate(g, i)).join('') +
+      '</div>';
   }
 
   function plate(g, i) {
@@ -121,8 +122,16 @@ const UI = (function () {
       '</div>';
     }).join('');
 
+    const mcard = Engine.missionCard();
+    const flag = mcard && mcard.unitFlag;
+    const flagOn = flag && u.flags && u.flags[flag.id];
+    const carrying = Engine.relicCarrier() === u.id;
+
     const passives = (u.abilities || []).filter(a => a.trigger === 'passive')
-      .map(a => '<span class="chip-s pass" title="' + esc(a.text) + '">' + esc(a.name) + '</span>').join('');
+      .map(a => '<span class="chip-s pass" title="' + esc(a.text) + '">' + esc(a.name) + '</span>').join('') +
+      (flagOn ? '<span class="chip-s mission">' + flag.label + '</span>' : '') +
+      (carrying ? '<span class="chip-s mission">CARRYING THE RELIC</span>' : '') +
+      (u.marker ? '<span class="chip-s mission">MISSION MARKER · NO RP</span>' : '');
 
     const effects = (u.effects || []).map(e =>
       '<span class="chip-s eff">' + esc(e.label) +
@@ -164,14 +173,36 @@ const UI = (function () {
 
   function tokenTray(g) {
     const toks = Store.allTokens();
-    if (!toks.length) return '';
-    return '<div style="padding:7px 8px;border-top:1px solid var(--line);background:#0e141a;' +
-      'display:flex;gap:6px;flex-wrap:wrap;align-items:center">' +
-      '<span style="font-size:9px;letter-spacing:.16em;color:var(--ink-mute);font-weight:800">ON THE TABLE</span>' +
+    const cps = (g.mission && g.mission.controlPoints) || [];
+    const relic = g.mission && g.mission.relic;
+    if (!toks.length && !cps.length && !relic) return '';
+    const carrier = relic && relic.carrier ? Store.unit(relic.carrier) : null;
+    return '<div class="tray">' +
+      '<span class="traylbl">ON THE TABLE</span>' +
+      cps.map(c => '<div class="cpchip' + (c.controller === null || c.controller === undefined
+          ? '' : ' held p' + c.controller) + '"><b>' + esc(c.label) + '</b>' +
+        (c.controller === null || c.controller === undefined
+          ? 'unclaimed' : esc(g.players[c.controller].name)) + '</div>').join('') +
+      (relic ? '<div class="cpchip' + (carrier ? ' held p' + carrier.owner : '') + '">' +
+        '<b>RELIC</b>' + (carrier ? esc(carrier.name) : 'unclaimed') + '</div>' : '') +
       toks.map(t => '<button class="tokenbtn" data-act="tok:' + t.unitId + ':' + t.id + '">' +
         '[ ' + esc(t.label) + ' ]<span style="color:var(--ink-mute);font-weight:600">' +
         esc(t.unitName) + '</span></button>').join('') +
+      '<button class="abilbtn" data-act="newbutton">+ BUTTON</button>' +
     '</div>';
+  }
+
+  /* Pick a unit to hang a brand-new custom button on, mid-game. */
+  function newButtonModal(g) {
+    return head('NEW BUTTON', 'WHICH UNIT OWNS IT?') +
+      '<div class="mbody">' +
+        '<div class="noteline">For anything the app cannot model — a trap, an ambush, a one-off ' +
+          'ability, a marker you want to remember. You name it, you press it, the app keeps it ' +
+          'on screen until you dismiss it.</div>' +
+        g.units.filter(u => u.alive).map(u => unitChoice(u, 'addtok:' + u.id,
+          esc(g.players[u.owner].name))).join('') +
+      '</div>' +
+      '<div class="mfoot"><button class="btn ghost" data-act="close">CANCEL</button></div>';
   }
 
   function chainbox(g) {
@@ -209,6 +240,7 @@ const UI = (function () {
     if (modal === 'log') return wrap(logModal(g));
     if (modal === 'mission') return wrap(missionModal(g));
     if (modal === 'rules') return wrap(rulesModal());
+    if (modal === 'newbutton') return wrap(newButtonModal(g));
     if (modal && modal.unit) return wrap(unitModal(g, modal.unit));
     if (g.pending && modal !== 'phase-dismissed') return wrap(phaseModal(g));
     if (g.winner !== null && g.winner !== undefined && modal !== 'win-dismissed') return wrap(winModal(g));
@@ -233,6 +265,7 @@ const UI = (function () {
     const cp = g.control.player;
     const rows = RULES.actions.map(function (a) {
       const av = Engine.actionAvailability(a);
+      if (av.hide) return '';
       const cost = a.cost === null ? 'X AP' : (a.cost === 0 ? 'FREE' : a.cost + ' AP');
       return '<button class="choice' + (av.ok ? '' : ' disabled') + '" data-act="action:' + a.id + '">' +
         '<div class="cmain">' +
@@ -332,11 +365,10 @@ const UI = (function () {
             'ANY OTHER VP</div>' +
             '<div class="noteline">Anything else you scored this turn — the app has no idea what your ' +
               'mission rewards, so tell it.</div>' +
-            '<div style="display:flex;gap:7px;margin-bottom:8px">' +
-              '<button class="btn sm" style="flex:1" data-act="askvp:0">VP FOR ' +
-                esc(g.players[0].name).toUpperCase() + '</button>' +
-              '<button class="btn sm" style="flex:1" data-act="askvp:1">VP FOR ' +
-                esc(g.players[1].name).toUpperCase() + '</button>' +
+            '<div style="display:flex;gap:7px;margin-bottom:8px;flex-wrap:wrap">' +
+              g.players.map(pl => '<button class="btn sm p' + pl.id + '" style="flex:1 1 45%" ' +
+                'data-act="askvp:' + pl.id + '">VP FOR ' + esc(pl.name).toUpperCase() +
+                '</button>').join('') +
             '</div>') +
       '</div>' +
       '<div class="mfoot">' +
@@ -345,34 +377,58 @@ const UI = (function () {
       '</div>';
   }
 
-  /* End of turn: the app reads the objective text back to you and you say
-     whether it was scored and for how much. It works nothing out itself. */
+  /* End of turn: the app reads the mission card back to you and takes your
+     number. For SECURE THE AREA it has watched every SECURE and counts for you. */
   function missionCheck(g) {
-    const m = g.mission || {};
-    const objs = m.objectives || [];
-    if (!m.name && !objs.length) return '';
+    const m = Engine.missionCard();
+    if (!m) return '';
+    const items = Engine.missionEndTurnItems();
     return '<div style="font-size:10px;letter-spacing:.14em;color:var(--gold);font-weight:800;margin:12px 0 6px">' +
-        'MISSION' + (m.name ? ' — ' + esc(m.name).toUpperCase() : '') + '</div>' +
-      (m.text ? '<div class="noteline">' + esc(m.text) + '</div>' : '') +
-      (objs.length
-        ? objs.map(function (o) {
-            const c0 = Engine.objectiveScoredBy(o.id, 0);
-            const c1 = Engine.objectiveScoredBy(o.id, 1);
+        'MISSION — ' + m.name + '</div>' +
+      '<div class="noteline">' + esc(m.objective) + '</div>' +
+      controlPointStrip(g) +
+      relicStrip(g) +
+      (items.length
+        ? items.map(function (o) {
             return '<div class="sub" style="background:#0f161d;margin-bottom:7px">' +
               '<div style="font-weight:700;font-size:13px">' + esc(o.name) + '</div>' +
               (o.text ? '<div style="color:var(--ink-dim);font-size:11.5px;margin:3px 0 7px;line-height:1.4">' +
                 esc(o.text) + '</div>' : '<div style="height:6px"></div>') +
               '<div style="font-size:10px;color:var(--ink-mute);letter-spacing:.1em;font-weight:800;margin-bottom:4px">' +
                 'SCORED BY?</div>' +
-              '<div style="display:flex;gap:6px">' +
-                '<button class="btn sm" style="flex:1" data-act="scoreobj:' + o.id + ':0">' +
-                  esc(g.players[0].name) + (c0 ? ' ·' + c0 : '') + '</button>' +
-                '<button class="btn sm" style="flex:1" data-act="scoreobj:' + o.id + ':1">' +
-                  esc(g.players[1].name) + (c1 ? ' ·' + c1 : '') + '</button>' +
+              '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
+                g.players.map(function (pl) {
+                  const c = Engine.objectiveScoredBy(o.id, pl.id);
+                  const sug = o.perPlayerVP ? o.perPlayerVP[pl.id] : null;
+                  return '<button class="btn sm p' + pl.id + '" style="flex:1 1 45%" ' +
+                    'data-act="scoreobj:' + o.id + ':' + pl.id + '">' + esc(pl.name) +
+                    (sug !== null ? ' · ' + sug + ' VP' : '') + (c ? ' ·' + c + 'x' : '') + '</button>';
+                }).join('') +
               '</div>' +
             '</div>';
           }).join('')
-        : '<div class="noteline">No objectives on this mission card.</div>');
+        : '<div class="noteline">Nothing is scored at the end of a turn in this mission — its VP ' +
+          'comes from what happens on the table.</div>');
+  }
+
+  function controlPointStrip(g) {
+    const cps = (g.mission && g.mission.controlPoints) || [];
+    if (!cps.length) return '';
+    return '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">' +
+      cps.map(c => '<div class="cpchip' + (c.controller === null || c.controller === undefined
+          ? '' : ' held p' + c.controller) + '">' +
+        '<b>' + esc(c.label) + '</b>' +
+        (c.controller === null || c.controller === undefined
+          ? 'unclaimed' : esc(g.players[c.controller].name)) + '</div>').join('') +
+    '</div>';
+  }
+
+  function relicStrip(g) {
+    if (!g.mission || !g.mission.relic) return '';
+    const cid = g.mission.relic.carrier;
+    const u = cid ? Store.unit(cid) : null;
+    return '<div class="cpchip' + (u ? ' held p' + u.owner : '') + '" style="margin-bottom:8px">' +
+      '<b>RELIC</b>' + (u ? esc(u.name) + ' is carrying it' : 'on the ground, unclaimed') + '</div>';
   }
 
   function specialObjectiveCheck(g) {
@@ -423,6 +479,15 @@ const UI = (function () {
           '<button class="btn sm" style="flex:1" data-act="vpadd:-1">− 1</button>' +
           '<button class="btn sm" style="flex:1" data-act="vpadd:1">+ 1</button>' +
         '</div>' +
+        (g.players.length > 2
+          ? '<div style="font-size:10px;letter-spacing:.14em;color:var(--ink-mute);font-weight:800;margin:12px 0 5px">' +
+              'SCORING FOR — tap to change</div>' +
+            '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
+              g.players.map(pl => '<button class="btn sm p' + pl.id +
+                (pl.id === p.player ? ' primary' : '') + '" style="flex:1" ' +
+                'data-act="vpwho:' + pl.id + '">' + esc(pl.name) + '</button>').join('') +
+            '</div>'
+          : '') +
       '</div>' +
       '<div class="mfoot">' +
         '<button class="btn ghost sm" data-act="vpok:0">NONE</button>' +
@@ -437,6 +502,8 @@ const UI = (function () {
     if (f.kind === 'attack')    return attackFlow(g, f);
     if (f.kind === 'ability')   return abilityFlow(g, f);
     if (f.kind === 'overwatch') return overwatchFlow(g, f);
+    if (f.kind === 'secure')    return secureFlow(g, f);
+    if (f.kind === 'relic')     return relicFlow(g, f);
     if (f.kind === 'simple')    return simpleFlow(g, f);
     if (f.kind === 'pass')      return passFlow(g, f);
     if (f.kind === 'token')     return tokenFlow(g, f);
@@ -461,6 +528,31 @@ const UI = (function () {
 
   /* ------------------------------------------------------------- simple */
 
+  /* Three- and four-player games: the rules say "your opponent", so the app
+     asks which one rather than picking for you. */
+  function responderStep(g, f) {
+    const a = RULES.actionById(f.actionId);
+    const me = g.control.player;
+    const gains = a.opponentGainsAP > 0;
+    return head(a.name, gains ? 'WHICH OPPONENT GAINS ' + a.opponentGainsAP + ' AP?'
+                              : 'WHO MAY RESPOND?') +
+      '<div class="mbody">' +
+        '<div class="noteline">' + (gains
+          ? 'This is a Passive Action, so the opponent who gains the AP may answer with any of their units.'
+          : 'The chain passes to one opponent. Anyone else keeps their AP for their own turn.') +
+        '</div>' +
+        Store.opponentsOf(me).map(o =>
+          '<button class="choice p' + o + '" data-act="pickresponder:' + o + '">' +
+            '<div class="cmain"><div class="cname">' + esc(g.players[o].name) + '</div>' +
+            '<div class="cdesc">' + g.players[o].ap + ' AP · ' + g.players[o].vp + ' VP · ' +
+              Store.unitsOf(o, true).length + ' units standing</div></div></button>').join('') +
+        (gains ? '' :
+          '<button class="choice" data-act="pickresponder:none">' +
+            '<div class="cmain"><div class="cname">NO ONE</div>' +
+            '<div class="cdesc">End the action chain here.</div></div></button>') +
+      '</div>' + footBack();
+  }
+
   function simpleFlow(g, f) {
     const a = RULES.actionById(f.actionId);
     if (f.step === 'unit') {
@@ -469,6 +561,7 @@ const UI = (function () {
           unitChoice(u, 'pickunit:' + u.id)).join('') + '</div>' +
         footBack();
     }
+    if (f.step === 'opponent') return responderStep(g, f);
     const u = Store.unit(f.unitId);
     return head(a.name, 'CONFIRM') +
       '<div class="mbody">' +
@@ -491,12 +584,64 @@ const UI = (function () {
       footBack('confirmpass', 'END MY TURN');
   }
 
+  function secureFlow(g, f) {
+    if (f.step === 'unit') {
+      return head('SECURE', 'SELECT UNIT') +
+        '<div class="mbody">' + Engine.eligibleUnits().map(u =>
+          unitChoice(u, 'pickunit:' + u.id)).join('') + '</div>' + footBack();
+    }
+    if (f.step === 'opponent') return responderStep(g, f);
+    const cps = (g.mission && g.mission.controlPoints) || [];
+    if (f.step === 'point') {
+      return head('SECURE', 'WHICH OBJECTIVE?') +
+        '<div class="mbody">' +
+          '<div class="noteline">You have checked on the table that ' + esc(Store.unit(f.unitId).name) +
+            ' can secure it. The app just remembers who holds it.</div>' +
+          cps.map(c => '<button class="choice" data-act="pickcp:' + c.id + '">' +
+            '<div class="cmain"><div class="cname">' + esc(c.label) + '</div>' +
+            '<div class="cdesc">' + (c.controller === null || c.controller === undefined
+              ? 'Unclaimed' : 'Held by ' + esc(g.players[c.controller].name)) + '</div></div></button>').join('') +
+        '</div>' + footBack();
+    }
+    const cp = cps.find(c => c.id === f.cpId);
+    return head('SECURE', 'CONFIRM') +
+      '<div class="mbody">' +
+        '<div class="rollbox"><div class="lbl">' + esc(Store.unit(f.unitId).name) + '</div>' +
+          '<div class="big" style="font-size:20px">' + esc(cp ? cp.label : '') + '</div>' +
+          '<div class="sub">It stays yours until an enemy SECURES it.</div></div>' +
+        '<div class="noteline">Costs 1 AP. At the end of each turn you score 1 VP for every ' +
+          'objective you hold — the app will count them for you.</div>' +
+      '</div>' +
+      footBack('confirmsecure', 'SECURE IT — 1 AP');
+  }
+
+  function relicFlow(g, f) {
+    if (f.step === 'unit') {
+      return head('THE RELIC', 'WHO PICKS IT UP?') +
+        '<div class="mbody">' + Engine.eligibleUnits().map(u =>
+          unitChoice(u, 'pickunit:' + u.id)).join('') + '</div>' + footBack();
+    }
+    if (f.step === 'opponent') return responderStep(g, f);
+    return head('THE RELIC', 'CONFIRM') +
+      '<div class="mbody">' +
+        '<div class="rollbox"><div class="lbl">PICK UP THE RELIC</div>' +
+          '<div class="big" style="font-size:20px">' + esc(Store.unit(f.unitId).name) + '</div>' +
+          '<div class="sub">You have checked it is within 3" on the table.</div></div>' +
+        '<div class="noteline warn">While carrying the RELIC this unit cannot use OVERWATCH. ' +
+          'If it is destroyed, the RELIC drops where it fell.</div>' +
+        '<div class="noteline">Get it to your own side of the battlefield to score 3 VP and end ' +
+          'the game — tell the app in the End Phase when that happens.</div>' +
+      '</div>' +
+      footBack('confirmrelic', 'TAKE IT — 1 AP');
+  }
+
   function overwatchFlow(g, f) {
     if (f.step === 'unit') {
       return head('OVERWATCH', 'SELECT UNIT') +
         '<div class="mbody">' + Engine.eligibleUnits().map(u =>
           unitChoice(u, 'pickunit:' + u.id)).join('') + '</div>' + footBack();
     }
+    if (f.step === 'opponent') return responderStep(g, f);
     const u = Store.unit(f.unitId);
     const ranged = (u.weapons || []).filter(w => w.type === 'ranged');
     return head('OVERWATCH', 'CONFIRM') +
@@ -537,6 +682,7 @@ const UI = (function () {
         '</div>' + footBack();
     }
     const ab = Engine.findAbility(f.unitId, f.abilityId);
+    if (f.step === 'opponent') return responderStep(g, f);
     if (f.step === 'pick') {
       const needs = Engine.effectsNeedingTarget(ab, { sourceUnitId: f.unitId });
       const e = needs.find(x => !f.targets[x.id]) || needs[0];
@@ -652,12 +798,13 @@ const UI = (function () {
     }
 
     if (f.step === 'target') {
-      const enemies = Store.unitsOf(Store.opponentOf(attacker.owner), true);
+      const enemies = g.units.filter(u => u.alive && u.owner !== attacker.owner);
       return head(title, 'SELECT DEFENDING UNIT') + crumb +
         '<div class="mbody">' +
           '<div class="noteline">You have already checked range and line of sight on the table. ' +
             'The app just needs to know who is being attacked.</div>' +
-          enemies.map(u => unitChoice(u, 'picktargetunit:' + u.id)).join('') +
+          enemies.map(u => unitChoice(u, 'picktargetunit:' + u.id,
+            g.players.length > 2 ? esc(g.players[u.owner].name) : null)).join('') +
         '</div>' + footBack();
     }
 
@@ -808,8 +955,7 @@ const UI = (function () {
         '<button class="choice" data-act="showlog"><div class="cmain">' +
           '<div class="cname">FULL GAME LOG</div>' +
           '<div class="cdesc">Every AP, VP, wound and effect change since the first turn.</div></div></button>' +
-        ((g.mission && (g.mission.name || (g.mission.objectives || []).length)) ||
-         g.players.some(p => p.objective)
+        ((g.mission && g.mission.id) || g.players.some(p => p.objective)
           ? '<button class="choice" data-act="showmission"><div class="cmain">' +
               '<div class="cname">MISSION &amp; OBJECTIVES</div>' +
               '<div class="cdesc">The mission card, its objectives and both Special Objectives. ' +
@@ -821,9 +967,10 @@ const UI = (function () {
         '<button class="choice" data-act="forceendturn"><div class="cmain">' +
           '<div class="cname">END THIS TURN</div>' +
           '<div class="cdesc">Override: jump straight to the End Phase.</div></div></button>' +
-        '<button class="choice" data-act="swapcontrol"><div class="cmain">' +
-          '<div class="cname">GIVE CONTROL TO ' + esc(g.players[Store.opponentOf(g.control.player)].name).toUpperCase() + '</div>' +
-          '<div class="cdesc">Override: the other player acts next, with a free choice of unit.</div></div></button>' +
+        Store.opponentsOf(g.control.player).map(o =>
+          '<button class="choice p' + o + '" data-act="swapcontrol:' + o + '"><div class="cmain">' +
+            '<div class="cname">GIVE CONTROL TO ' + esc(g.players[o].name).toUpperCase() + '</div>' +
+            '<div class="cdesc">Override: they act next, with a free choice of unit.</div></div></button>').join('') +
         '<button class="choice" data-act="toggleow"><div class="cmain">' +
           '<div class="cname">OVERWATCH ENDS WITH THE CHAIN: ' +
             (g.settings.overwatchEndsWithChain ? 'ON' : 'OFF') + '</div>' +
@@ -837,8 +984,23 @@ const UI = (function () {
   }
 
   function missionModal(g) {
-    return head('MISSION', esc((g.mission && g.mission.name) || 'OBJECTIVES')) +
-      '<div class="mbody">' + missionCheck(g) + specialObjectiveCheck(g) + '</div>' +
+    const m = Engine.missionCard();
+    return head('MISSION', m ? m.name : 'OBJECTIVES') +
+      '<div class="mbody">' +
+        (m
+          ? '<div class="mcflav" style="margin-bottom:10px">' + esc(m.flavour) + '</div>' +
+            '<div class="noteline"><b>BATTLEFIELD</b><br>' + esc(m.battlefield) + '</div>' +
+            '<div class="noteline"><b>OBJECTIVE</b><br>' + esc(m.objective) + '</div>' +
+            '<div class="noteline"><b>SPECIAL RULES</b><br>' + esc(m.special) + '</div>' +
+            (g.mission.roles && g.mission.roles.attacker !== null
+              ? '<div class="noteline">Attacker: <b>' + esc(g.players[g.mission.roles.attacker].name) +
+                '</b> · Defender: <b>' + esc(g.players[g.mission.roles.defender].name) + '</b></div>'
+              : '') +
+            controlPointStrip(g) + relicStrip(g) +
+            (m.unitFlag ? '<div class="noteline">' + esc(m.unitFlag.hint) + '</div>' : '')
+          : '<div class="noteline">No mission card this game.</div>') +
+        specialObjectiveCheck(g) +
+      '</div>' +
       '<div class="mfoot"><button class="btn ghost" data-act="menu">BACK</button></div>';
   }
 
@@ -878,6 +1040,13 @@ const UI = (function () {
               durLabel(e.duration) + '<br>' + esc(e.detail || '') + '</div>').join('')
           : '') +
         '<div style="height:8px"></div>' +
+        (Engine.missionCard() && Engine.missionCard().unitFlag
+          ? '<button class="choice" data-act="flag:' + u.id + ':' + Engine.missionCard().unitFlag.id +
+              '"><div class="cmain"><div class="cname">' +
+              ((u.flags && u.flags[Engine.missionCard().unitFlag.id]) ? 'REMOVE ' : 'MARK AS ') +
+              Engine.missionCard().unitFlag.label + '</div>' +
+              '<div class="cdesc">' + esc(Engine.missionCard().unitFlag.hint) + '</div></div></button>'
+          : '') +
         '<button class="choice" data-act="addtok:' + u.id + '"><div class="cmain">' +
           '<div class="cname">ADD A TOKEN / BUTTON BY HAND</div>' +
           '<div class="cdesc">For a mine, trap, ambush or marker you did not build into an ability.</div></div></button>' +
@@ -896,12 +1065,17 @@ const UI = (function () {
   }
 
   function winModal(g) {
-    const w = g.players[g.winner];
-    return head('VICTORY', esc(w.name).toUpperCase()) +
+    const over = g.gameOver;
+    const w = (g.winner === null || g.winner === undefined) ? null : g.players[g.winner];
+    return head(over ? 'THE MISSION ENDS' : 'VICTORY',
+                w ? esc(w.name).toUpperCase() : 'A DRAW') +
       '<div class="mbody">' +
-        '<div class="winner">' + esc(w.name) + ' reaches ' + w.vp + ' VP</div>' +
-        '<div class="noteline">' + esc(g.players[0].name) + ' — ' + g.players[0].vp + ' VP · ' +
-          esc(g.players[1].name) + ' — ' + g.players[1].vp + ' VP</div>' +
+        (over ? '<div class="noteline">' + esc(over.why) + '</div>' : '') +
+        '<div class="winner">' + (w
+          ? esc(w.name) + (over ? ' wins on ' + w.vp + ' VP' : ' reaches ' + w.vp + ' VP')
+          : 'Level on VP — call it between you') + '</div>' +
+        '<div class="noteline">' + g.players.map(pl =>
+          esc(pl.name) + ' — ' + pl.vp + ' VP').join(' · ') + '</div>' +
         '<div class="noteline">Play on if you agreed a higher target; the app keeps tracking either way.</div>' +
       '</div>' +
       '<div class="mfoot">' +

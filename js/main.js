@@ -156,7 +156,7 @@
       case 'forceendturn':  UI.setModal(null); Engine.forceEndTurn(); return;
       case 'swapcontrol':
         UI.setModal(null);
-        Engine.forceControl(Store.opponentOf(g.control.player), null);
+        Engine.forceControl(Number(p[1]), null);
         return;
       case 'toggleow':
         Store.commit('setting', function () {
@@ -168,14 +168,17 @@
         if (!confirm('End this game and go back to roster setup?')) return;
         const cur = Store.get();
         const st = {
-          p1: cur.players[0].name, p2: cur.players[1].name,
-          vpTarget: cur.settings.vpTarget, firstPlayer: 0, tab: 0,
-          units: JSON.parse(JSON.stringify(cur.units)), open: {},
-          mission: JSON.parse(JSON.stringify(cur.mission || { name: '', text: '', objectives: [] })),
+          playerNames: cur.players.map(pl => pl.name),
+          playerCount: cur.players.length,
+          vpTarget: cur.settings.vpTarget, firstPlayer: 0, step: 0,
+          // Mission markers belong to the mission, not the roster.
+          units: JSON.parse(JSON.stringify(cur.units.filter(u => !u.marker))), open: {},
+          missionId: (cur.mission && cur.mission.id) || null,
+          roles: (cur.mission && cur.mission.roles) || { attacker: null, defender: null },
+          flagged: [null, null, null, null],
           objectives: cur.players.map(p => p.objective
             ? Object.assign(JSON.parse(JSON.stringify(p.objective)), { completed: 0 })
-            : Store.newSpecialObjective()),
-          showMission: !!(cur.mission && cur.mission.name)
+            : Store.newSpecialObjective())
         };
         st.units.forEach(u => { u.wounds = u.maxWounds; u.alive = true; u.effects = []; u.tokens = []; });
         Store.clear();
@@ -197,6 +200,17 @@
       case 'flowback': UI.clearDamageDraft(); Engine.flowBack(); return;
 
       case 'pickunit': Engine.flowPickUnit(p[1]); return;
+      case 'pickresponder': Engine.flowPickResponder(p[1] === 'none' ? null : Number(p[1])); return;
+      case 'pickcp': Engine.flowPickControlPoint(p[1]); return;
+      case 'confirmsecure': Engine.confirmSecure(); return;
+      case 'confirmrelic': Engine.confirmRelic(); return;
+      case 'flag': Engine.toggleUnitFlag(p[1], p[2]); UI.setModal(null); return;
+      case 'newbutton': UI.setModal('newbutton'); return;
+      case 'vpwho': {
+        const q = g.vpPrompts[0];
+        if (q) Engine.reassignVP(q.id, Number(p[1]));
+        return;
+      }
       case 'picktargetunit': Engine.flowPickAttackTarget(p[1]); return;
       case 'pickweapon': Engine.flowPickWeapon(p[1]); return;
       case 'reaction': Engine.flowPickReaction(p[1], null); return;

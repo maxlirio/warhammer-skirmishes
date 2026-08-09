@@ -1,24 +1,48 @@
 /* =========================================================================
-   SETUP — pre-game roster and ability builder.
+   SETUP — an ordered wizard: players → mission → each army → review.
    ========================================================================= */
 
 const Setup = (function () {
 
-  let S = null;   // setup-screen working state
+  const MAX_PLAYERS = 4;
+  let S = null;
 
-  function init(existing) {
-    S = existing || {
-      p1: 'Player 1', p2: 'Player 2',
+  function blankState() {
+    return {
+      step: 0,
+      playerCount: 2,
+      playerNames: ['Player 1', 'Player 2', 'Player 3', 'Player 4'],
       vpTarget: RULES.defaultVPTarget,
       firstPlayer: 0,
-      tab: 0,
+      missionId: null,
+      roles: { attacker: null, defender: null },
+      flagged: [null, null, null, null],
+      objectives: [Store.newSpecialObjective(), Store.newSpecialObjective(),
+                   Store.newSpecialObjective(), Store.newSpecialObjective()],
       units: [],
-      open: {}
+      open: {},
+      picker: null,
+      showMission: false
     };
-    // Fields added after a save may be missing from a restored setup state.
-    if (!S.mission) S.mission = { name: '', text: '', objectives: [] };
-    if (!S.objectives) S.objectives = [Store.newSpecialObjective(), Store.newSpecialObjective()];
-    if (!S.showMission) S.showMission = false;
+  }
+
+  function init(existing) {
+    S = existing || blankState();
+    const b = blankState();
+
+    /* Anything missing from an older saved setup gets filled in. */
+    Object.keys(b).forEach(k => { if (S[k] === undefined || S[k] === null) S[k] = b[k]; });
+
+    /* Migrate the old two-player shape. */
+    if (S.p1 || S.p2) {
+      S.playerNames = [S.p1 || 'Player 1', S.p2 || 'Player 2', 'Player 3', 'Player 4'];
+      delete S.p1; delete S.p2;
+    }
+    while (S.playerNames.length < MAX_PLAYERS) S.playerNames.push('Player ' + (S.playerNames.length + 1));
+    while (S.objectives.length < MAX_PLAYERS) S.objectives.push(Store.newSpecialObjective());
+    S.playerCount = Math.max(2, Math.min(MAX_PLAYERS, Number(S.playerCount) || 2));
+    S.step = Math.max(0, Math.min(lastStep(), Number(S.step) || 0));
+    S.picker = null;
     return S;
   }
 
@@ -36,226 +60,296 @@ const Setup = (function () {
     return e && (e.tokenEffects || []).find(t => t.id === tid);
   };
 
+  /* --------------------------------------------------------------- steps */
+
+  /* The slides are built fresh each render, because the mission card decides
+     whether a briefing slide is needed at all. */
+  function steps() {
+    const list = [{ kind: 'players' }, { kind: 'mission' }];
+    for (let i = 0; i < S.playerCount; i++) list.push({ kind: 'army', owner: i });
+    if (missionNeedsBriefing()) list.push({ kind: 'briefing' });
+    list.push({ kind: 'review' });
+    return list;
+  }
+
+  const lastStep = () => steps().length - 1;
+  const stepAt = n => steps()[Math.max(0, Math.min(lastStep(), n))];
+  const card = () => (S.missionId ? RULES.missionById(S.missionId) : null);
+
+  function missionNeedsBriefing() {
+    const m = card();
+    if (!m) return false;
+    return !!m.roles || !!(m.unitFlag && m.unitFlag.pickAtSetup);
+  }
+
+  function stepTitle(n) {
+    const s = stepAt(n);
+    if (s.kind === 'players') return 'PLAYERS';
+    if (s.kind === 'mission') return 'MISSION';
+    if (s.kind === 'briefing') return 'BRIEFING';
+    if (s.kind === 'review') return 'READY';
+    return esc(S.playerNames[s.owner]).toUpperCase() + '’S ARMY';
+  }
+
+  /* Why NEXT is unavailable, or null if it is fine. */
+  function blockedReason(n) {
+    const s = stepAt(n);
+    if (s.kind === 'players') {
+      const names = S.playerNames.slice(0, S.playerCount).map(x => String(x).trim());
+      if (names.some(x => !x)) return 'Every player needs a name.';
+    }
+    if (s.kind === 'mission') {
+      const m = card();
+      if (m && m.players && m.players !== S.playerCount) {
+        return m.name + ' is a ' + m.players + '-player mission.';
+      }
+    }
+    if (s.kind === 'army' && !unitsOf(s.owner).length) {
+      return 'Add at least one unit for ' + S.playerNames[s.owner] + '.';
+    }
+    if (s.kind === 'briefing') {
+      const m = card();
+      if (m && m.roles && (S.roles.attacker === S.roles.defender ||
+          S.roles.attacker === null || S.roles.defender === null)) {
+        return 'Choose who is attacking and who is defending.';
+      }
+      if (m && m.unitFlag && m.unitFlag.pickAtSetup) {
+        for (let i = 0; i < S.playerCount; i++) {
+          if (!S.flagged[i]) return 'Every player must name their ' + m.unitFlag.label + '.';
+        }
+      }
+    }
+    return null;
+  }
+
   /* ------------------------------------------------------------- rendering */
 
   function render() {
-    const p0 = unitsOf(0), p1 = unitsOf(1);
-    const ready = p0.length > 0 && p1.length > 0;
-    const rosterList = Store.rosters();
+    const n = S.step;
+    const blocked = blockedReason(n);
+    const last = n === lastStep();
 
-    return '' +
-      '<div class="screen scroll">' +
-        '<div class="setup">' +
+    const s = stepAt(n);
+    let body;
+    if (s.kind === 'players') body = playersStep();
+    else if (s.kind === 'mission') body = missionStep();
+    else if (s.kind === 'briefing') body = briefingStep();
+    else if (s.kind === 'review') body = reviewStep();
+    else body = armyStepView(s.owner);
 
-          '<div class="title">' +
-            '<h1>WARHAMMER <span style="color:var(--gold)">SKIRMISHES</span></h1>' +
-            '<div class="sub">The app is the game\'s memory, not its eyes.<br>' +
-            'You judge the tabletop. It tracks AP, VP, wounds, chains and effects.</div>' +
-          '</div>' +
-
-          '<h2>PLAYERS</h2>' +
-          '<div class="grid2">' +
-            field('Player 1 name', '<input type="text" data-bind="cfg:p1" data-rerender="1" value="' + esc(S.p1) + '">') +
-            field('Player 2 name', '<input type="text" data-bind="cfg:p2" data-rerender="1" value="' + esc(S.p2) + '">') +
-          '</div>' +
-          '<div class="grid2">' +
-            field('Victory Points to win', '<input type="number" min="1" data-bind="cfg:vpTarget" value="' + esc(S.vpTarget) + '">') +
-            field('Who takes the first turn',
-              '<select data-bind="cfg:firstPlayer" data-rerender="1">' +
-                '<option value="0"' + (S.firstPlayer === 0 ? ' selected' : '') + '>' + esc(S.p1) + '</option>' +
-                '<option value="1"' + (S.firstPlayer === 1 ? ' selected' : '') + '>' + esc(S.p2) + '</option>' +
-              '</select>') +
-          '</div>' +
-
-          missionSection() +
-
-          '<h2>ROSTERS</h2>' +
-          '<div class="tabs">' +
-            '<button class="tab p0' + (S.tab === 0 ? ' on' : '') + '" data-act="tab:0">' +
-              esc(S.p1).toUpperCase() + ' · ' + p0.length + '</button>' +
-            '<button class="tab p1' + (S.tab === 1 ? ' on' : '') + '" data-act="tab:1">' +
-              esc(S.p2).toUpperCase() + ' · ' + p1.length + '</button>' +
-          '</div>' +
-
-          specialObjectiveCard(S.tab) +
-
-          (S.tab === 0 ? p0 : p1).map(unitCard).join('') +
-
-          '<button class="addbtn" data-act="openPicker:unit">+ ADD UNIT</button>' +
-
-          '<div class="grid2" style="margin-top:10px">' +
-            '<button class="btn sm" style="flex:1" data-act="saveRoster:' + S.tab + '">SAVE THIS ROSTER</button>' +
-            '<button class="btn sm" style="flex:1" data-act="sample:' + S.tab + '">LOAD EXAMPLE</button>' +
-          '</div>' +
-
-          (rosterList.length
-            ? '<div class="sub" style="margin-top:9px">' +
-                '<div class="shd">SAVED ROSTERS — tap to load into this slot</div>' +
-                rosterList.map(r =>
-                  '<div style="display:flex;gap:6px;margin-bottom:5px;align-items:center">' +
-                    '<button class="btn sm" style="flex:1;text-align:left;justify-content:flex-start" ' +
-                      'data-act="loadRoster:' + S.tab + ':' + esc(r.name) + '">' + esc(r.name) +
-                      ' <span style="color:var(--ink-mute);font-weight:600"> · ' + r.units.length + ' units</span></button>' +
-                    '<button class="iconbtn" data-act="delRoster:' + esc(r.name) + '">✕</button>' +
-                  '</div>').join('') +
-              '</div>'
-            : '') +
-
-          '<h2>DATA</h2>' +
-          '<div class="grid2">' +
-            '<button class="btn sm" style="flex:1" data-act="export">EXPORT JSON</button>' +
-            '<button class="btn sm" style="flex:1" data-act="import">IMPORT JSON</button>' +
-          '</div>' +
-
-          '<div style="height:14px"></div>' +
-          '<button class="bigbtn' + (ready ? '' : ' dim') + '" style="width:100%" data-act="start">' +
-            (ready ? 'BEGIN THE SKIRMISH' : 'BOTH PLAYERS NEED AT LEAST ONE UNIT') +
-          '</button>' +
-          '<div style="height:26px"></div>' +
+    return '<div class="screen">' +
+      '<div class="wizhead">' +
+        '<div class="wiztitle">WARHAMMER <span>SKIRMISHES</span></div>' +
+        '<div class="wizstep">STEP ' + (n + 1) + ' OF ' + (lastStep() + 1) + ' — ' + stepTitle(n) + '</div>' +
+        '<div class="wizdots">' +
+          Array.from({ length: lastStep() + 1 }, (_, i) =>
+            '<button class="dot' + (i === n ? ' on' : (i < n ? ' done' : '')) + '" ' +
+              'data-act="goto:' + i + '"></button>').join('') +
         '</div>' +
-      '</div>' + pickerOverlay();
+      '</div>' +
+      '<div class="screen scroll"><div class="setup">' + body + '<div style="height:20px"></div></div></div>' +
+      '<div class="wizfoot">' +
+        (n > 0 ? '<button class="btn ghost" style="flex:0 0 96px" data-act="prev">BACK</button>' : '') +
+        (last
+          ? '<button class="bigbtn" style="flex:1" data-act="start">BEGIN THE SKIRMISH</button>'
+          : '<button class="bigbtn' + (blocked ? ' dim' : '') + '" style="flex:1" data-act="next">' +
+            (blocked ? esc(blocked) : 'NEXT') + '</button>') +
+      '</div>' +
+    '</div>' + pickerOverlay();
   }
 
   function field(label, inner) {
     return '<div class="field"><label>' + label + '</label>' + inner + '</div>';
   }
 
-  /* ------------------------------------------------------- mission card */
+  /* --------------------------------------------------------- step: players */
 
-  function missionSection() {
-    const m = S.mission;
-    const open = S.showMission || m.name || (m.objectives || []).length;
-    if (!open) {
-      return '<h2>MISSION CARD <span style="color:var(--ink-mute);font-weight:600;letter-spacing:0">' +
-        '· optional</span></h2>' +
-        '<div class="hint">Mission Cards set the environment and the objectives you fight over. ' +
-        'Leave this out until you are comfortable with the system — the app works fine without it.</div>' +
-        '<button class="addbtn" data-act="showMission">+ ADD A MISSION CARD</button>';
-    }
-    return '<h2>MISSION CARD</h2>' +
-      '<div class="hint">Objectives are checked in the End Phase, after END: abilities are resolved. ' +
-      'The app will ask who scored each one.</div>' +
-      '<div class="card">' +
-        field('Mission name', '<input type="text" data-bind="mission:name" data-rerender="1" value="' +
-          esc(m.name) + '" placeholder="Ruins of Vharn Secundus">') +
-        field('Environment / special rules (reminder text)',
-          '<textarea data-bind="mission:text" placeholder="Toxic fog: any unit that ends a turn in the open…">' +
-            esc(m.text) + '</textarea>') +
-        '<div class="sub">' +
-          '<div class="shd">OBJECTIVES</div>' +
-          (m.objectives || []).map(function (o) {
-            return '<div class="sub" style="background:#0f161d">' +
-              '<div class="chd">' +
-                '<input type="text" data-bind="missionobj:' + o.id + ':name" data-rerender="1" value="' +
-                  esc(o.name) + '" style="flex:1;background:#0f161d;border:1px solid var(--line);' +
-                  'border-radius:6px;padding:7px;min-height:36px">' +
-                '<button class="iconbtn" data-act="delMissionObj:' + o.id + '">✕</button>' +
-              '</div>' +
-              field('The text the app reads back to you at the end of each turn',
-                '<textarea data-bind="missionobj:' + o.id + ':text" ' +
-                'placeholder="Control the central ruin at the end of your turn — 2 VP.">' +
-                esc(o.text) + '</textarea>') +
-              field('TYPICAL VP (just pre-fills the entry — you always type the real number)',
-                '<input type="number" min="0" data-bind="missionobj:' + o.id +
-                  ':vp" value="' + esc(o.vp) + '">') +
-            '</div>';
-          }).join('') +
-          '<button class="addbtn" data-act="addMissionObj">+ ADD OBJECTIVE</button>' +
-        '</div>' +
-        '<div style="display:flex;gap:7px">' +
-          '<button class="btn sm" style="flex:1" data-act="openPicker:mission">LOAD SAVED MISSION</button>' +
-          '<button class="btn sm" style="flex:1" data-act="libSaveMission">SAVE TO LIBRARY</button>' +
-        '</div>' +
-      '</div>';
-  }
-
-  /* -------------------------------------------------- special objective */
-
-  function specialObjectiveCard(owner) {
-    const o = S.objectives[owner];
-    const who = owner === 0 ? S.p1 : S.p2;
-    return '<div class="card" style="border-color:var(--gold-dim)">' +
-      '<div class="chd">' +
-        '<div class="t" style="color:var(--gold)">SPECIAL OBJECTIVE — ' + esc(who) + '</div>' +
-        (o.name ? '<button class="iconbtn" data-act="clearObjective:' + owner + '">✕</button>' : '') +
+  function playersStep() {
+    return '<div class="lead">How many of you are playing?</div>' +
+      '<div class="pickrow">' +
+        [2, 3, 4].map(n => '<button class="pickbtn' + (S.playerCount === n ? ' on' : '') +
+          '" data-act="count:' + n + '">' + n + '<span>PLAYERS</span></button>').join('') +
       '</div>' +
-      '<div class="hint">Each faction\'s own card: a feat that rewards them for completing it. ' +
-        'Checked in the End Phase, after END: abilities. Leave the name blank to skip it.</div>' +
-      field('Objective name', '<input type="text" data-bind="obj:' + owner + ':name" data-rerender="1" value="' +
-        esc(o.name) + '" placeholder="Blood for the Blood God">') +
-      field('The text the app reads back to you at the end of each turn',
-        '<textarea data-bind="obj:' + owner + ':text" placeholder="Destroy an enemy unit in melee in each of two consecutive turns.">' +
-          esc(o.text) + '</textarea>') +
+
+      '<h2>NAMES</h2>' +
+      S.playerNames.slice(0, S.playerCount).map((nm, i) =>
+        '<div class="field"><label class="p' + i + '">PLAYER ' + (i + 1) + '</label>' +
+          '<input type="text" data-bind="pname:' + i + '" data-rerender="1" value="' + esc(nm) + '">' +
+        '</div>').join('') +
+
+      '<h2>THE GAME</h2>' +
       '<div class="grid2">' +
-        field('TYPICAL VP (pre-fills only)',
-          '<input type="number" min="0" data-bind="obj:' + owner + ':vp" value="' + esc(o.vp || 0) + '">') +
-        field('HOW OFTEN',
-          '<select data-bind="obj:' + owner + ':repeat">' +
-            '<option value="false"' + (!o.repeat ? ' selected' : '') + '>Once per game</option>' +
-            '<option value="true"' + (o.repeat ? ' selected' : '') + '>Every time it is completed</option>' +
+        field('VICTORY POINTS TO WIN',
+          '<input type="number" min="1" data-bind="cfg:vpTarget" value="' + esc(S.vpTarget) + '">') +
+        field('WHO TAKES THE FIRST TURN',
+          '<select data-bind="cfg:firstPlayer" data-rerender="1">' +
+            S.playerNames.slice(0, S.playerCount).map((nm, i) =>
+              '<option value="' + i + '"' + (S.firstPlayer === i ? ' selected' : '') + '>' +
+                esc(nm) + '</option>').join('') +
           '</select>') +
       '</div>' +
-      '<div style="font-size:10px;letter-spacing:.14em;color:var(--ink-mute);font-weight:800;margin:8px 0 5px">' +
-        'EXTRA REWARDS BEYOND VP — optional (an AP bonus, a modifier, a token)</div>' +
-      (o.effects || []).map(e => effectRow(e, 'objeffect:' + owner + ':' + e.id,
-        'delObjEffect:' + owner + ':' + e.id, { allow: RULES.objectiveEffectKinds })).join('') +
-      '<button class="addbtn" data-act="addObjEffect:' + owner + '">+ ADD REWARD</button>' +
-      '<div style="display:flex;gap:7px;margin-top:8px">' +
-        '<button class="btn sm" style="flex:1" data-act="openPicker:objective:' + owner + '">LOAD SAVED</button>' +
-        '<button class="btn sm" style="flex:1" data-act="libSaveObjective:' + owner + '">SAVE TO LIBRARY</button>' +
-      '</div>' +
-    '</div>';
+      '<div class="hint">Play passes around the table in this order. Each turn the active player ' +
+        'gains 1 AP in their Start Phase.</div>' +
+      (S.playerCount > 2
+        ? '<div class="noteline warn" style="margin-top:10px">With more than two players the rules\' ' +
+          '“your opponent” is ambiguous, so the app will ask you which opponent it means whenever ' +
+          'it matters. An attack never needs asking — the target\'s owner is the opponent.</div>'
+        : '');
   }
 
-  /* ------------------------------------------------------------- library
-     Pick anything you have entered before instead of typing it again. */
+  /* --------------------------------------------------------- step: mission */
 
-  function pickerOverlay() {
-    if (!S.picker) return '';
-    const kind = S.picker.kind;
-    const lib = Store.library();
-    const list = lib[kind === 'unit' ? 'units' : kind === 'mission' ? 'missions' : 'objectives'];
-    const title = kind === 'unit' ? 'YOUR UNITS'
-                : kind === 'mission' ? 'YOUR MISSIONS' : 'YOUR SPECIAL OBJECTIVES';
+  function missionCardFace(m, chosen) {
+    const bad = m.players && m.players !== S.playerCount;
+    return '<button class="misscard' + (chosen ? ' on' : '') + (bad ? ' bad' : '') + '" ' +
+      'data-act="mission:' + m.id + '">' +
+      '<div class="mcname">' + m.name +
+        (m.players ? ' <span class="mcp">' + m.players + ' PLAYERS</span>' : '') + '</div>' +
+      '<div class="mcflav">' + esc(m.flavour) + '</div>' +
+      '<div class="mcsec"><b>BATTLEFIELD</b> ' + esc(m.battlefield) + '</div>' +
+      '<div class="mcsec"><b>OBJECTIVE</b> ' + esc(m.objective) + '</div>' +
+      '<div class="mcsec"><b>SPECIAL RULES</b> ' + esc(m.special) + '</div>' +
+      (bad ? '<div class="mcbad">Needs exactly ' + m.players + ' players.</div>' : '') +
+      (chosen ? '<div class="mcon">SELECTED</div>' : '') +
+    '</button>';
+  }
 
-    const rows = list.map(function (x, i) {
-      let sub = '';
-      if (kind === 'unit') {
-        sub = 'MOV ' + x.move + '" · W ' + x.maxWounds + ' · T ' + x.toughness + ' · OC ' + (x.oc || 0) +
-          ' · ' + (x.weapons || []).length + ' weapons · ' + (x.abilities || []).length + ' abilities';
-      } else if (kind === 'mission') {
-        sub = (x.objectives || []).length + ' objectives' + (x.text ? ' · ' + x.text.slice(0, 70) : '');
-      } else {
-        sub = (x.text || '').slice(0, 90);
-      }
-      return '<div style="display:flex;gap:6px;align-items:stretch;margin-bottom:7px">' +
-        '<button class="choice" style="margin:0;flex:1" data-act="pickLib:' + kind + ':' + i + '">' +
-          '<div class="cmain"><div class="cname">' + esc(x.name) + '</div>' +
-          '<div class="cdesc">' + esc(sub) + '</div></div></button>' +
-        '<button class="iconbtn" data-act="delLib:' + kind + ':' + i + '">✕</button>' +
+  function missionStep() {
+    const m = card();
+    return '<div class="lead">Which Mission Card?</div>' +
+      '<div class="hint">The card sets the battlefield and what you score for. The app tracks ' +
+        'everything it can — markers you can shoot, objectives you SECURE, who is carrying the ' +
+        'RELIC — and reads the rest back to you at the end of each turn.</div>' +
+      '<button class="misscard' + (!S.missionId ? ' on' : '') + '" data-act="mission:none">' +
+        '<div class="mcname">NO MISSION CARD</div>' +
+        '<div class="mcflav">Just fight. Award VP by hand whenever you agree one was scored.</div>' +
+        (!S.missionId ? '<div class="mcon">SELECTED</div>' : '') +
+      '</button>' +
+      RULES.missions.map(x => missionCardFace(x, S.missionId === x.id)).join('') +
+      (m && m.extraActions
+        ? '<div class="noteline warn">This mission adds the ' +
+          m.extraActions.map(a => RULES.actionById(a).name).join(' and ') +
+          ' action to the Action List.</div>' : '');
+  }
+
+  /* ------------------------------------------------------- step: briefing */
+
+  function briefingStep() {
+    const m = card();
+    if (!m) return '';
+    let html = '<div class="lead">' + m.name + ' — before you start</div>';
+
+    if (m.roles) {
+      html += '<h2>ROLES</h2>' +
+        '<div class="hint">' + esc(m.battlefield) + '</div>' +
+        Object.keys(m.roles).map(function (role) {
+          return '<div class="field"><label>' + role.toUpperCase() + '</label>' +
+            '<div class="pickrow">' +
+              S.playerNames.slice(0, S.playerCount).map((nm, i) =>
+                '<button class="pickbtn small' + (S.roles[role] === i ? ' on' : '') +
+                  '" data-act="role:' + role + ':' + i + '">' + esc(nm) + '</button>').join('') +
+            '</div>' +
+            '<div class="hint">' + esc(m.roles[role]) + '</div></div>';
+        }).join('');
+    }
+
+    if (m.unitFlag && m.unitFlag.pickAtSetup) {
+      html += '<h2>' + m.unitFlag.label + '</h2>' +
+        '<div class="hint">' + esc(m.unitFlag.hint) + '</div>' +
+        S.playerNames.slice(0, S.playerCount).map(function (nm, i) {
+          const list = unitsOf(i);
+          return '<div class="card"><div class="chd"><div class="t p' + i + '">' + esc(nm) + '</div></div>' +
+            (list.length
+              ? list.map(u => '<button class="choice' + (S.flagged[i] === u.id ? ' sel' : '') +
+                  '" data-act="flagunit:' + i + ':' + u.id + '">' +
+                  '<div class="cmain"><div class="cname">' + esc(u.name) + '</div>' +
+                  '<div class="cdesc">' + u.maxWounds + 'W → ' +
+                    (u.maxWounds + (m.unitFlag.boostWounds || 0)) + 'W as the ' +
+                    m.unitFlag.label + '</div></div>' +
+                  (S.flagged[i] === u.id ? '<div class="ccost">' + m.unitFlag.label + '</div>' : '') +
+                  '</button>').join('')
+              : '<div class="hint">No units yet — go back and add some.</div>') +
+          '</div>';
+        }).join('');
+    }
+    return html;
+  }
+
+  /* ------------------------------------------------------------ step: army */
+
+  function armyStepView(owner) {
+    const list = unitsOf(owner);
+    const rosterList = Store.rosters();
+    return '<div class="lead p' + owner + '">' + esc(S.playerNames[owner]) + '’s army</div>' +
+
+      specialObjectiveCard(owner) +
+
+      '<h2>UNITS · ' + list.length + '</h2>' +
+      list.map(u => unitCard(u)).join('') +
+      '<button class="addbtn" data-act="openPicker:unit:' + owner + '">+ ADD UNIT</button>' +
+
+      '<div class="grid2" style="margin-top:10px">' +
+        '<button class="btn sm" style="flex:1" data-act="saveRoster:' + owner + '">SAVE THIS ROSTER</button>' +
+        '<button class="btn sm" style="flex:1" data-act="sample:' + owner + '">LOAD EXAMPLE</button>' +
+      '</div>' +
+
+      (rosterList.length
+        ? '<div class="sub" style="margin-top:9px">' +
+            '<div class="shd">SAVED ROSTERS — tap to load into this slot</div>' +
+            rosterList.map((r, i) =>
+              '<div style="display:flex;gap:6px;margin-bottom:5px;align-items:center">' +
+                '<button class="btn sm" style="flex:1;text-align:left" ' +
+                  'data-act="loadRoster:' + owner + ':' + i + '">' + esc(r.name) +
+                  ' <span style="color:var(--ink-mute);font-weight:600"> · ' + r.units.length + ' units</span></button>' +
+                '<button class="iconbtn" data-act="delRoster:' + i + '">✕</button>' +
+              '</div>').join('') +
+          '</div>'
+        : '');
+  }
+
+  /* ---------------------------------------------------------- step: review */
+
+  function reviewStep() {
+    return '<div class="lead">Ready to play</div>' +
+      '<div class="card">' +
+        '<div class="shd" style="margin-bottom:8px">THE TABLE</div>' +
+        S.playerNames.slice(0, S.playerCount).map((nm, i) =>
+          '<div class="revrow p' + i + '">' +
+            '<span class="rn">' + esc(nm) + (S.firstPlayer === i ? ' · first turn' : '') + '</span>' +
+            '<span class="rv">' + unitsOf(i).length + ' units</span>' +
+          '</div>' +
+          '<div class="revsub">' + (unitsOf(i).map(u => esc(u.name)).join(', ') || 'no units') +
+            (S.objectives[i] && S.objectives[i].name
+              ? '<br><span style="color:var(--gold)">Special Objective: ' + esc(S.objectives[i].name) + '</span>'
+              : '') +
+          '</div>').join('') +
+      '</div>' +
+      '<div class="card">' +
+        '<div class="shd" style="margin-bottom:8px">MISSION</div>' +
+        (card()
+          ? '<div class="revrow"><span class="rn">' + card().name + '</span></div>' +
+            '<div class="revsub">' + esc(card().objective) + '</div>' +
+            (S.roles.attacker !== null && card().roles
+              ? '<div class="revsub">Attacker: <b>' + esc(S.playerNames[S.roles.attacker]) +
+                '</b> · Defender: <b>' + esc(S.playerNames[S.roles.defender]) + '</b></div>' : '') +
+            (card().unitFlag && card().unitFlag.pickAtSetup
+              ? '<div class="revsub">' + card().unitFlag.label + 's: ' +
+                S.flagged.slice(0, S.playerCount).map(function (id) {
+                  const u = findUnit(id);
+                  return u ? esc(u.name) : '—';
+                }).join(', ') + '</div>' : '')
+          : '<div class="revsub">No mission card — you can still award VP by hand at any time.</div>') +
+      '</div>' +
+      '<div class="card">' +
+        '<div class="shd" style="margin-bottom:8px">VICTORY</div>' +
+        '<div class="revsub">First to <b style="color:var(--good)">' + esc(S.vpTarget) +
+          ' VP</b> wins. Every unit, mission and objective you entered is being saved to this ' +
+          'browser, so next time it is a few taps.</div>' +
+      '</div>' +
+      '<div class="grid2">' +
+        '<button class="btn sm" style="flex:1" data-act="export">EXPORT JSON</button>' +
+        '<button class="btn sm" style="flex:1" data-act="import">IMPORT JSON</button>' +
       '</div>';
-    }).join('');
-
-    return '<div class="overlay" data-overlay="1"><div class="modal">' +
-      '<div class="mhead"><div><div class="mtitle">' + title + '</div>' +
-        '<div class="mstep">SAVED IN THIS BROWSER</div></div>' +
-        '<button class="mclose" data-act="closePicker">✕</button></div>' +
-      '<div class="mbody">' +
-        (list.length ? rows
-          : '<div class="noteline">Nothing saved yet. Everything you enter is added to this list ' +
-            'when you start a game, so the next one is a few taps.</div>') +
-        (kind === 'unit'
-          ? '<button class="addbtn" data-act="addUnit:' + S.tab + '">+ BLANK UNIT INSTEAD</button>' : '') +
-      '</div>' +
-      '<div class="mfoot"><button class="btn ghost" data-act="closePicker">CLOSE</button></div>' +
-    '</div></div>';
-  }
-
-  /* Called when a game starts: remember everything the player typed. */
-  function stashEverything() {
-    S.units.forEach(u => Store.libSave('units', u));
-    if (S.mission && S.mission.name) Store.libSave('missions', S.mission);
-    S.objectives.forEach(o => { if (o && o.name) Store.libSave('objectives', o); });
   }
 
   /* ------------------------------------------------------------ unit card */
@@ -282,7 +376,7 @@ const Setup = (function () {
         '<button class="iconbtn" data-act="delUnit:' + u.id + '">✕</button>' +
       '</div>' +
 
-      field('Unit name', '<input type="text" data-bind="unit:' + u.id + ':name" data-rerender="1" value="' + esc(u.name) + '">') +
+      field('UNIT NAME', '<input type="text" data-bind="unit:' + u.id + ':name" data-rerender="1" value="' + esc(u.name) + '">') +
 
       '<div class="grid4">' +
         field('MOV&quot;', '<input type="number" min="0" data-bind="unit:' + u.id + ':move" value="' + esc(u.move) + '">') +
@@ -300,12 +394,18 @@ const Setup = (function () {
       '</div>' +
 
       '<div class="sub">' +
-        '<div class="shd">SPECIAL ABILITIES</div>' +
+        '<div class="shd">ABILITIES</div>' +
+        '<div class="hint" style="margin:-2px 0 8px">Anything the app cannot model mechanically can ' +
+          'still be a <b>button</b>: give it the text you want to see and press it when it happens. ' +
+          'Buttons live on the unit card (FREE) or on the table until used (a token).</div>' +
         (u.abilities || []).map(a => abilityCard(u, a)).join('') +
-        '<button class="addbtn" data-act="addAbility:' + u.id + '">+ ADD ABILITY</button>' +
+        '<div style="display:flex;gap:7px">' +
+          '<button class="addbtn" style="flex:1" data-act="addAbility:' + u.id + '">+ ADD ABILITY</button>' +
+          '<button class="addbtn" style="flex:1" data-act="addButton:' + u.id + '">+ ADD PLAIN BUTTON</button>' +
+        '</div>' +
       '</div>' +
 
-      field('Notes (shown on the unit card)',
+      field('NOTES (shown on the unit card during play)',
         '<textarea data-bind="unit:' + u.id + ':notes">' + esc(u.notes) + '</textarea>') +
     '</div>';
   }
@@ -361,14 +461,17 @@ const Setup = (function () {
       '</div>' +
       '<div class="hint">' + trig.hint + '</div>' +
 
-      field('WHAT IT DOES (shown to you when it fires)',
+      field('WHAT IT DOES (shown to you whenever it fires)',
         '<textarea data-bind="ability:' + u.id + ':' + a.id + ':text">' + esc(a.text) + '</textarea>') +
 
       '<div style="font-size:10px;letter-spacing:.14em;color:var(--ink-mute);font-weight:800;margin:8px 0 5px">' +
-        'MECHANICAL EFFECTS — what the app should change' +
+        'MECHANICAL EFFECTS — optional; leave empty for a reminder-only ability' +
       '</div>' +
       (a.effects || []).map(e => abilityEffectRow(u, a, e)).join('') +
-      '<button class="addbtn" data-act="addEffect:' + u.id + ':' + a.id + '">+ ADD EFFECT</button>' +
+      '<div style="display:flex;gap:7px">' +
+        '<button class="addbtn" style="flex:1" data-act="addEffect:' + u.id + ':' + a.id + '">+ EFFECT</button>' +
+        '<button class="addbtn" style="flex:1" data-act="addTokenEffect:' + u.id + ':' + a.id + '">+ BUTTON ON THE TABLE</button>' +
+      '</div>' +
 
       (a.trigger === 'ap'
         ? '<div class="grid2" style="margin-top:8px">' +
@@ -390,7 +493,7 @@ const Setup = (function () {
     '</div>';
   }
 
-  /* ---------------------------------------------------------- effect row */
+  /* ---------------------------------------------------------- effect rows */
 
   function abilityEffectRow(u, a, e) {
     const base = 'effect:' + u.id + ':' + a.id + ':' + e.id;
@@ -405,7 +508,7 @@ const Setup = (function () {
     });
   }
 
-  /* opts: { nested, allow (list of kind ids), tokenChildren:{addAct, rows} } */
+  /* opts: { nested, allow (kind ids), tokenChildren:{addAct, rows} } */
   function effectRow(e, base, delAct, opts) {
     opts = opts || {};
     const kind = RULES.effectKinds.find(k => k.id === e.kind) || RULES.effectKinds[0];
@@ -444,10 +547,10 @@ const Setup = (function () {
           RULES.tokenExpiries.map(x =>
             '<option value="' + x.id + '"' + (e.expiry === x.id ? ' selected' : '') + '>' + x.label + '</option>').join('') +
         '</select>');
-      inner += field('REMINDER TEXT WHEN TRIGGERED',
+      inner += field('WHAT THE BUTTON SAYS WHEN PRESSED',
         '<input type="text" data-bind="' + base + ':text" value="' + esc(e.text) + '">');
       inner += '<div style="font-size:10px;letter-spacing:.12em;color:var(--ink-mute);font-weight:800;margin:6px 0 4px">' +
-        'WHAT HAPPENS WHEN THE BUTTON IS PRESSED</div>' +
+        'AND WHAT IT DOES — optional, a reminder alone is fine</div>' +
         opts.tokenChildren.rows +
         '<button class="addbtn" data-act="' + opts.tokenChildren.addAct + '">+ ADD TRIGGER EFFECT</button>';
     }
@@ -469,6 +572,90 @@ const Setup = (function () {
     '</div>';
   }
 
+  /* -------------------------------------------------- special objective */
+
+  function specialObjectiveCard(owner) {
+    const o = S.objectives[owner];
+    const who = S.playerNames[owner];
+    return '<div class="card" style="border-color:var(--gold-dim)">' +
+      '<div class="chd">' +
+        '<div class="t" style="color:var(--gold)">SPECIAL OBJECTIVE</div>' +
+        (o.name ? '<button class="iconbtn" data-act="clearObjective:' + owner + '">✕</button>' : '') +
+      '</div>' +
+      '<div class="hint">' + esc(who) + '’s own card: a feat that rewards them for completing it. ' +
+        'Checked in the End Phase, after END: abilities. Leave the name blank to skip it.</div>' +
+      field('OBJECTIVE NAME', '<input type="text" data-bind="obj:' + owner + ':name" data-rerender="1" value="' +
+        esc(o.name) + '" placeholder="Blood for the Blood God">') +
+      field('THE TEXT THE APP READS BACK AT THE END OF EACH TURN',
+        '<textarea data-bind="obj:' + owner + ':text" placeholder="Destroy an enemy unit in melee in each of two consecutive turns.">' +
+          esc(o.text) + '</textarea>') +
+      '<div class="grid2">' +
+        field('TYPICAL VP (pre-fills only)',
+          '<input type="number" min="0" data-bind="obj:' + owner + ':vp" value="' + esc(o.vp || 0) + '">') +
+        field('HOW OFTEN',
+          '<select data-bind="obj:' + owner + ':repeat">' +
+            '<option value="false"' + (!o.repeat ? ' selected' : '') + '>Once per game</option>' +
+            '<option value="true"' + (o.repeat ? ' selected' : '') + '>Every time it is completed</option>' +
+          '</select>') +
+      '</div>' +
+      '<div style="font-size:10px;letter-spacing:.14em;color:var(--ink-mute);font-weight:800;margin:8px 0 5px">' +
+        'EXTRA REWARDS BEYOND VP — optional (an AP bonus, a modifier)</div>' +
+      (o.effects || []).map(e => effectRow(e, 'objeffect:' + owner + ':' + e.id,
+        'delObjEffect:' + owner + ':' + e.id, { allow: RULES.objectiveEffectKinds })).join('') +
+      '<button class="addbtn" data-act="addObjEffect:' + owner + '">+ ADD REWARD</button>' +
+      '<div style="display:flex;gap:7px;margin-top:8px">' +
+        '<button class="btn sm" style="flex:1" data-act="openPicker:objective:' + owner + '">LOAD SAVED</button>' +
+        '<button class="btn sm" style="flex:1" data-act="libSaveObjective:' + owner + '">SAVE TO LIBRARY</button>' +
+      '</div>' +
+    '</div>';
+  }
+
+  /* ------------------------------------------------------------- library */
+
+  function pickerOverlay() {
+    if (!S.picker) return '';
+    const kind = S.picker.kind;
+    const lib = Store.library();
+    const key = kind === 'unit' ? 'units' : 'objectives';
+    const list = lib[key];
+    const title = kind === 'unit' ? 'YOUR UNITS' : 'YOUR SPECIAL OBJECTIVES';
+
+    const rows = list.map(function (x, i) {
+      let sub;
+      if (kind === 'unit') {
+        sub = 'MOV ' + x.move + '" · W ' + x.maxWounds + ' · T ' + x.toughness + ' · OC ' + (x.oc || 0) +
+          ' · ' + (x.weapons || []).length + ' weapons · ' + (x.abilities || []).length + ' abilities';
+      } else {
+        sub = (x.text || '').slice(0, 90);
+      }
+      return '<div style="display:flex;gap:6px;align-items:stretch;margin-bottom:7px">' +
+        '<button class="choice" style="margin:0;flex:1" data-act="pickLib:' + kind + ':' + i + '">' +
+          '<div class="cmain"><div class="cname">' + esc(x.name) + '</div>' +
+          '<div class="cdesc">' + esc(sub) + '</div></div></button>' +
+        '<button class="iconbtn" data-act="delLib:' + kind + ':' + i + '">✕</button>' +
+      '</div>';
+    }).join('');
+
+    return '<div class="overlay" data-overlay="1"><div class="modal">' +
+      '<div class="mhead"><div><div class="mtitle">' + title + '</div>' +
+        '<div class="mstep">SAVED IN THIS BROWSER</div></div>' +
+        '<button class="mclose" data-act="closePicker">✕</button></div>' +
+      '<div class="mbody">' +
+        (list.length ? rows
+          : '<div class="noteline">Nothing saved yet. Everything you enter is added to this list ' +
+            'when you start a game, so the next one is a few taps.</div>') +
+        (kind === 'unit'
+          ? '<button class="addbtn" data-act="addUnit:' + (S.picker.owner || 0) + '">+ BLANK UNIT INSTEAD</button>' : '') +
+      '</div>' +
+      '<div class="mfoot"><button class="btn ghost" data-act="closePicker">CLOSE</button></div>' +
+    '</div></div>';
+  }
+
+  function stashEverything() {
+    S.units.forEach(u => Store.libSave('units', u));
+    S.objectives.slice(0, S.playerCount).forEach(o => { if (o && o.name) Store.libSave('objectives', o); });
+  }
+
   /* ------------------------------------------------------------- bindings */
 
   function bind(path, value) {
@@ -479,6 +666,7 @@ const Setup = (function () {
       S[key] = (key === 'vpTarget' || key === 'firstPlayer') ? Number(value) : value;
       return;
     }
+    if (kind === 'pname') { S.playerNames[Number(p[1])] = value; return; }
     if (kind === 'unit') {
       const u = findUnit(p[1]); if (!u) return;
       const key = p[2];
@@ -511,16 +699,6 @@ const Setup = (function () {
       e[key] = key === 'value' ? Number(value) : value;
       return;
     }
-    if (kind === 'mission') {
-      S.mission[p[1]] = value;
-      return;
-    }
-    if (kind === 'missionobj') {
-      const o = (S.mission.objectives || []).find(x => x.id === p[1]); if (!o) return;
-      const key = p[2];
-      o[key] = key === 'vp' ? Number(value) : (key === 'repeat' ? value === 'true' : value);
-      return;
-    }
     if (kind === 'obj') {
       const o = S.objectives[Number(p[1])]; if (!o) return;
       const key = p[2];
@@ -541,11 +719,40 @@ const Setup = (function () {
   function act(cmd) {
     const p = cmd.split(':');
     switch (p[0]) {
-      case 'tab': S.tab = Number(p[1]); return true;
+
+      /* ---- wizard ---- */
+      case 'next': {
+        if (blockedReason(S.step)) return false;
+        S.step = Math.min(lastStep(), S.step + 1);
+        S.picker = null;
+        window.scrollTo(0, 0);
+        return true;
+      }
+      case 'prev':
+        S.step = Math.max(0, S.step - 1);
+        S.picker = null;
+        return true;
+      case 'goto': {
+        const target = Number(p[1]);
+        if (target > S.step && blockedReason(S.step)) return false;
+        S.step = Math.max(0, Math.min(lastStep(), target));
+        S.picker = null;
+        return true;
+      }
+      case 'count': {
+        S.playerCount = Number(p[1]);
+        if (S.firstPlayer >= S.playerCount) S.firstPlayer = 0;
+        // Units belonging to seats that no longer exist go away with them.
+        S.units = S.units.filter(u => u.owner < S.playerCount);
+        S.step = Math.min(S.step, lastStep());
+        return true;
+      }
+
       case 'open': S.open[p[1]] = !S.open[p[1]]; return true;
 
       case 'addUnit': {
-        const u = Store.newUnit(Number(p[1]), { name: 'New Unit' });
+        const owner = Number(p[1]);
+        const u = Store.newUnit(owner, { name: 'New Unit' });
         u.weapons.push(Store.newWeapon({ name: 'Ranged Weapon', type: 'ranged', range: 12 }));
         u.weapons.push(Store.newWeapon({ name: 'Melee Weapon', type: 'melee', range: 1, strength: 4, damage: 1 }));
         S.units.push(u);
@@ -566,19 +773,27 @@ const Setup = (function () {
         S.units = S.units.filter(x => x.id !== p[1]);
         return true;
 
-      case 'addWeapon': {
-        const u = findUnit(p[1]);
-        u.weapons.push(Store.newWeapon({ name: 'New Weapon' }));
+      case 'addWeapon':
+        findUnit(p[1]).weapons.push(Store.newWeapon({ name: 'New Weapon' }));
         return true;
-      }
       case 'delWeapon': {
         const u = findUnit(p[1]);
         u.weapons = u.weapons.filter(w => w.id !== p[2]);
         return true;
       }
-      case 'addAbility': {
+      case 'addAbility':
+        findUnit(p[1]).abilities.push(Store.newAbility({ name: 'New Ability' }));
+        return true;
+
+      /* A pure escape hatch: a named button on the unit card that just shows
+         its text. No cost, no rules, press it whenever the table says so. */
+      case 'addButton': {
         const u = findUnit(p[1]);
-        u.abilities.push(Store.newAbility({ name: 'New Ability' }));
+        u.abilities.push(Store.newAbility({
+          name: 'New Button', trigger: 'free', cost: 0,
+          text: 'Describe what happens; press this when it does.',
+          effects: [Store.newEffectRow({ kind: 'note', text: '' })]
+        }));
         return true;
       }
       case 'delAbility': {
@@ -586,11 +801,14 @@ const Setup = (function () {
         u.abilities = u.abilities.filter(a => a.id !== p[2]);
         return true;
       }
-      case 'addEffect': {
-        const a = findAbility(p[1], p[2]);
-        a.effects.push(Store.newEffectRow());
+      case 'addEffect':
+        findAbility(p[1], p[2]).effects.push(Store.newEffectRow());
         return true;
-      }
+      case 'addTokenEffect':
+        findAbility(p[1], p[2]).effects.push(Store.newEffectRow({
+          kind: 'token', label: 'NEW BUTTON', expiry: 'used', tokenEffects: []
+        }));
+        return true;
       case 'delEffect': {
         const a = findAbility(p[1], p[2]);
         a.effects = a.effects.filter(e => e.id !== p[3]);
@@ -608,63 +826,24 @@ const Setup = (function () {
         return true;
       }
 
-      case 'showMission': S.showMission = true; return true;
-
-      /* ---- library ---- */
-      case 'openPicker':
-        S.picker = { kind: p[1], owner: p[2] === undefined ? null : Number(p[2]) };
+      /* ---- mission & objectives ---- */
+      case 'mission':
+        S.missionId = (p[1] === 'none') ? null : p[1];
+        S.roles = { attacker: null, defender: null };
+        S.flagged = [null, null, null, null];
         return true;
-      case 'closePicker': S.picker = null; return true;
-      case 'pickLib': {
-        const kind = p[1];
-        const lib = Store.library();
-        const list = lib[kind === 'unit' ? 'units' : kind === 'mission' ? 'missions' : 'objectives'];
-        const entry = list[Number(p[2])];
-        if (!entry) return false;
-        if (kind === 'unit') {
-          const u = Store.rekey([entry], S.tab)[0];
-          S.units.push(u);
-          S.open = {};
-        } else if (kind === 'mission') {
-          S.mission = Store.rekeyOne(entry);
-          S.showMission = true;
-        } else {
-          const owner = S.picker && S.picker.owner !== null ? S.picker.owner : S.tab;
-          S.objectives[owner] = Store.rekeyOne(entry);
-        }
-        S.picker = null;
+      case 'role': {
+        const other = p[1] === 'attacker' ? 'defender' : 'attacker';
+        const who = Number(p[2]);
+        if (S.roles[other] === who) S.roles[other] = null;
+        S.roles[p[1]] = who;
         return true;
       }
-      case 'delLib': {
-        const kind = p[1];
-        const key = kind === 'unit' ? 'units' : kind === 'mission' ? 'missions' : 'objectives';
-        const entry = Store.library()[key][Number(p[2])];
-        if (entry) Store.libDelete(key, entry.name);
-        return true;
-      }
-      case 'libSaveUnit': {
-        const u = findUnit(p[1]);
-        if (u) Store.libSave('units', u);
-        return true;
-      }
-      case 'libSaveMission':
-        if (S.mission && S.mission.name) Store.libSave('missions', S.mission);
-        else alert('Give the mission a name first.');
-        return true;
-      case 'libSaveObjective': {
-        const o = S.objectives[Number(p[1])];
-        if (o && o.name) Store.libSave('objectives', o);
-        else alert('Give the objective a name first.');
-        return true;
-      }
-      case 'addMissionObj':
-        S.mission.objectives.push(Store.newMissionObjective());
-        return true;
-      case 'delMissionObj':
-        S.mission.objectives = S.mission.objectives.filter(o => o.id !== p[1]);
+      case 'flagunit':
+        S.flagged[Number(p[1])] = p[2];
         return true;
       case 'addObjEffect':
-        S.objectives[Number(p[1])].effects.push(Store.newEffectRow({ kind: 'vp_self', value: 1 }));
+        S.objectives[Number(p[1])].effects.push(Store.newEffectRow({ kind: 'ap_self', value: 1 }));
         return true;
       case 'delObjEffect': {
         const o = S.objectives[Number(p[1])];
@@ -675,9 +854,49 @@ const Setup = (function () {
         S.objectives[Number(p[1])] = Store.newSpecialObjective();
         return true;
 
+      /* ---- library ---- */
+      case 'openPicker':
+        S.picker = { kind: p[1], owner: p[2] === undefined ? S.step - 2 : Number(p[2]) };
+        return true;
+      case 'closePicker': S.picker = null; return true;
+      case 'pickLib': {
+        const kind = p[1];
+        const key = kind === 'unit' ? 'units' : 'objectives';
+        const entry = Store.library()[key][Number(p[2])];
+        if (!entry) return false;
+        const owner = S.picker ? S.picker.owner : 0;
+        if (kind === 'unit') {
+          S.units.push(Store.rekey([entry], owner)[0]);
+          S.open = {};
+        } else {
+          S.objectives[owner] = Store.rekeyOne(entry);
+        }
+        S.picker = null;
+        return true;
+      }
+      case 'delLib': {
+        const kind = p[1];
+        const key = kind === 'unit' ? 'units' : 'objectives';
+        const entry = Store.library()[key][Number(p[2])];
+        if (entry) Store.libDelete(key, entry.name);
+        return true;
+      }
+      case 'libSaveUnit': {
+        const u = findUnit(p[1]);
+        if (u) Store.libSave('units', u);
+        return true;
+      }
+      case 'libSaveObjective': {
+        const o = S.objectives[Number(p[1])];
+        if (o && o.name) Store.libSave('objectives', o);
+        else alert('Give the objective a name first.');
+        return true;
+      }
+
+      /* ---- rosters ---- */
       case 'sample': {
         const owner = Number(p[1]);
-        const src = owner === 0 ? SAMPLES.imperial : SAMPLES.ork;
+        const src = (owner % 2 === 0) ? SAMPLES.imperial : SAMPLES.ork;
         const built = src.map(function (spec) {
           const u = Store.newUnit(owner, {
             name: spec.name, move: spec.move, maxWounds: spec.maxWounds,
@@ -695,33 +914,38 @@ const Setup = (function () {
         S.open = {};
         return true;
       }
-
       case 'saveRoster': {
         const owner = Number(p[1]);
-        const name = prompt('Save this roster as:', owner === 0 ? S.p1 : S.p2);
+        const name = prompt('Save this roster as:', S.playerNames[owner]);
         if (!name) return false;
         Store.saveRoster(name, unitsOf(owner));
         return true;
       }
       case 'loadRoster': {
         const owner = Number(p[1]);
-        const name = cmd.slice(cmd.indexOf(':', cmd.indexOf(':') + 1) + 1);
-        const r = Store.rosters().find(x => x.name === name);
+        const r = Store.rosters()[Number(p[2])];
         if (!r) return false;
         S.units = S.units.filter(x => x.owner !== owner).concat(Store.rekey(r.units, owner));
         S.open = {};
         return true;
       }
-      case 'delRoster':
-        Store.deleteRoster(cmd.slice(cmd.indexOf(':') + 1));
+      case 'delRoster': {
+        const r = Store.rosters()[Number(p[1])];
+        if (r) Store.deleteRoster(r.name);
         return true;
+      }
 
+      /* ---- data ---- */
       case 'export': {
-        const data = JSON.stringify({ config: { p1: S.p1, p2: S.p2, vpTarget: S.vpTarget }, units: S.units }, null, 2);
+        const data = JSON.stringify({
+          config: { playerNames: S.playerNames.slice(0, S.playerCount), vpTarget: S.vpTarget,
+                    missionId: S.missionId },
+          objectives: S.objectives, units: S.units
+        }, null, 2);
         const blob = new Blob([data], { type: 'application/json' });
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
-        a.download = 'skirmish-rosters.json';
+        a.download = 'skirmish-setup.json';
         a.click();
         return false;
       }
@@ -735,14 +959,21 @@ const Setup = (function () {
           rd.onload = function () {
             try {
               const data = JSON.parse(rd.result);
-              if (data.config) { S.p1 = data.config.p1 || S.p1; S.p2 = data.config.p2 || S.p2;
-                                 S.vpTarget = data.config.vpTarget || S.vpTarget; }
+              if (data.config && data.config.playerNames) {
+                data.config.playerNames.forEach((nm, i) => { if (i < MAX_PLAYERS) S.playerNames[i] = nm; });
+                S.playerCount = Math.max(2, Math.min(MAX_PLAYERS, data.config.playerNames.length));
+                S.vpTarget = data.config.vpTarget || S.vpTarget;
+              }
+              if (data.config && data.config.missionId !== undefined) S.missionId = data.config.missionId;
+              if (data.objectives) data.objectives.forEach((o, i) => { if (i < MAX_PLAYERS) S.objectives[i] = o; });
               if (data.units) {
-                S.units = Store.rekey(data.units.filter(u => u.owner === 0), 0)
-                  .concat(Store.rekey(data.units.filter(u => u.owner !== 0), 1));
+                S.units = [];
+                for (let i = 0; i < S.playerCount; i++) {
+                  S.units = S.units.concat(Store.rekey(data.units.filter(u => u.owner === i), i));
+                }
               }
               UI.render();
-            } catch (e) { alert('That file could not be read as a roster export.'); }
+            } catch (e) { alert('That file could not be read as a setup export.'); }
           };
           rd.readAsText(file);
         };
@@ -751,20 +982,34 @@ const Setup = (function () {
       }
 
       case 'start': {
-        if (!unitsOf(0).length || !unitsOf(1).length) return false;
+        for (let i = 0; i < S.playerCount; i++) if (!unitsOf(i).length) { S.step = armyStep(i); return true; }
         stashEverything();
         const units = JSON.parse(JSON.stringify(S.units));
         units.forEach(u => { u.wounds = u.maxWounds; u.alive = true; u.effects = []; u.tokens = []; });
-        const objectives = S.objectives.map(function (o) {
+        const objectives = S.objectives.slice(0, S.playerCount).map(function (o) {
           if (!o.name) return null;
           const copy = JSON.parse(JSON.stringify(o));
           copy.completed = 0;
           return copy;
         });
+        // The chosen TARGET carries its flag into the game.
+        const m = card();
+        if (m && m.unitFlag && m.unitFlag.pickAtSetup) {
+          units.forEach(function (u) {
+            const owner = u.owner;
+            if (S.flagged[owner] === u.id) {
+              u.flags = u.flags || {};
+              u.flags[m.unitFlag.id] = true;
+            }
+          });
+        }
         Engine.startGame({
-          p1: S.p1, p2: S.p2, vpTarget: Number(S.vpTarget) || 10,
+          playerNames: S.playerNames.slice(0, S.playerCount),
+          vpTarget: Number(S.vpTarget) || 10,
           firstPlayer: Number(S.firstPlayer) || 0,
-          mission: JSON.parse(JSON.stringify(S.mission)),
+          mission: m ? { id: m.id, roles: m.roles ? { attacker: S.roles.attacker,
+                                                      defender: S.roles.defender } : null }
+                     : { id: null },
           objectives: objectives
         }, units);
         return false;

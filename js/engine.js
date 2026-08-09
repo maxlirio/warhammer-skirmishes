@@ -41,8 +41,168 @@ const Engine = (function () {
     Store.setState(g);
     Store.commit('start game', function () {
       log('— GAME START —', 'big');
+      applyMission();
       beginTurn(g.turn.player, true);
     });
+  }
+
+  /* ------------------------------------------------------------- missions */
+
+  const missionCard = () => {
+    const g = S();
+    return (g && g.mission && g.mission.id) ? RULES.missionById(g.mission.id) : null;
+  };
+
+  /* Put the mission's furniture on the table: wound modifiers, markers that can
+     be shot at, objective markers whose controller we remember, the relic. */
+  function applyMission() {
+    const g = S();
+    const m = missionCard();
+    if (!m) return;
+    log('Mission: ' + m.name + '.', 'phase');
+
+    if (m.rosterMod && m.rosterMod.woundsDelta) {
+      const min = m.rosterMod.woundsMin || 1;
+      g.units.forEach(function (u) {
+        u.maxWounds = Math.max(min, u.maxWounds + m.rosterMod.woundsDelta);
+        u.wounds = u.maxWounds;
+      });
+      log('All units take ' + m.rosterMod.woundsDelta + ' Wound (minimum ' + min + ').', 'note');
+    }
+
+    /* A unit named as the TARGET gets its bonus wound. */
+    const flag = m.unitFlag;
+    if (flag && flag.boostWounds) {
+      g.units.filter(u => u.flags && u.flags[flag.id]).forEach(function (u) {
+        u.maxWounds += flag.boostWounds;
+        u.wounds = u.maxWounds;
+        log(u.name + ' is the ' + flag.label + ' — +' + flag.boostWounds + ' Wound.', 'note');
+      });
+    }
+
+    if (m.markersPerPlayer) {
+      g.players.forEach(function (p) {
+        m.markersPerPlayer.forEach(spec => addMarkerUnit(spec, p.id, m));
+      });
+    }
+    if (m.markersForRole && g.mission.roles) {
+      const owner = g.mission.roles[m.markersForRole.role];
+      if (owner !== undefined && owner !== null) {
+        m.markersForRole.markers.forEach(spec => addMarkerUnit(spec, owner, m));
+      }
+    }
+    if (m.controlPoints) {
+      g.mission.controlPoints = m.controlPoints.map(function (label) {
+        return { id: Store.nextId('cp'), label: label, controller: null };
+      });
+      log('Three objective markers placed. The app remembers who SECURED each one.', 'note');
+    }
+    if (m.relic) {
+      g.mission.relic = { carrier: null };
+      log('The RELIC is in the centre of the battlefield, unclaimed.', 'note');
+    }
+  }
+
+  function addMarkerUnit(spec, owner, m) {
+    const g = S();
+    const u = Store.newUnit(owner, {
+      name: spec.label, move: 0, maxWounds: spec.wounds, wounds: spec.wounds,
+      toughness: spec.toughness, oc: 0, marker: true, noRP: true,
+      killVP: spec.killVP || 1,
+      endsGameOnDeath: !!spec.endsGame,
+      killVPFor: spec.killVPFor || null,
+      notes: 'Mission marker — it can be attacked like a unit, but it has no RP.'
+    });
+    g.units.push(u);
+    log('[' + spec.label + '] placed for ' + pname(owner) + ' (' + spec.wounds + 'W, T' +
+      spec.toughness + ', no RP).', 'token');
+  }
+
+  /* What a kill is worth, before the player overrides it. */
+  function killValue(u) {
+    const m = missionCard();
+    if (u.killVP) return u.killVP;
+    if (m && m.unitFlag && m.unitFlag.killVP && u.flags && u.flags[m.unitFlag.id]) {
+      return m.unitFlag.killVP;
+    }
+    return 1;
+  }
+
+  function toggleUnitFlag(unitId, flagId) {
+    Store.commit('mission flag', function () {
+      const g = S();
+      const m = missionCard();
+      const u = Store.unit(unitId);
+      if (!u || !m || !m.unitFlag || m.unitFlag.id !== flagId) return;
+      if (!u.flags) u.flags = {};
+      const on = !u.flags[flagId];
+      if (on && m.unitFlag.scope === 'onePerPlayer') {
+        Store.unitsOf(u.owner, false).forEach(x => { if (x.flags) x.flags[flagId] = false; });
+      }
+      if (on && m.unitFlag.scope === 'oneTotal') {
+        g.units.forEach(x => { if (x.flags) x.flags[flagId] = false; });
+      }
+      u.flags[flagId] = on;
+      log(u.name + (on ? ' is now marked ' : ' is no longer marked ') + m.unitFlag.label + '.', 'note');
+    });
+  }
+
+  function secureControlPoint(cpId, playerId, unitId) {
+    const g = S();
+    const cp = ((g.mission && g.mission.controlPoints) || []).find(c => c.id === cpId);
+    if (!cp) return;
+    const before = cp.controller;
+    cp.controller = playerId;
+    chainEntry('[' + cp.label + '] SECURED by ' + uname(unitId) + ' — ' + pname(playerId) +
+      ' controls it' + (before !== null && before !== undefined && before !== playerId
+        ? ', taken from ' + pname(before) : '') + '.', 'token');
+  }
+
+  function controlledCount(playerId) {
+    const g = S();
+    return ((g.mission && g.mission.controlPoints) || []).filter(c => c.controller === playerId).length;
+  }
+
+  function setRelicCarrier(unitId) {
+    const g = S();
+    if (!g.mission || !g.mission.relic) return;
+    g.mission.relic.carrier = unitId;
+    chainEntry(unitId ? uname(unitId) + ' picks up the RELIC.'
+                      : 'The RELIC is on the ground, unclaimed.', 'token');
+  }
+
+  function relicCarrier() {
+    const g = S();
+    return (g.mission && g.mission.relic) ? g.mission.relic.carrier : null;
+  }
+
+  /* Missions that finish on something other than the VP target. */
+  function checkMissionEnd() {
+    const g = S();
+    const m = missionCard();
+    if (!m || g.winner !== null && g.winner !== undefined) return;
+    if (m.endsWhenAPlayerIsWipedOut) {
+      const wiped = g.players.find(p => Store.unitsOf(p.id, true).filter(u => !u.marker).length === 0);
+      if (wiped) {
+        log('★ All of ' + wiped.name + '’s units are dead — the game ends.', 'win');
+        declareWinnerOnVP('all of ' + wiped.name + '’s units are dead');
+      }
+    }
+  }
+
+  function declareWinnerOnVP(why) {
+    const g = S();
+    let best = g.players[0];
+    g.players.forEach(p => { if (p.vp > best.vp) best = p; });
+    const tied = g.players.filter(p => p.vp === best.vp).length > 1;
+    g.winner = tied ? null : best.id;
+    g.gameOver = { why: why, tied: tied };
+    log(tied ? 'The game ends level on VP — ' + why + '.'
+             : '★ ' + best.name + ' wins on VP — ' + why + '.', 'win');
+  }
+
+  function endGameNow(why) {
+    Store.commit('end game', function () { declareWinnerOnVP(why); });
   }
 
   /* -------------------------------------------------------- turn structure */
@@ -95,7 +255,7 @@ const Engine = (function () {
       expireEffects('turn', null);
       expireTokens('turn', null);
       g.pending = null;
-      beginTurn(Store.opponentOf(p));
+      beginTurn(Store.nextPlayer(p));   // play passes around the table
     });
   }
 
@@ -150,7 +310,17 @@ const Engine = (function () {
       return;
     }
 
-    const opp = Store.opponentOf(actor);
+    /* Who is owed the response? For an Aggressive Action it is the owner of the
+       target — never ambiguous. For anything else the caller says, because with
+       three or four players the app asks rather than picking for you. */
+    const opp = (opts.responder === null || opts.responder === undefined)
+      ? Store.opponentOf(actor) : opts.responder;
+    if (opp === null || opp === undefined || opp === actor) {
+      closeChain('no one is owed a response');
+      handOffToTurnPlayer();
+      checkVictory();
+      return;
+    }
     if (g.players[opp].ap > 0) {
       g.chain.active = true;
       const forced = opts.forcedUnitId || null;
@@ -180,10 +350,11 @@ const Engine = (function () {
       chainEntry(pname(tp) + ' still has ' + g.players[tp].ap +
         ' AP — the turn continues with a new chain.', 'control');
     } else {
-      const opp = Store.opponentOf(tp);
-      if (g.players[opp].ap > 0) {
-        log(pname(opp) + ' keeps ' + g.players[opp].ap + ' AP — it carries into their turn.', 'muted');
-      }
+      Store.opponentsOf(tp).forEach(function (o) {
+        if (g.players[o].ap > 0) {
+          log(pname(o) + ' keeps ' + g.players[o].ap + ' AP — it carries into their turn.', 'muted');
+        }
+      });
       beginEndPhase('the current player has no AP left');
     }
   }
@@ -266,6 +437,7 @@ const Engine = (function () {
 
   /* Returns true if the unit was destroyed. */
   function dealDamage(unitId, amount, sourcePlayer, describe) {
+    const g = S();
     const u = Store.unit(unitId);
     if (!u || !u.alive) return false;
     const dmg = Math.max(0, Number(amount) || 0);
@@ -277,9 +449,28 @@ const Engine = (function () {
       u.tokens = [];
       u.effects = [];
       chainEntry(u.name + ' is DESTROYED and removed from the battlefield.', 'kill');
-      if (sourcePlayer !== null && sourcePlayer !== undefined) {
-        askVP(sourcePlayer, 'destroyed ' + u.name, 1);
+
+      // A destroyed relic carrier drops it where it fell.
+      if (relicCarrier() === u.id) {
+        setRelicCarrier(null);
+        chainEntry('Tabletop: place the RELIC within 1" of where ' + u.name + ' was destroyed.', 'note');
       }
+
+      if (sourcePlayer !== null && sourcePlayer !== undefined) {
+        const m = missionCard();
+        let scorer = sourcePlayer;
+        if (u.killVPFor && g && g.mission && g.mission.roles &&
+            g.mission.roles[u.killVPFor] !== undefined) {
+          scorer = g.mission.roles[u.killVPFor];
+        }
+        askVP(scorer, 'destroyed ' + u.name, killValue(u));
+        if (m && m.killNote) chainEntry(m.killNote, 'note');
+      }
+      if (u.endsGameOnDeath) {
+        chainEntry('The mission ends: ' + u.name + ' has been destroyed.', 'win');
+        declareWinnerOnVP(u.name + ' destroyed');
+      }
+      checkMissionEnd();
       return true;
     }
     return false;
@@ -311,6 +502,14 @@ const Engine = (function () {
       const n = Math.max(0, Number(amount) || 0);
       if (n > 0) scoreVP(p.player, n, p.reason);
       else log(pname(p.player) + ' scores no VP for ' + p.reason + '.', 'muted');
+    });
+  }
+
+  /* The prompt guessed the wrong player (three- and four-player games). */
+  function reassignVP(promptId, playerId) {
+    Store.quiet(function () {
+      const p = (S().vpPrompts || []).find(x => x.id === promptId);
+      if (p) p.player = Number(playerId);
     });
   }
 
@@ -380,7 +579,8 @@ const Engine = (function () {
   function applyEffects(effects, ctx) {
     const g = S();
     const me = ctx.sourcePlayer;
-    const opp = Store.opponentOf(me);
+    const opp = (ctx.opponent === null || ctx.opponent === undefined)
+      ? Store.opponentOf(me) : ctx.opponent;
     (effects || []).forEach(function (e) {
       const v = Number(e.value) || 0;
       switch (e.kind) {
@@ -470,6 +670,20 @@ const Engine = (function () {
     const g = S();
     const cp = g.control.player;
     if (g.pending) return { ok: false, why: 'resolve the current phase first' };
+    if (action.mission) {
+      const m = missionCard();
+      if (!m || (m.extraActions || []).indexOf(action.id) < 0) return { ok: false, hide: true };
+      if (action.id === 'relic' && relicCarrier()) {
+        return { ok: false, why: uname(relicCarrier()) + ' is already carrying it' };
+      }
+    }
+    // A unit hauling the RELIC cannot go on overwatch.
+    if (action.id === 'overwatch' && relicCarrier()) {
+      const carrier = Store.unit(relicCarrier());
+      if (carrier && carrier.owner === cp && eligibleUnits().every(u => u.id === carrier.id)) {
+        return { ok: false, why: carrier.name + ' is carrying the RELIC' };
+      }
+    }
     if (action.onlyOnYourTurn && cp !== g.turn.player) return { ok: false, why: 'only on your own turn' };
     if (action.onlyInChain && !g.chain.active) return { ok: false, why: 'only during an action chain' };
     if (action.notInChain && g.chain.active) return { ok: false, why: 'not during an action chain' };
@@ -536,6 +750,7 @@ const Engine = (function () {
         unitId: pool.length === 1 ? pool[0].id : null,
         step: pool.length === 1 ? nextStepAfterUnit(action) : 'unit'
       };
+      const askOpp = needsResponderChoice(action.id);
       if (action.flow === 'attack') {
         g.flow = Object.assign({
           kind: 'attack', attackerId: base.unitId, targetId: null, weaponId: null,
@@ -547,13 +762,24 @@ const Engine = (function () {
         }, { actionId: action.id });
       } else if (action.flow === 'ability') {
         g.flow = { kind: 'ability', actionId: 'ability', unitId: base.unitId, abilityId: null,
-                   targets: {}, pickIndex: 0, step: base.unitId ? 'ability' : 'unit' };
+                   targets: {}, pickIndex: 0, askOpponent: askOpp, responder: null,
+                   step: base.unitId ? 'ability' : 'unit' };
+      } else if (action.flow === 'secure') {
+        g.flow = { kind: 'secure', actionId: 'secure', unitId: base.unitId, cpId: null,
+                   askOpponent: askOpp, responder: null,
+                   step: base.unitId ? 'point' : 'unit' };
+      } else if (action.flow === 'relic') {
+        g.flow = { kind: 'relic', actionId: 'relic', unitId: base.unitId,
+                   askOpponent: askOpp, responder: null,
+                   step: base.unitId ? (askOpp ? 'opponent' : 'confirm') : 'unit' };
       } else if (action.flow === 'overwatch') {
         g.flow = { kind: 'overwatch', actionId: 'overwatch', unitId: base.unitId,
-                   step: base.unitId ? 'confirm' : 'unit' };
+                   askOpponent: askOpp, responder: null,
+                   step: base.unitId ? (askOpp ? 'opponent' : 'confirm') : 'unit' };
       } else {
         g.flow = { kind: 'simple', actionId: action.id, unitId: base.unitId,
-                   step: base.unitId ? 'confirm' : 'unit' };
+                   askOpponent: askOpp, responder: null,
+                   step: base.unitId ? (askOpp ? 'opponent' : 'confirm') : 'unit' };
       }
     });
   }
@@ -569,7 +795,20 @@ const Engine = (function () {
       const f = S().flow;
       if (!f) return;
       if (f.kind === 'attack') { f.attackerId = unitId; f.step = 'target'; }
-      else { f.unitId = unitId; f.step = f.kind === 'ability' ? 'ability' : 'confirm'; }
+      else if (f.kind === 'ability') { f.unitId = unitId; f.step = 'ability'; }
+      else if (f.kind === 'secure') { f.unitId = unitId; f.step = 'point'; }
+      else { f.unitId = unitId; f.step = f.askOpponent ? 'opponent' : 'confirm'; }
+    });
+  }
+
+  /* Three- and four-player games: the acting player names which opponent the
+     rules' "your opponent" means this time. */
+  function flowPickResponder(playerId) {
+    Store.commit('select opponent', function () {
+      const f = S().flow;
+      if (!f) return;
+      f.responder = (playerId === null || playerId === 'none') ? null : Number(playerId);
+      f.step = 'confirm';
     });
   }
 
@@ -579,9 +818,11 @@ const Engine = (function () {
       if (!f) return;
       const order = {
         attack: ['attacker', 'target', 'weapon', 'reaction', 'eligible', 'hit', 'wound', 'damage'],
-        ability: ['unit', 'ability', 'pick', 'confirm'],
-        overwatch: ['unit', 'confirm'],
-        simple: ['unit', 'confirm']
+        ability: ['unit', 'ability', 'pick', 'opponent', 'confirm'],
+        overwatch: ['unit', 'opponent', 'confirm'],
+        secure: ['unit', 'point', 'opponent', 'confirm'],
+        relic: ['unit', 'opponent', 'confirm'],
+        simple: ['unit', 'opponent', 'confirm']
       }[f.kind] || [];
       const i = order.indexOf(f.step);
       if (i > 0) f.step = order[i - 1];
@@ -598,14 +839,77 @@ const Engine = (function () {
       const action = RULES.actionById(f.actionId);
       if (!f || !action) return;
       const actor = g.control.player;
+      const responder = pickResponder(f, actor);
       openChain(actor);
       spendAP(actor, action.cost || 0);
       if (action.expiresOverwatch) expireOnOwnerAction(f.unitId);
       chainEntry(pname(actor) + ': ' + uname(f.unitId) + ' → ' + action.name + '.', 'action');
-      if (action.opponentGainsAP) grantAP(Store.opponentOf(actor), action.opponentGainsAP, action.name);
+      if (action.opponentGainsAP && responder !== null) {
+        grantAP(responder, action.opponentGainsAP, action.name);
+      }
       g.flow = null;
       afterAction({ actor: actor, endsChain: action.endsChain, forcedUnitId: null,
-                    reason: action.name });
+                    responder: responder, reason: action.name });
+    });
+  }
+
+  /* With two players "your opponent" is obvious. With three or four the flow
+     has already asked, and the answer is on the flow object. */
+  function pickResponder(f, actor) {
+    if (f && f.responder !== null && f.responder !== undefined) return f.responder;
+    return Store.playerCount() === 2 ? Store.opponentOf(actor) : null;
+  }
+
+  /* Does this flow need to ask who the opponent is before it can resolve? */
+  function needsResponderChoice(actionId) {
+    if (Store.playerCount() === 2) return false;
+    const a = RULES.actionById(actionId);
+    if (!a) return false;
+    if (a.kind === 'aggressive') return false;      // the target's owner answers it
+    if (a.endsChain && !a.opponentGainsAP) return false;
+    return a.opponentGainsAP > 0 || !a.endsChain;
+  }
+
+  function flowPickControlPoint(cpId) {
+    Store.commit('choose objective', function () {
+      const f = S().flow;
+      if (!f) return;
+      f.cpId = cpId;
+      f.step = f.askOpponent ? 'opponent' : 'confirm';
+    });
+  }
+
+  function confirmSecure() {
+    Store.commit('secure', function () {
+      const g = S();
+      const f = g.flow;
+      const actor = g.control.player;
+      const responder = pickResponder(f, actor);
+      const action = RULES.actionById('secure');
+      openChain(actor);
+      spendAP(actor, action.cost);
+      chainEntry(pname(actor) + ': ' + uname(f.unitId) + ' → SECURE.', 'action');
+      secureControlPoint(f.cpId, actor, f.unitId);
+      g.flow = null;
+      afterAction({ actor: actor, endsChain: false, forcedUnitId: null, responder: responder });
+    });
+  }
+
+  function confirmRelic() {
+    Store.commit('pick up relic', function () {
+      const g = S();
+      const f = g.flow;
+      const actor = g.control.player;
+      const responder = pickResponder(f, actor);
+      const action = RULES.actionById('relic');
+      openChain(actor);
+      spendAP(actor, action.cost);
+      chainEntry(pname(actor) + ': ' + uname(f.unitId) + ' → PICK UP THE RELIC.', 'action');
+      setRelicCarrier(f.unitId);
+      // Carrying it puts out any overwatch this unit had set.
+      expireOnOwnerAction(f.unitId);
+      g.flow = null;
+      afterAction({ actor: actor, endsChain: false, forcedUnitId: null, responder: responder });
     });
   }
 
@@ -623,6 +927,7 @@ const Engine = (function () {
       const g = S();
       const f = g.flow;
       const actor = g.control.player;
+      const responder = pickResponder(f, actor);
       const action = RULES.actionById('overwatch');
       openChain(actor);
       spendAP(actor, action.cost);
@@ -635,7 +940,7 @@ const Engine = (function () {
       });
       chainEntry(pname(actor) + ': ' + u.name + ' → OVERWATCH. Token placed.', 'action');
       g.flow = null;
-      afterAction({ actor: actor, endsChain: false, forcedUnitId: null });
+      afterAction({ actor: actor, endsChain: false, forcedUnitId: null, responder: responder });
     });
   }
 
@@ -652,7 +957,7 @@ const Engine = (function () {
       f.targets = {};
       f.pickIndex = 0;
       const needs = effectsNeedingTarget(ab, { sourceUnitId: f.unitId });
-      f.step = needs.length ? 'pick' : 'confirm';
+      f.step = needs.length ? 'pick' : (f.askOpponent ? 'opponent' : 'confirm');
     });
   }
 
@@ -664,7 +969,7 @@ const Engine = (function () {
       const ab = findAbility(f.unitId, f.abilityId);
       const needs = effectsNeedingTarget(ab, { sourceUnitId: f.unitId });
       const done = needs.every(e => f.targets[e.id]);
-      if (done) f.step = 'confirm';
+      if (done) f.step = f.askOpponent ? 'opponent' : 'confirm';
       else f.pickIndex = needs.findIndex(e => !f.targets[e.id]);
     });
   }
@@ -683,18 +988,21 @@ const Engine = (function () {
       const ab = findAbility(f.unitId, f.abilityId);
       if (!ab) { g.flow = null; return; }
       const action = RULES.actionById('ability');
+      const responder = pickResponder(f, actor);
       openChain(actor);
       spendAP(actor, Number(ab.cost) || 0);
       ab.used = (ab.used || 0) + 1;
       chainEntry(pname(actor) + ': ' + uname(f.unitId) + ' → SPECIAL ABILITY “' + ab.name + '”.', 'action');
       applyEffects(ab.effects, {
-        sourceUnitId: f.unitId, sourcePlayer: actor, targets: f.targets, label: ab.name
+        sourceUnitId: f.unitId, sourcePlayer: actor, targets: f.targets,
+        label: ab.name, opponent: responder
       });
       const oppAP = ab.opponentGainsAP === 'default' ? action.opponentGainsAP : Number(ab.opponentGainsAP) || 0;
-      if (oppAP) grantAP(Store.opponentOf(actor), oppAP, 'SPECIAL ABILITY');
+      if (oppAP && responder !== null) grantAP(responder, oppAP, 'SPECIAL ABILITY');
       const ends = ab.endsChain === 'default' ? action.endsChain : ab.endsChain === 'yes';
       g.flow = null;
-      afterAction({ actor: actor, endsChain: ends, forcedUnitId: null, reason: ab.name });
+      afterAction({ actor: actor, endsChain: ends, forcedUnitId: null,
+                    responder: responder, reason: ab.name });
     });
   }
 
@@ -773,10 +1081,14 @@ const Engine = (function () {
       f.paid = true;
     }
     primeAttackMods();
+    const defender = Store.unit(f.targetId);
+    if (defender && defender.noRP) {
+      f.noReaction = true;
+      chainEntry(defender.name + ' has no RP — no reaction.', 'rp');
+    }
     if (f.noReaction) {
       f.step = 'hit';
     } else {
-      const defender = Store.unit(f.targetId);
       g.players[defender.owner].rp = 1 + (f.rpBonus || 0);
       chainEntry(defender.name + ' gains 1 RP.', 'rp');
       f.step = 'reaction';
@@ -1014,6 +1326,7 @@ const Engine = (function () {
       actor: attackerPlayer,
       endsChain: endsChain,
       forcedUnitId: forcedUnitId,
+      responder: defenderPlayer,     // an Aggressive Action always names its opponent
       reason: killed ? 'target destroyed' : (f.endsChainOverride ? 'WITHDRAW' : null)
     });
   }
@@ -1111,16 +1424,35 @@ const Engine = (function () {
     return rec ? (rec[playerId] || 0) : 0;
   }
 
-  /* The app never works out whether an objective was met or what it is worth —
-     it shows you the text at the end of the turn and takes your number. */
+  /* The app never works out whether an objective was met — it reads the card's
+     text back at the end of the turn and takes your number. The one exception
+     is SECURE THE AREA, where it has watched every SECURE action and can count
+     the markers for you. */
+  function missionEndTurnItems() {
+    const m = missionCard();
+    if (!m) return [];
+    return (m.endTurn || []).map(function (o) {
+      const item = Object.assign({}, o);
+      if (o.autoVP === 'controlPoints') {
+        item.perPlayerVP = S().players.map(p => controlledCount(p.id));
+      }
+      return item;
+    });
+  }
+
   function scoreMissionObjective(objId, playerId) {
     Store.commit('score objective', function () {
       const g = S();
-      const o = (g.mission.objectives || []).find(x => x.id === objId);
-      if (!o) return;
-      if (!g.objectiveScores[objId]) g.objectiveScores[objId] = { 0: 0, 1: 0 };
+      const item = missionEndTurnItems().find(x => x.id === objId);
+      if (!item) return;
+      if (!g.objectiveScores[objId]) g.objectiveScores[objId] = {};
       g.objectiveScores[objId][playerId] = (g.objectiveScores[objId][playerId] || 0) + 1;
-      askVP(playerId, 'objective: ' + o.name, Number(o.vp) || 1);
+      const suggested = item.perPlayerVP ? item.perPlayerVP[playerId] : (Number(item.vp) || 1);
+      askVP(playerId, item.name, suggested);
+      if (item.endsGame) {
+        chainEntry('The mission ends: ' + item.name + '.', 'win');
+        declareWinnerOnVP(item.name);
+      }
     });
   }
 
@@ -1252,7 +1584,10 @@ const Engine = (function () {
   return {
     startGame, beginTurn, confirmStartPhase, confirmEndPhase, beginEndPhase,
     actionAvailability, eligibleUnits, usableAPAbilities, weaponsFor, findAbility,
-    beginAction, cancelFlow, flowBack, flowPickUnit,
+    beginAction, cancelFlow, flowBack, flowPickUnit, flowPickResponder,
+    flowPickControlPoint, confirmSecure, confirmRelic,
+    missionCard, missionEndTurnItems, toggleUnitFlag, controlledCount,
+    relicCarrier, setRelicCarrier, killValue, endGameNow,
     confirmSimple, confirmPass, confirmOverwatch,
     flowPickAbility, flowPickTarget, confirmAbility, useFreeAbility, usePhaseAbility,
     flowPickAttackTarget, flowPickWeapon, flowPickReaction, flowEligibility,
@@ -1261,7 +1596,8 @@ const Engine = (function () {
     triggerToken, confirmToken, tokenPickTarget, tokenEffects, removeToken,
     adjustAP, adjustVP, adjustWounds, removeUnit, removeEffect,
     addManualEffect, addManualToken, forceControl, forceEndChain, forceEndTurn,
-    setPendingVP, scoreVP, promptVP, resolveVP, log,
+    setPendingVP, scoreVP, promptVP, resolveVP, reassignVP, log,
+    needsResponderChoice,
     scoreMissionObjective, claimSpecialObjective, objectiveScoredBy
   };
 })();

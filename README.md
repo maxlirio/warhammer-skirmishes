@@ -32,9 +32,9 @@ the app the outcome. It never asks "is the target in range?".
 
 ## Playing
 
-1. **Setup** — name both players, optionally add a Mission Card and each
-   faction's Special Objective, then build both rosters. Rosters can be saved,
-   duplicated and exported to JSON.
+1. **Setup** is a wizard, one slide at a time: how many players (2–4) and their
+   names → which of the six Mission Cards → one slide per player's army and
+   Special Objective → a briefing slide if the mission needs one → review.
 2. **ACTION LIST** — pick a Standard Action; the app walks the bookkeeping:
    attacker → defender → weapon → reaction → hit → wound → damage.
 3. The app shows the **target number** for every roll (weapon Hit value and the
@@ -42,9 +42,8 @@ the app the outcome. It never asks "is the target in range?".
    and press HIT / MISS, WOUND / FAILED.
 4. **Persistent buttons** appear for OVERWATCH and any ability that places a
    token. You press them when the trigger happens on the table.
-5. Every End Phase runs END: abilities → mission objectives → special objectives
-   → any other VP. For each objective it simply reads the text back to you and
-   asks who scored it and for how much — it works nothing out itself.
+5. Every End Phase runs END: abilities → the mission's scoring → special
+   objectives → any other VP.
 
 Every number can be corrected by hand (±AP, ±VP, ±wounds), and **UNDO** rolls
 back the last 40 changes.
@@ -56,6 +55,30 @@ kill, a mission objective, a Special Objective — opens a keypad asking how man
 VP that is worth to that player, pre-filled with a sensible default you can
 override or zero out. The app adds up what you tell it and nothing else.
 
+## Mission Cards
+
+All six printed cards are built in, and the app owns as much of each as it
+honestly can:
+
+| Card | What the app tracks for you |
+|---|---|
+| **Sabotage** | Places an OBJECTIVE (5W, T4, no RP) per player as a real, shootable unit; destroying one suggests 3 VP and ends the game |
+| **King of the Hill** | Mark a unit as being on the HIGH GROUND and killing it suggests 2 VP; asks the end-of-turn VP question |
+| **Ambush** | Roles chosen at setup, a BAIT marker (3W, T4, no RP) for the defender worth 4 VP to the attacker, -1 Wound across every roster, and the game ends when a player is wiped out |
+| **Assassination** | Each player names a TARGET at setup; it gains +1 Wound and killing an enemy TARGET suggests 3 VP |
+| **Secure the Area** | Three markers whose controller it remembers, a SECURE action, and an end-of-turn VP total it counts itself |
+| **The Relic** | Who is carrying it, blocks OVERWATCH for the carrier, and drops it where the carrier died |
+
+Everything above still asks before it scores — the app suggests the card's
+number and you confirm or change it.
+
+## Two to four players
+
+Seats 3 and 4 get their own colours and their own slide in the wizard. Where the
+rules say "your opponent" and there is more than one, the app **asks which one
+you mean** rather than inventing an answer — except for an attack, where the
+target's owner is the opponent and no question is needed.
+
 ## Datasheets
 
 Units carry exactly what the card carries: **MOV, W, T, OC**, then ranged and
@@ -64,11 +87,22 @@ this game. Range is stored as a reminder and never checked.
 
 ## It remembers what you typed
 
-Every unit, mission and Special Objective is saved to this browser's library when
-a game starts, and **+ ADD UNIT** offers them back to you instead of a blank
-form. There are **SAVE TO LIBRARY** buttons for saving mid-edit, whole-roster
-save/load for a full team at once, and JSON export/import to move everything to
-another device.
+Every unit and Special Objective is saved to this browser's library when a game
+starts, and **+ ADD UNIT** offers them back to you instead of a blank form. There
+are **SAVE TO LIBRARY** buttons for saving mid-edit, whole-roster save/load for a
+full team at once, and JSON export/import to move everything to another device.
+
+## When the app cannot model an ability
+
+Make it a button. Three ways, in increasing order of automation:
+
+- **+ ADD PLAIN BUTTON** in the unit editor — a named button on the unit card
+  that shows your text when pressed. No cost, no rules, no arguments.
+- **+ BUTTON ON THE TABLE** on any ability — a persistent token (a mine, a trap,
+  an ambush) that sits on screen until you trigger or dismiss it, optionally
+  carrying damage or modifiers.
+- **+ BUTTON** in the on-the-table tray — invent one mid-game and hang it on any
+  unit, for the thing nobody anticipated.
 
 ## Custom abilities
 
@@ -102,10 +136,10 @@ effects, or just print a reminder.
 ```
 index.html        entry point, loads six classic scripts
 css/app.css       dark, mobile-first, touch-sized
-js/rules.js       actions, reactions, wound table — edit here to house-rule
+js/rules.js       actions, reactions, mission cards, wound table — house-rule here
 js/state.js       game state, persistence, undo, roster storage
 js/engine.js      turn machine, chains, attacks, effects, tokens, objectives
-js/setup.js       pre-game roster and ability builder
+js/setup.js       the setup wizard: players, mission, armies, briefing, review
 js/ui.js          play screen and guided flows
 js/main.js        bootstrap and event routing
 tools/simulate.js headless rules harness — `node tools/simulate.js`

@@ -95,6 +95,26 @@ const RULES = (function () {
       prompt: 'Move the unit up to 1" on the tabletop.',
       endsChain: true, opponentGainsAP: 0, onlyInChain: true
     },
+    /* --- unlocked by a mission card, hidden otherwise --- */
+    {
+      id: 'secure', name: 'SECURE', cost: 1, kind: 'passive', flow: 'secure',
+      mission: 'secure',
+      short: 'Take control of an objective marker. It stays yours until an enemy SECURES it.',
+      flavour: '“Ours now.”',
+      text: 'A unit may spend 1 AP to SECURE an objective. A SECURED objective remains controlled ' +
+            'by the player that SECURED it until an enemy SECURES it.',
+      endsChain: false, opponentGainsAP: 0
+    },
+    {
+      id: 'relic', name: 'PICK UP THE RELIC', cost: 1, kind: 'passive', flow: 'relic',
+      mission: 'relic',
+      short: 'Take the RELIC. Its carrier cannot use OVERWATCH.',
+      flavour: '“Mine.”',
+      text: 'A unit can spend 1 AP to pick up the RELIC if they are within 3" of it. Units with ' +
+            'the RELIC cannot use OVERWATCH. If the carrier is destroyed, place the RELIC within ' +
+            '1" of where it was destroyed.',
+      endsChain: false, opponentGainsAP: 0
+    },
     {
       id: 'pass', name: 'PASS', cost: 0, kind: 'passive', flow: 'pass',
       short: 'End your turn. Only on your turn, never during a chain.',
@@ -175,6 +195,112 @@ const RULES = (function () {
   ];
 
   /* --------------------------------------------------------------------
+     MISSION CARDS — the six printed cards.
+
+     markers       : objects placed on the table that the app tracks as units
+                     (they can be attacked, they have no RP)
+     unitFlag      : a status the players assign to one of their own units
+     controlPoints : objective markers whose controller the app remembers
+     extraActions  : Standard Actions this mission unlocks
+     endTurn       : what the End Phase should read back and offer to score
+     -------------------------------------------------------------------- */
+  const missions = [
+    {
+      id: 'sabotage', name: 'SABOTAGE',
+      flavour: '“You don’t have to kill everything. Just the right thing.”',
+      battlefield: 'Each player places one OBJECTIVE in their deployment area.',
+      objective: 'Score 3 VP when the enemy OBJECTIVE is destroyed and end the game.',
+      special: 'An OBJECTIVE has 5 Wounds, Toughness 4, and you may attack it as if it were an ' +
+               'enemy unit. It has no RP.',
+      markersPerPlayer: [{ label: 'OBJECTIVE', wounds: 5, toughness: 4, killVP: 3, endsGame: true }],
+      endTurn: []
+    },
+    {
+      id: 'hill', name: 'KING OF THE HILL',
+      flavour: '“The high ground belongs to whoever can hold it.”',
+      battlefield: 'Place the tallest terrain near the centre of the battlefield. Its highest ' +
+                   'point is called the HIGH GROUND.',
+      objective: 'At the end of each turn, the player with a unit on the HIGH GROUND gains 1 VP. ' +
+                 'A unit on the HIGH GROUND is worth 2 VP instead of 1 when destroyed.',
+      special: 'None.',
+      unitFlag: {
+        id: 'highground', label: 'HIGH GROUND', scope: 'any', killVP: 2,
+        hint: 'Tap a unit’s DETAILS to mark it as standing on the HIGH GROUND. The app will then ' +
+              'suggest 2 VP if it is destroyed.'
+      },
+      endTurn: [{ id: 'hill-vp', name: 'Holding the HIGH GROUND',
+                  text: 'The player with a unit on the HIGH GROUND gains 1 VP.', vp: 1 }]
+    },
+    {
+      id: 'ambush', name: 'AMBUSH', players: 2,
+      flavour: '“The first shot is yours. The last one might not be.”',
+      battlefield: 'The defending player sets up first, and also sets up a BAIT token in their ' +
+                   'deployment zone. The attacking player sets up second.',
+      objective: 'The attacking player scores 4 VP for destroying the enemy’s BAIT. The defending ' +
+                 'player scores 2 VP instead of 1 for every enemy unit they defeat in their ' +
+                 'deployment zone.',
+      special: 'The BAIT has 3 Wounds and 4 Toughness. It can be attacked like an enemy unit but ' +
+               'has no RP. All units have -1 Wound, to a minimum of 1. When all of a player’s ' +
+               'units are dead the game ends.',
+      roles: { defender: 'DEFENDER — sets up first, with the BAIT',
+               attacker: 'ATTACKER — sets up second' },
+      markersForRole: { role: 'defender',
+        markers: [{ label: 'BAIT', wounds: 3, toughness: 4, killVP: 4, killVPFor: 'attacker' }] },
+      rosterMod: { woundsDelta: -1, woundsMin: 1 },
+      endsWhenAPlayerIsWipedOut: true,
+      killNote: 'DEFENDER scores 2 VP instead of 1 for a kill made in their own deployment zone.',
+      endTurn: []
+    },
+    {
+      id: 'assassination', name: 'ASSASSINATION',
+      flavour: '“Men, we have received a special target.”',
+      battlefield: 'Before the game, each player chooses one of their units as their TARGET. ' +
+                   'Place one objective marker in the centre of the battlefield.',
+      objective: 'Standard scoring of objectives. If the enemy TARGET is destroyed, score 3 VP.',
+      special: 'The TARGET has +1 Wound.',
+      unitFlag: {
+        id: 'target', label: 'TARGET', scope: 'onePerPlayer', killVP: 3, boostWounds: 1,
+        pickAtSetup: true,
+        hint: 'Each player names one of their units as the TARGET. It gains +1 Wound, and killing ' +
+              'an enemy TARGET is worth 3 VP.'
+      },
+      endTurn: [{ id: 'assn-obj', name: 'The centre objective',
+                  text: 'Standard scoring for the objective marker in the centre.', vp: 1 }]
+    },
+    {
+      id: 'secure', name: 'SECURE THE AREA',
+      flavour: '“Hold the ground.”',
+      battlefield: 'Place three objective markers: one in the centre and one on each side of the ' +
+                   'battlefield.',
+      objective: 'At the end of each turn, a player gains 1 VP for each objective they control.',
+      special: 'A unit may spend 1 AP to SECURE an objective. A SECURED objective remains ' +
+               'controlled by the player that SECURED it until an enemy SECURES it.',
+      controlPoints: ['LEFT', 'CENTRE', 'RIGHT'],
+      extraActions: ['secure'],
+      endTurn: [{ id: 'secure-vp', name: 'Objectives held', autoVP: 'controlPoints',
+                  text: '1 VP for each objective you control. The app counts the ones it has seen ' +
+                        'SECURED.' }]
+    },
+    {
+      id: 'relic', name: 'THE RELIC',
+      flavour: '“Dat’s MY shiny, ya hear me?”',
+      battlefield: 'Place one RELIC marker in the centre of the battlefield.',
+      objective: 'If a carrier of the RELIC reaches their side of the battlefield, that player ' +
+                 'scores 3 VP and the game ends.',
+      special: 'Units with the RELIC cannot use OVERWATCH. A unit can spend 1 AP to pick up the ' +
+               'RELIC if they are within 3" of it. If the carrier is destroyed, place the RELIC ' +
+               'within 1" of where it was destroyed.',
+      relic: true,
+      extraActions: ['relic'],
+      endTurn: [{ id: 'relic-home', name: 'Relic carried home', vp: 3, endsGame: true,
+                  text: 'Did a RELIC carrier reach their own side of the battlefield? ' +
+                        'That scores 3 VP and ends the game.' }]
+    }
+  ];
+
+  const missionById = id => missions.find(m => m.id === id) || null;
+
+  /* --------------------------------------------------------------------
      WOUND TABLE
      DOUBLE OR MORE = 2+   GREATER = 3+   EQUAL = 4+
      LESS THAN      = 5+   HALF OR LESS = 6+
@@ -215,8 +341,8 @@ const RULES = (function () {
   return {
     version: '1.0',
     defaultVPTarget: 10,
-    actions, rangedReactions, meleeReactions,
-    woundTarget, woundLabel, applyMod, actionById, reactionById,
+    actions, rangedReactions, meleeReactions, missions,
+    woundTarget, woundLabel, applyMod, actionById, reactionById, missionById,
 
     /* Ability trigger slots offered by the unit editor. */
     abilityTriggers: [

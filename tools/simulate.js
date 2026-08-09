@@ -88,7 +88,7 @@ check('-1 modifier on a 3+', RULES.applyMod(3, -1).target, 4);
 check('+1 modifier on a 2+ clamps', RULES.applyMod(2, 1), { target: 2, capped: true, raw: 1 });
 
 console.log('\n== game start ==');
-Engine.startGame({ p1: 'Marines', p2: 'Orks', vpTarget: 10, firstPlayer: 0 }, units);
+Engine.startGame({ playerNames: ['Marines', 'Orks'], vpTarget: 10, firstPlayer: 0 }, units);
 check('pending start phase', G().pending.type, 'start');
 Engine.confirmStartPhase();
 check('P1 AP after start phase', ap(0), 1);
@@ -272,19 +272,20 @@ Engine.resolveVP(G().vpPrompts[0].id, 1);
 console.log('\n== mission objectives & special objectives ==');
 Store.commit('add mission', function () {
   const g = Store.get();
-  g.mission = { name: 'Hold the Line', text: 'Toxic fog.',
-                objectives: [Store.newMissionObjective({ name: 'Control the ruin', vp: 2, repeat: true })] };
-  g.players[0].objective = { id: 'so1', name: 'No Mercy', text: 'Kill in melee.',
+  g.mission = { id: 'hill' };
+  g.players[0].objective = { id: 'so1', name: 'No Mercy', text: 'Kill in melee.', vp: 2,
     repeat: false, completed: 0,
     effects: [{ id: 'e1', kind: 'vp_self', value: 2 }, { id: 'e2', kind: 'ap_self', value: 1 }] };
 });
 const vpBefore = vp(0);
-Engine.scoreMissionObjective(Store.get().mission.objectives[0].id, 0);
+const item = Engine.missionEndTurnItems()[0];
+check('KING OF THE HILL has an end-of-turn item', item.name, 'Holding the HIGH GROUND');
+Engine.scoreMissionObjective(item.id, 0);
 check('objective queues a VP prompt', G().vpPrompts.length, 1);
-check('pre-filled with the typical value', G().vpPrompts[0].suggested, 2);
+check('pre-filled from the card', G().vpPrompts[0].suggested, 1);
 Engine.resolveVP(G().vpPrompts[0].id, 5);   // but you can type anything
 check('the entered VP is what lands', vp(0), vpBefore + 5);
-check('objective counted', Engine.objectiveScoredBy(Store.get().mission.objectives[0].id, 0), 1);
+check('objective counted', Engine.objectiveScoredBy(item.id, 0), 1);
 
 const vpBefore2 = vp(0), apBefore2 = ap(0);
 Engine.claimSpecialObjective(0);
@@ -341,6 +342,138 @@ Engine.adjustAP(0, 3);
 check('manual change applied', ap(0), apPreUndo + 3);
 Store.undo();
 check('undo reverts it', ap(0), apPreUndo);
+
+/* ------------------------------------------------- mission cards, 2 players */
+
+function freshGame(missionCfg, playerNames) {
+  const us = [
+    mkUnit(0, 'Alpha', 3, 4, [{ name: 'Rifle', type: 'ranged', hit: 3, strength: 4, damage: 1 },
+                              { name: 'Blade', type: 'melee', hit: 3, strength: 5, damage: 2 }], []),
+    mkUnit(1, 'Bravo', 2, 4, [{ name: 'Gun', type: 'ranged', hit: 4, strength: 4, damage: 1 },
+                              { name: 'Axe', type: 'melee', hit: 3, strength: 4, damage: 1 }], [])
+  ];
+  if (playerNames && playerNames.length > 2) {
+    us.push(mkUnit(2, 'Charlie', 2, 4, [{ name: 'Gun', type: 'ranged', hit: 4, strength: 4, damage: 1 }], []));
+  }
+  Engine.startGame({
+    playerNames: playerNames || ['One', 'Two'], vpTarget: 10, firstPlayer: 0,
+    mission: missionCfg, objectives: []
+  }, us);
+  Engine.confirmStartPhase();
+  return us;
+}
+
+console.log('\n== MISSION: SABOTAGE ==');
+freshGame({ id: 'sabotage' });
+const objs = G().units.filter(u => u.marker);
+check('one OBJECTIVE marker per player', objs.length, 2);
+check('markers are 5W T4', [objs[0].maxWounds, objs[0].toughness], [5, 4]);
+check('markers have no RP', objs[0].noRP, true);
+// Shooting a marker skips the reaction step entirely.
+Engine.adjustAP(0, 3);
+Engine.beginAction('shoot');
+Engine.flowPickUnit(U('Alpha').id);
+Engine.flowPickAttackTarget(objs.find(o => o.owner === 1).id);
+check('no RP means no reaction step', G().flow.step, 'hit');
+Engine.flowHit(true); Engine.flowWound(true); Engine.flowDamage(5);
+check('the enemy OBJECTIVE is destroyed', G().units.find(u => u.id === objs.find(o => o.owner === 1).id).alive, false);
+check('and it suggests the card’s 3 VP', G().vpPrompts[0].suggested, 3);
+Engine.resolveVP(G().vpPrompts[0].id, 3);
+check('destroying it ends the game', !!G().gameOver, true);
+
+console.log('\n== MISSION: SECURE THE AREA ==');
+freshGame({ id: 'secure' });
+check('three control points', G().mission.controlPoints.length, 3);
+check('SECURE is in the action list', Engine.actionAvailability(RULES.actionById('secure')).ok, true);
+check('the RELIC action stays hidden', Engine.actionAvailability(RULES.actionById('relic')).hide, true);
+Engine.adjustAP(0, 3);
+const cps = G().mission.controlPoints;
+Engine.beginAction('secure');
+Engine.flowPickUnit(U('Alpha').id);
+Engine.flowPickControlPoint(cps[0].id);
+Engine.confirmSecure();
+check('marker is held by player 0', G().mission.controlPoints[0].controller, 0);
+check('the app counts what it holds', Engine.controlledCount(0), 1);
+const secItem = Engine.missionEndTurnItems()[0];
+check('end-of-turn VP is computed, not guessed', secItem.perPlayerVP, [1, 0]);
+// An enemy takes it back.
+Engine.forceControl(1, null);
+Engine.adjustAP(1, 2);
+Engine.beginAction('secure');
+Engine.flowPickUnit(U('Bravo').id);
+Engine.flowPickControlPoint(cps[0].id);
+Engine.confirmSecure();
+check('SECURING it takes it from the holder', G().mission.controlPoints[0].controller, 1);
+
+console.log('\n== MISSION: THE RELIC ==');
+freshGame({ id: 'relic' });
+check('the relic starts unclaimed', Engine.relicCarrier(), null);
+Engine.adjustAP(0, 3);
+Engine.beginAction('relic');
+Engine.flowPickUnit(U('Alpha').id);
+Engine.confirmRelic();
+check('Alpha carries the relic', Engine.relicCarrier(), U('Alpha').id);
+check('a carrier cannot go on OVERWATCH',
+  Engine.actionAvailability(RULES.actionById('overwatch')).ok, false);
+check('and it cannot be picked up twice',
+  Engine.actionAvailability(RULES.actionById('relic')).ok, false);
+// Killing the carrier drops it.
+Engine.forceControl(1, null);
+Engine.adjustAP(1, 3);
+Engine.beginAction('fight');
+Engine.flowPickUnit(U('Bravo').id);
+Engine.flowPickAttackTarget(U('Alpha').id);
+Engine.flowPickWeapon(U('Bravo').weapons[1].id);
+Engine.flowPickReaction('none');
+Engine.flowHit(true); Engine.flowWound(true); Engine.flowDamage(9);
+check('the relic drops where the carrier fell', Engine.relicCarrier(), null);
+
+console.log('\n== MISSION: AMBUSH ==');
+freshGame({ id: 'ambush', roles: { attacker: 0, defender: 1 } });
+check('every unit loses a wound', U('Alpha').maxWounds, 2);
+check('never below one', U('Bravo').maxWounds, 1);
+const bait = G().units.find(u => u.marker);
+check('the BAIT belongs to the defender', bait.owner, 1);
+check('BAIT is 3W T4', [bait.maxWounds, bait.toughness], [3, 4]);
+Engine.adjustAP(0, 3);
+Engine.beginAction('shoot');
+Engine.flowPickUnit(U('Alpha').id);
+Engine.flowPickAttackTarget(bait.id);
+Engine.flowHit(true); Engine.flowWound(true); Engine.flowDamage(3);
+check('killing the BAIT suggests the card’s 4 VP', G().vpPrompts[0].suggested, 4);
+check('and it is the attacker who scores it', G().vpPrompts[0].player, 0);
+
+console.log('\n== MISSION: ASSASSINATION ==');
+(function () {
+  const us = [
+    mkUnit(0, 'Alpha', 3, 4, [{ name: 'Blade', type: 'melee', hit: 3, strength: 8, damage: 4 }], []),
+    mkUnit(1, 'Bravo', 2, 4, [{ name: 'Axe', type: 'melee', hit: 3, strength: 4, damage: 1 }], [])
+  ];
+  us[1].flags = { target: true };
+  Engine.startGame({ playerNames: ['One', 'Two'], vpTarget: 10, firstPlayer: 0,
+                     mission: { id: 'assassination' }, objectives: [] }, us);
+  Engine.confirmStartPhase();
+  check('the TARGET gains +1 Wound', U('Bravo').maxWounds, 3);
+  check('a normal kill is worth 1', Engine.killValue(U('Alpha')), 1);
+  check('killing the TARGET suggests 3', Engine.killValue(U('Bravo')), 3);
+})();
+
+console.log('\n== three players ==');
+freshGame({ id: null }, ['One', 'Two', 'Three']);
+check('three seats', G().players.length, 3);
+check('turn order wraps', Store.nextPlayer(2), 0);
+check('SPECIAL ABILITY must ask who the opponent is',
+  Engine.needsResponderChoice('ability'), true);
+check('an attack never needs asking', Engine.needsResponderChoice('shoot'), false);
+Engine.adjustAP(0, 2);
+Engine.beginAction('shoot');
+Engine.flowPickUnit(U('Alpha').id);
+Engine.flowPickAttackTarget(U('Charlie').id);        // the third player, not the next in order
+Engine.flowPickReaction('none');
+Engine.flowHit(true); Engine.flowWound(true); Engine.flowDamage(1);
+check('the target’s owner is the one who responds', G().control.player, 2);
+check('and their unit is the forced one', G().control.forcedUnitId, U('Charlie').id);
+check('they gained the survivor AP', ap(2), 1);
 
 console.log('\n== summary ==');
 console.log((checks - fails) + '/' + checks + ' checks passed');

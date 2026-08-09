@@ -76,13 +76,14 @@ const Store = (function () {
         overwatchEndsWithChain: false,
         overwatchGrantsAP: false
       },
-      players: [
-        { id: 0, name: (config && config.p1) || 'Player 1', ap: 0, vp: 0, rp: 0,
-          objective: (config && config.objectives && config.objectives[0]) || null },
-        { id: 1, name: (config && config.p2) || 'Player 2', ap: 0, vp: 0, rp: 0,
-          objective: (config && config.objectives && config.objectives[1]) || null }
-      ],
-      mission: (config && config.mission) || { name: '', text: '', objectives: [] },
+      players: ((config && config.playerNames) || ['Player 1', 'Player 2']).map(function (nm, i) {
+        return {
+          id: i, name: nm || ('Player ' + (i + 1)), ap: 0, vp: 0, rp: 0,
+          objective: (config && config.objectives && config.objectives[i]) || null
+        };
+      }),
+      /* { id, roles?, controlPoints?, relic? } — the engine fills the rest in. */
+      mission: (config && config.mission) || { id: null },
       objectiveScores: {},
       units: [],
       vpPrompts: [],
@@ -276,9 +277,17 @@ const Store = (function () {
   const unit  = id => state && state.units.find(u => u.id === id) || null;
   const owner = id => { const u = unit(id); return u ? u.owner : null; };
   const player = i => state.players[i];
-  const opponentOf = i => 1 - i;
+  const playerCount = () => state.players.length;
   const unitsOf = (i, aliveOnly) =>
     state.units.filter(u => u.owner === i && (!aliveOnly || u.alive));
+
+  /* Seating order — the turn passes around the table. */
+  const nextPlayer = i => (i + 1) % state.players.length;
+  const opponentsOf = i => state.players.map(p => p.id).filter(id => id !== i);
+
+  /* Only meaningful in a two-player game; anywhere it could be ambiguous the
+     engine asks instead of guessing. */
+  const opponentOf = i => (state.players.length === 2 ? 1 - i : nextPlayer(i));
   const allTokens = () =>
     state.units.reduce((acc, u) => acc.concat((u.tokens || []).map(t =>
       Object.assign({}, t, { unitId: u.id, unitName: u.name, owner: u.owner }))), []);
@@ -296,7 +305,8 @@ const Store = (function () {
     rosters, saveRoster, deleteRoster, rekey,
     library, libSave, libDelete, libGet, rekeyOne,
     // lookups
-    unit, owner, player, opponentOf, unitsOf, allTokens
+    unit, owner, player, playerCount, nextPlayer, opponentsOf, opponentOf,
+    unitsOf, allTokens
   };
 })();
 
