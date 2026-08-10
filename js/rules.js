@@ -71,13 +71,13 @@ const RULES = (function () {
     },
     {
       id: 'overwatch', name: 'OVERWATCH', cost: 1, kind: 'passive', flow: 'overwatch',
-      short: 'Place a token. You fire it yourself, at -1 to hit, and the defender gains no RP.',
+      short: 'Place a token within 12" and visible. Fire it yourself later, at -1 to hit, with no RP for them.',
       flavour: '“Come into my sights.”',
-      text: 'Place an overwatch token within 12" of this unit. Until the end of this action chain, ' +
-            'if an enemy moves within 3" of the token and is a legal target for this unit\'s primary ' +
-            'ranged weapon, you may immediately attack it at -1 to hit. The opponent gains no RP. ' +
-            'If this unit moves or attacks, remove the token.',
-      prompt: 'Place the overwatch token within 12" of this unit.',
+      text: 'Place an overwatch token within 12" of this unit and visible to it. Later, so long as ' +
+            'this unit has not moved or attacked, if an enemy moves within 3" of the token and is a ' +
+            'legal target for this unit\'s primary ranged weapon, you may immediately attack it at ' +
+            '-1 to hit. The opponent gains no RP. If this unit moves or attacks, remove the token.',
+      prompt: 'Place a token within 12" of this unit, and visible to it.',
       endsChain: false, opponentGainsAP: 0
     },
     {

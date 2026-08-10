@@ -151,9 +151,20 @@ const UI = (function () {
       '<span class="chip-s eff">' + esc(e.label) +
         '<button data-act="rmeff:' + u.id + ':' + e.id + '">✕</button></span>').join('');
 
-    const tokens = (u.tokens || []).map(t =>
-      '<button class="tokenbtn" data-act="tok:' + u.id + ':' + t.id + '">[ ' + esc(t.label) + ' ]' +
-        '<span class="x" data-act="rmtok:' + u.id + ':' + t.id + '">✕</span></button>').join('');
+    /* Buttons live on the unit that owns them, so with several units ready you
+       can always see who is firing and who is still waiting. */
+    const tokens = (u.tokens || []).map(function (t) {
+      const ow = t.kind === 'overwatch';
+      return '<div class="tokrow' + (ow ? ' ow' : '') + '">' +
+        '<button class="tokfire" data-act="tok:' + u.id + ':' + t.id + '">' +
+          '<span class="tf1">' + (ow ? '⌖ FIRE OVERWATCH' : '▸ ' + esc(t.label)) + '</span>' +
+          '<span class="tf2">' + esc(ow
+            ? 'Ready — press when an enemy comes within 3" of the token'
+            : (t.text || 'Press when it triggers')) + '</span>' +
+        '</button>' +
+        '<button class="tokx" data-act="rmtok:' + u.id + ':' + t.id + '">✕</button>' +
+      '</div>';
+    }).join('');
 
     const freeAbils = (u.alive ? Engine.usableFreeAbilities(u) : [])
       .map(a => '<button class="abilbtn" data-act="freeab:' + u.id + ':' + a.id + '">' +
@@ -174,7 +185,7 @@ const UI = (function () {
       '<div class="uwep">' + weapons + '</div>' +
       (u.notes ? '<div class="hint" style="margin:6px 0 0">' + esc(u.notes) + '</div>' : '') +
       ((passives || effects) ? '<div class="chips">' + passives + effects + '</div>' : '') +
-      (tokens ? '<div class="chips">' + tokens + '</div>' : '') +
+      (tokens ? '<div class="toks">' + tokens + '</div>' : '') +
       (freeAbils ? '<div class="chips">' + freeAbils + '</div>' : '') +
       '<div class="urow">' +
         '<button class="wbtn" data-act="w:' + u.id + ':-1">−</button>' +
@@ -199,9 +210,10 @@ const UI = (function () {
           ? 'unclaimed' : esc(g.players[c.controller].name)) + '</div>').join('') +
       (relic ? '<div class="cpchip' + (carrier ? ' held p' + carrier.owner : '') + '">' +
         '<b>RELIC</b>' + (carrier ? esc(carrier.name) : 'unclaimed') + '</div>' : '') +
-      toks.map(t => '<button class="tokenbtn" data-act="tok:' + t.unitId + ':' + t.id + '">' +
-        '[ ' + esc(t.label) + ' ]<span style="color:var(--ink-mute);font-weight:600">' +
-        esc(t.unitName) + '</span></button>').join('') +
+      (toks.length
+        ? '<div class="cpchip"><b>⌖ ' + toks.length + '</b>' +
+          (toks.length === 1 ? 'button waiting' : 'buttons waiting') + ' — on their unit cards</div>'
+        : '') +
       '<button class="abilbtn" data-act="newbutton">+ BUTTON</button>' +
     '</div>';
   }
@@ -694,9 +706,10 @@ const UI = (function () {
       '<div class="mbody">' +
         '<div class="rollbox"><div class="lbl">TOKEN</div><div class="big" style="font-size:20px">' +
           esc(u.name) + '</div>' +
-          '<div class="sub">Place the overwatch token within 12" of this unit.</div></div>' +
-        '<div class="noteline">The app will show a <b>[ OVERWATCH ]</b> button. Press it yourself when ' +
-          'an enemy triggers it on the table — the app never decides that.</div>' +
+          '<div class="sub">Place a token within 12" of this unit, and visible to it.</div></div>' +
+        '<div class="noteline">A <b>⌖ FIRE OVERWATCH</b> button appears on ' + esc(u.name) +
+          '\u2019s card. Later, if an enemy moves within 3" of the token, press it yourself — ' +
+          'the app never decides that.</div>' +
         '<div class="noteline">The shot is at <b>-1 to hit</b> with ' +
           esc(ranged.length ? ranged[0].name : 'no ranged weapon!') + ', and the defender gains no RP.</div>' +
         '<div class="noteline warn">Removed if this unit moves or attacks' +
@@ -895,7 +908,8 @@ const UI = (function () {
   function attackFlow(g, f) {
     const action = RULES.actionById(f.actionId);
     const isOW = f.source === 'overwatch';
-    const title = isOW ? 'OVERWATCH SHOT' : action.name;
+    const title = isOW ? 'OVERWATCH — ' + esc((Store.unit(f.attackerId) || {}).name || '')
+                       : (f.source === 'free' ? esc(f.freeLabel || 'FREE ATTACK') : action.name);
     const attacker = f.attackerId ? Store.unit(f.attackerId) : null;
     const target = f.targetId ? Store.unit(f.targetId) : null;
 

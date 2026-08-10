@@ -40,8 +40,10 @@ the app the outcome. It never asks "is the target in range?".
 3. The app shows the **target number** for every roll (weapon Hit value and the
    S-vs-T wound table, with every modifier already folded in). You roll the dice
    and press HIT / MISS, WOUND / FAILED.
-4. **Persistent buttons** appear for OVERWATCH and any ability that places a
-   token. You press them when the trigger happens on the table.
+4. **Persistent buttons live on the unit that owns them.** OVERWATCH puts a
+   **⌖ FIRE OVERWATCH** button on that unit's card, so with several units ready
+   at once you can always see who is firing and who is still waiting. You press
+   it when the trigger happens on the table.
 5. Every End Phase runs END: abilities → the mission's scoring → special
    objectives → any other VP.
 
@@ -198,11 +200,12 @@ is tagged *YOUR ONLY MOVE* in the action list.
 
 ## Rules choices worth knowing
 
-- **Overwatch expiry.** The card says "until the end of this action chain", but a
-  chain closes as soon as the opponent has no AP to respond with, which would
-  delete the token before anyone could walk into it. The default is the practical
-  reading — the token lives until its unit moves or attacks. Menu → *Overwatch
-  ends with the chain* switches to the strict wording.
+- **Overwatch.** Place a token within 12" of the unit and visible to it. Later in
+  the game, so long as that unit has not moved or attacked, an enemy coming
+  within 3" of the token lets you fire at -1 to hit with no RP for them. The
+  token therefore lives until its unit moves or attacks, not until the end of the
+  action chain — Menu → *Overwatch ends with the chain* switches to the strict
+  card wording if you want it.
 - **Overwatch AP.** An overwatch shot is an interrupt: the defender gains no RP
   (per the card) and no survivor AP, and control does not change hands unless the
   target dies.

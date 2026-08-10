@@ -624,3 +624,28 @@ h1, h2, h3, h4 { margin: 0; font-weight: 700; letter-spacing: .02em; }
   color: #1a0705; border-color: #ef7c6c;
 }
 .ctag.req { color: var(--p2); border-color: var(--p2); }
+
+/* ------------------------------------------ reaction buttons on the card */
+
+.toks { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.tokrow { display: flex; gap: 6px; align-items: stretch; }
+.tokfire {
+  flex: 1; text-align: left; padding: 8px 10px; border-radius: 8px; min-width: 0;
+  background: linear-gradient(180deg, #2a2230, #1d1a24);
+  border: 1px solid var(--line-hot); color: var(--ink);
+}
+.tokfire .tf1 { display: block; font-size: 12px; font-weight: 900; letter-spacing: .08em; }
+.tokfire .tf2 { display: block; font-size: 10.5px; color: var(--ink-dim); margin-top: 2px;
+                line-height: 1.3; }
+.tokrow.ow .tokfire {
+  background: linear-gradient(180deg, #3a2f12, #241d0c);
+  border-color: var(--gold); color: var(--gold);
+}
+.tokrow.ow .tokfire .tf2 { color: var(--gold-dim); }
+.tokfire:active { background: var(--gold); color: #171104; }
+.tokfire:active .tf2 { color: #3a2f12; }
+.tokx {
+  width: 34px; border-radius: 8px; background: #182029;
+  border: 1px solid var(--line); color: var(--ink-mute); font-weight: 800;
+}
+.tokx:active { background: var(--line-hot); color: var(--ink); }
