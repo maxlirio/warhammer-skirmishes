@@ -587,3 +587,27 @@ h1, h2, h3, h4 { margin: 0; font-weight: 700; letter-spacing: .02em; }
 .cpchip.held.p3 b { color: var(--p4); }
 
 .chip-s.mission { border-color: var(--gold-dim); color: var(--gold); background: #1e1a10; }
+
+/* ------------------------------------------------- turn vs reacting badge */
+
+.badge {
+  display: inline-block; font-size: 9px; font-weight: 900; letter-spacing: .16em;
+  padding: 3px 8px; border-radius: 20px; margin-bottom: 4px;
+}
+.badge.turn  { background: #3a2f12; color: var(--gold); border: 1px solid var(--gold-dim); }
+.badge.react { background: #16283b; color: var(--p1); border: 1px solid var(--p1); }
+.badge.phase { background: var(--panel-2); color: var(--ink-dim); border: 1px solid var(--line-hot); }
+
+.controlbar.mode-react { background: #0d1620; }
+.controlbar.mode-react:after {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  box-shadow: inset 0 -2px 0 var(--p1);
+}
+.controlbar { position: relative; }
+
+.apnote {
+  font-size: 11px; margin-top: 4px; font-weight: 600;
+}
+.apnote.gives { color: var(--warn); }
+.apnote.free  { color: var(--good); }
+.apnote.agg   { color: var(--ink-mute); }

@@ -11,6 +11,54 @@ const Engine = (function () {
 
   const S = () => Store.get();
 
+  /* --------------------------------------------------------- action rules
+
+     Cost and "does your opponent gain AP" are house-rulable, so every lookup
+     goes through here rather than straight at the card. */
+  function actionDef(id) {
+    const base = RULES.actionById(id);
+    if (!base) return null;
+    const g = S();
+    const ov = g && g.settings && g.settings.actionOverrides && g.settings.actionOverrides[id];
+    return ov ? Object.assign({}, base, ov) : base;
+  }
+
+  function actionList() { return RULES.actions.map(a => actionDef(a.id)); }
+
+  function setActionOverride(id, key, value) {
+    Store.commit('house rule', function () {
+      const g = S();
+      if (!g.settings.actionOverrides) g.settings.actionOverrides = {};
+      if (!g.settings.actionOverrides[id]) g.settings.actionOverrides[id] = {};
+      const base = RULES.actionById(id);
+      if (base && base[key] === value) delete g.settings.actionOverrides[id][key];
+      else g.settings.actionOverrides[id][key] = value;
+      if (!Object.keys(g.settings.actionOverrides[id]).length) delete g.settings.actionOverrides[id];
+      log('House rule: ' + base.name + ' — ' + key + ' is now ' + value + '.', 'manual');
+    });
+  }
+
+  /* Where does the AP for acting actually come from? Used by the UI so the
+     answer is on screen instead of in the rules text. */
+  function apConsequence(a) {
+    if (a.kind === 'aggressive') {
+      return 'The target gains 1 AP if it survives — nothing otherwise.';
+    }
+    if (a.opponentGainsAP > 0) {
+      return 'Your opponent gains ' + a.opponentGainsAP + ' AP.';
+    }
+    return 'Your opponent gains no AP.';
+  }
+
+  /* Are you acting on your own turn, or answering inside someone else's? */
+  function controlMode() {
+    const g = S();
+    if (!g) return 'turn';
+    if (g.pending) return 'phase';
+    if (g.control.player !== g.turn.player) return 'reacting';
+    return g.chain.active ? 'continuing' : 'turn';
+  }
+
   /* ------------------------------------------------------------------ log */
 
   function log(text, cls) {
@@ -455,7 +503,7 @@ const Engine = (function () {
   function applicableAuras(f) {
     const g = S();
     if (!f || f.kind !== 'attack' || !f.attackerId || !f.targetId) return [];
-    const action = RULES.actionById(f.actionId);
+    const action = actionDef(f.actionId);
     const weaponType = action ? action.attackRange : 'ranged';
     const attacker = Store.unit(f.attackerId);
     if (!attacker) return [];
@@ -917,7 +965,7 @@ const Engine = (function () {
   /* ------------------------------------------------------- start an action */
 
   function beginAction(actionId) {
-    const action = RULES.actionById(actionId);
+    const action = actionDef(actionId);
     if (!action) return;
     const avail = actionAvailability(action);
     if (!avail.ok) return;
@@ -1020,7 +1068,7 @@ const Engine = (function () {
     Store.commit('resolve action', function () {
       const g = S();
       const f = g.flow;
-      const action = RULES.actionById(f.actionId);
+      const action = actionDef(f.actionId);
       if (!f || !action) return;
       const actor = g.control.player;
       const responder = pickResponder(f, actor);
@@ -1047,7 +1095,7 @@ const Engine = (function () {
   /* Does this flow need to ask who the opponent is before it can resolve? */
   function needsResponderChoice(actionId) {
     if (Store.playerCount() === 2) return false;
-    const a = RULES.actionById(actionId);
+    const a = actionDef(actionId);
     if (!a) return false;
     if (a.kind === 'aggressive') return false;      // the target's owner answers it
     if (a.endsChain && !a.opponentGainsAP) return false;
@@ -1069,7 +1117,7 @@ const Engine = (function () {
       const f = g.flow;
       const actor = g.control.player;
       const responder = pickResponder(f, actor);
-      const action = RULES.actionById('secure');
+      const action = actionDef('secure');
       openChain(actor);
       spendAP(actor, action.cost);
       chainEntry(pname(actor) + ': ' + uname(f.unitId) + ' → SECURE.', 'action');
@@ -1085,7 +1133,7 @@ const Engine = (function () {
       const f = g.flow;
       const actor = g.control.player;
       const responder = pickResponder(f, actor);
-      const action = RULES.actionById('relic');
+      const action = actionDef('relic');
       openChain(actor);
       spendAP(actor, action.cost);
       chainEntry(pname(actor) + ': ' + uname(f.unitId) + ' → PICK UP THE RELIC.', 'action');
@@ -1112,7 +1160,7 @@ const Engine = (function () {
       const f = g.flow;
       const actor = g.control.player;
       const responder = pickResponder(f, actor);
-      const action = RULES.actionById('overwatch');
+      const action = actionDef('overwatch');
       openChain(actor);
       spendAP(actor, action.cost);
       const u = Store.unit(f.unitId);
@@ -1203,7 +1251,7 @@ const Engine = (function () {
       const actor = g.control.player;
       const ab = findAbility(f.unitId, f.abilityId);
       if (!ab) { g.flow = null; return; }
-      const action = RULES.actionById('ability');
+      const action = actionDef('ability');
       const responder = pickResponder(f, actor);
       openChain(actor);
       spendAP(actor, Number(ab.cost) || 0);
@@ -1290,7 +1338,7 @@ const Engine = (function () {
     Store.commit('select target', function () {
       const f = S().flow;
       f.targetId = unitId;
-      const action = RULES.actionById(f.actionId);
+      const action = actionDef(f.actionId);
       const list = weaponsFor(f.attackerId, action ? action.attackRange : 'ranged');
       const free = list.filter(w => !w.used);
       if (free.length === 1) { f.weaponId = free[0].id; declareAttack(); }
@@ -1313,7 +1361,7 @@ const Engine = (function () {
     const f = g.flow;
     if (!f || f.kind !== 'attack') return;
     if (!f.paid) {
-      const action = RULES.actionById(f.actionId);
+      const action = actionDef(f.actionId);
       const actor = g.control.player;
       openChain(actor);
       spendAP(actor, action.cost || 0);
@@ -1362,7 +1410,7 @@ const Engine = (function () {
     Store.commit('reaction', function () {
       const g = S();
       const f = g.flow;
-      const action = RULES.actionById(f.actionId);
+      const action = actionDef(f.actionId);
       const range = action.attackRange;
       const defender = Store.unit(f.targetId);
       const defPlayer = defender.owner;
@@ -1473,7 +1521,7 @@ const Engine = (function () {
     if (!attacker || !target || !weapon) return null;
     /* High ground: +1 to Hit when shooting, +1 to Wound and +1 Damage when
        charging down onto the target. */
-    const elevKind = RULES.actionById(f.actionId).elevation;
+    const elevKind = actionDef(f.actionId).elevation;
     const high = !!f.elevation;
     const elevHit    = (high && elevKind === 'shoot') ? 1 : 0;
     const elevWound  = (high && elevKind === 'charge') ? 1 : 0;
@@ -1947,6 +1995,7 @@ const Engine = (function () {
 
   return {
     startGame, beginTurn, confirmStartPhase, confirmEndPhase, beginEndPhase,
+    actionDef, actionList, setActionOverride, apConsequence, controlMode,
     actionAvailability, eligibleUnits, usableAPAbilities, usableFreeAbilities,
     weaponsFor, findAbility,
     beginAction, cancelFlow, flowBack, flowPickUnit, flowPickResponder,

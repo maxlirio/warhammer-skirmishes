@@ -167,6 +167,27 @@ of effects the app applies: gain/lose AP, RP or VP, deal or heal damage, modify
 Hit or Wound rolls for a chosen duration, place a token with its own trigger
 effects, or just print a reminder.
 
+## Turn or reaction?
+
+The app is explicit about which of the two is happening, because they feel the
+same on the table but mean different things. The player plates read
+`PLAYER 1 · TURN` and `PLAYER 2 · REACTING`, and the control bar carries a
+badge — gold **THEIR TURN** / **THEIR TURN · IN CHAIN**, or blue
+**REACTING TO PLAYER 1** with a blue edge on the bar.
+
+## Which actions hand over AP
+
+Every action in the ACTION LIST says so in colour, so you never have to
+remember: green *"Your opponent gains no AP"*, amber *"Your opponent gains 1
+AP"*, grey *"The target gains 1 AP if it survives — nothing otherwise"* for the
+Aggressive ones.
+
+As written, only **SPECIAL ABILITY** hands over a flat AP. MOVE, OVERWATCH, HOLD,
+PASS, SECURE and PICK UP THE RELIC give nothing; attacks pay their AP through the
+survivor rule instead. If any of that is wrong for your table, Menu →
+**ACTIONS & AP** lets you change the cost and the AP consequence of every action
+mid-game, and marks what you changed.
+
 ## Rules choices worth knowing
 
 - **Overwatch expiry.** The card says "until the end of this action chain", but a

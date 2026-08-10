@@ -85,6 +85,9 @@
       case 'menu':         UI.setModal('menu'); return;
       case 'showlog':      UI.setModal('log'); return;
       case 'showrules':    UI.setModal('rules'); return;
+      case 'showhouserules': UI.setModal('houserules'); return;
+      case 'hrcost': Engine.setActionOverride(p[1], 'cost', Number(p[2])); return;
+      case 'hrap':   Engine.setActionOverride(p[1], 'opponentGainsAP', Number(p[2])); return;
       case 'openactions':  UI.setModal('actions'); return;
       case 'openphase':    UI.setModal(null); return;
       case 'unitinfo':     UI.setModal({ unit: p[1] }); return;

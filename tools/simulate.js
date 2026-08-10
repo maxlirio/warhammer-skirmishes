@@ -806,6 +806,76 @@ check('Alfred carries a Lasgun and a Dagger',
 check('Nick carries a Lasgun and a Bayonet',
   astraNick.weapons.map(w => w.name), ['Lasgun', 'Bayonet']);
 
+console.log('\n== which actions hand over AP ==');
+(function () {
+  const us = [
+    mkUnit(0, 'A', 3, 4, [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 },
+                          { name: 'Axe', type: 'melee', hit: 3, strength: 4, damage: 1 }],
+      [{ name: 'Trick', trigger: 'ap', cost: 1, text: 'x', effects: [] }]),
+    mkUnit(1, 'B', 3, 4, [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], [])
+  ];
+  Engine.startGame({ playerNames: ['One', 'Two'], vpTarget: 10, firstPlayer: 0,
+                     mission: { id: null }, objectives: [] }, us);
+  Engine.confirmStartPhase();
+
+  const flat = {};
+  Engine.actionList().forEach(a => { flat[a.id] = a.opponentGainsAP || 0; });
+  check('only SPECIAL ABILITY hands over a flat AP',
+    Object.keys(flat).filter(k => flat[k] > 0), ['ability']);
+  check('MOVE gives nothing', Engine.apConsequence(Engine.actionDef('move')),
+    'Your opponent gains no AP.');
+  check('OVERWATCH gives nothing', Engine.apConsequence(Engine.actionDef('overwatch')),
+    'Your opponent gains no AP.');
+  check('an attack only pays a survivor', Engine.apConsequence(Engine.actionDef('shoot')),
+    'The target gains 1 AP if it survives — nothing otherwise.');
+
+  // MOVE really does hand over nothing.
+  Engine.adjustAP(0, 3);
+  const oppBefore = ap(1);
+  Engine.beginAction('move');
+  Engine.flowPickUnit(U('A').id);
+  Engine.confirmSimple();
+  check('and MOVE proves it in play', ap(1), oppBefore);
+
+  // House rule it and the app follows.
+  Engine.setActionOverride('move', 'opponentGainsAP', 1);
+  check('the house rule is stored', Engine.actionDef('move').opponentGainsAP, 1);
+  Engine.forceControl(0, null);
+  Engine.adjustAP(0, 3);
+  const oppBefore2 = ap(1);
+  Engine.beginAction('move');
+  Engine.flowPickUnit(U('A').id);
+  Engine.confirmSimple();
+  check('and MOVE now pays out', ap(1), oppBefore2 + 1);
+  Engine.setActionOverride('move', 'opponentGainsAP', 0);
+  check('setting it back to the card clears the override',
+    !!(G().settings.actionOverrides || {}).move, false);
+})();
+
+console.log('\n== turn or reaction? ==');
+(function () {
+  const us = [
+    mkUnit(0, 'A', 3, 4, [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], []),
+    mkUnit(1, 'B', 3, 4, [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], [])
+  ];
+  Engine.startGame({ playerNames: ['One', 'Two'], vpTarget: 10, firstPlayer: 0,
+                     mission: { id: null }, objectives: [] }, us);
+  check('a phase modal reads as a phase', Engine.controlMode(), 'phase');
+  Engine.confirmStartPhase();
+  check('the active player is on their turn', Engine.controlMode(), 'turn');
+  Engine.beginAction('shoot');
+  Engine.flowPickUnit(U('A').id);
+  Engine.flowPickAttackTarget(U('B').id);
+  Engine.flowPickReaction('none');
+  Engine.flowHit(false);
+  check('the defender is reacting, not taking a turn', Engine.controlMode(), 'reacting');
+  check('it is still player one\\u2019s turn', G().turn.player, 0);
+  Engine.adjustAP(0, 2);                   // the turn player still has AP to spend
+  Engine.beginAction('hold');
+  Engine.confirmSimple();
+  check('back to the turn player once the chain closes', Engine.controlMode(), 'turn');
+})();
+
 console.log('\n== summary ==');
 console.log((checks - fails) + '/' + checks + ' checks passed');
 process.exit(fails ? 1 : 0);

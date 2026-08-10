@@ -55,7 +55,8 @@ const UI = (function () {
     const p = g.players[i];
     const active = g.control.player === i;
     return '<div class="pplate p' + i + (active ? ' active' : '') + '">' +
-      '<div class="pname">' + esc(p.name) + (g.turn.player === i ? ' · turn' : '') + '</div>' +
+      '<div class="pname">' + esc(p.name) +
+        (g.turn.player === i ? ' · TURN' : (active ? ' · REACTING' : '')) + '</div>' +
       '<div class="stats">' +
         '<div class="stat ap"><div class="v">' + p.ap + '</div><div class="k">AP</div>' +
           '<div class="nudge"><button data-act="ap:' + i + ':-1">−</button>' +
@@ -81,9 +82,20 @@ const UI = (function () {
         ? 'resolve START: abilities, then gain 1 AP'
         : 'resolve END: abilities, then check objectives';
     }
-    return '<div class="controlbar p' + cp + '">' +
-      '<div><div class="who">' + who + '</div>' +
-      '<div class="why">' + why + '</div></div>' +
+    const mode = Engine.controlMode();
+    const badge = {
+      turn:       { t: 'THEIR TURN', c: 'turn' },
+      continuing: { t: 'THEIR TURN · IN CHAIN', c: 'turn' },
+      reacting:   { t: 'REACTING', c: 'react' },
+      phase:      { t: 'PHASE', c: 'phase' }
+    }[mode];
+    return '<div class="controlbar p' + cp + ' mode-' + badge.c + '">' +
+      '<div style="min-width:0">' +
+        '<div class="badge ' + badge.c + '">' + badge.t +
+          (mode === 'reacting' ? ' TO ' + esc(g.players[g.turn.player].name).toUpperCase() : '') +
+        '</div>' +
+        '<div class="who">' + who + '</div>' +
+        '<div class="why">' + why + '</div></div>' +
       '<div class="chip' + (g.chain.active ? ' on' : '') + '">' +
         (g.chain.active ? 'CHAIN #' + g.chain.id + ' ACTIVE' : 'NO ACTIVE CHAIN') + '</div>' +
     '</div>';
@@ -240,6 +252,7 @@ const UI = (function () {
     if (modal === 'log') return wrap(logModal(g));
     if (modal === 'mission') return wrap(missionModal(g));
     if (modal === 'rules') return wrap(rulesModal());
+    if (modal === 'houserules') return wrap(houseRulesModal(g));
     if (modal === 'newbutton') return wrap(newButtonModal(g));
     if (modal && modal.unit) return wrap(unitModal(g, modal.unit));
     if (g.pending && modal !== 'phase-dismissed') return wrap(phaseModal(g));
@@ -263,7 +276,7 @@ const UI = (function () {
 
   function actionListModal(g) {
     const cp = g.control.player;
-    const rows = RULES.actions.map(function (a) {
+    const rows = Engine.actionList().map(function (a) {
       const av = Engine.actionAvailability(a);
       if (av.hide) return '';
       const cost = a.cost === null ? 'X AP' : (a.cost === 0 ? 'FREE' : a.cost + ' AP');
@@ -272,13 +285,20 @@ const UI = (function () {
           '<div class="cname">' + a.name +
             ' <span class="ctag ' + (a.kind === 'aggressive' ? 'agg">AGGRESSIVE' : 'pas">PASSIVE') + '</span></div>' +
           '<div class="cdesc">' + esc(a.short || a.text) + '</div>' +
+          '<div class="apnote' + (a.kind === 'aggressive' ? ' agg'
+            : (a.opponentGainsAP > 0 ? ' gives' : ' free')) + '">' +
+            esc(Engine.apConsequence(a)) + '</div>' +
           (av.ok ? '' : '<div class="cflav" style="color:var(--bad)">' + esc(av.why) + '</div>') +
         '</div>' +
         '<div class="ccost' + (a.cost === 0 ? ' free' : '') + '">' + cost + '</div>' +
       '</button>';
     }).join('');
 
+    const mode = Engine.controlMode();
     return head('ACTION LIST', esc(g.players[cp].name) + ' · ' + g.players[cp].ap + ' AP AVAILABLE') +
+      '<div class="crumbs"><span class="badge ' + (mode === 'reacting' ? 'react' : 'turn') + '">' +
+        (mode === 'reacting' ? 'REACTING TO ' + esc(g.players[g.turn.player].name).toUpperCase()
+                             : 'THEIR OWN TURN') + '</span></div>' +
       (g.control.forcedUnitId
         ? '<div class="crumbs">Aggressive Action response: <b>' +
             esc(Store.unit(g.control.forcedUnitId).name) + '</b> must be the acting unit.</div>'
@@ -308,7 +328,7 @@ const UI = (function () {
 
     return head('RULES REFERENCE', 'ACTIONS &amp; REACTIONS') +
       '<div class="mbody">' +
-        block('STANDARD ACTIONS', RULES.actions, 'AP') +
+        block('STANDARD ACTIONS', Engine.actionList(), 'AP') +
         block('RANGED REACTIONS', RULES.rangedReactions, 'RP') +
         block('MELEE REACTIONS', RULES.meleeReactions, 'RP') +
         '<div style="font-size:10px;letter-spacing:.14em;color:var(--gold);font-weight:800;margin:12px 0 6px">' +
@@ -1041,6 +1061,10 @@ const UI = (function () {
   function menuModal(g) {
     return head('MENU', 'GAME TOOLS') +
       '<div class="mbody">' +
+        '<button class="choice" data-act="showhouserules"><div class="cmain">' +
+          '<div class="cname">ACTIONS &amp; AP</div>' +
+          '<div class="cdesc">What every action costs and whether it gives your opponent AP — ' +
+            'change any of it if I have one wrong.</div></div></button>' +
         '<button class="choice" data-act="showrules"><div class="cmain">' +
           '<div class="cname">RULES REFERENCE</div>' +
           '<div class="cdesc">Every Standard Action and Reaction, the wound table and the ' +
@@ -1093,6 +1117,49 @@ const UI = (function () {
             (m.unitFlag ? '<div class="noteline">' + esc(m.unitFlag.hint) + '</div>' : '')
           : '<div class="noteline">No mission card this game.</div>') +
         specialObjectiveCheck(g) +
+      '</div>' +
+      '<div class="mfoot"><button class="btn ghost" data-act="menu">BACK</button></div>';
+  }
+
+  /* Every action's cost and AP consequence, editable mid-game. */
+  function houseRulesModal(g) {
+    const ov = (g.settings && g.settings.actionOverrides) || {};
+    return head('ACTIONS &amp; AP', 'HOUSE RULES') +
+      '<div class="mbody">' +
+        '<div class="noteline">What each action costs, and whether it hands your opponent AP. ' +
+          'Change anything here and the app follows your version for the rest of the game.</div>' +
+        '<div class="noteline">An <b>Aggressive Action</b> never grants a flat AP — its target ' +
+          'gains 1 AP only by surviving the attack, which is why those rows are fixed.</div>' +
+        Engine.actionList().map(function (a) {
+          const changed = !!ov[a.id];
+          return '<div class="sub" style="background:#0f161d;margin-bottom:7px' +
+            (changed ? ';border-color:var(--gold-dim)' : '') + '">' +
+            '<div style="font-weight:800;font-size:13px">' + a.name +
+              ' <span class="ctag ' + (a.kind === 'aggressive' ? 'agg' : 'pas') + '">' +
+              a.kind.toUpperCase() + '</span>' +
+              (changed ? ' <span style="color:var(--gold);font-size:10px">HOUSE RULE</span>' : '') +
+            '</div>' +
+            '<div style="font-size:10px;color:var(--ink-mute);letter-spacing:.1em;font-weight:800;margin:8px 0 4px">' +
+              'COST</div>' +
+            '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
+              (a.cost === null
+                ? '<div class="cpchip">set by the ability</div>'
+                : [0, 1, 2, 3].map(c => '<button class="btn sm' + (a.cost === c ? ' primary' : '') +
+                    '" style="flex:1" data-act="hrcost:' + a.id + ':' + c + '">' +
+                    (c === 0 ? 'FREE' : c + ' AP') + '</button>').join('')) +
+            '</div>' +
+            '<div style="font-size:10px;color:var(--ink-mute);letter-spacing:.1em;font-weight:800;margin:8px 0 4px">' +
+              'YOUR OPPONENT GAINS</div>' +
+            (a.kind === 'aggressive'
+              ? '<div class="cpchip">1 AP to the target, only if it survives</div>'
+              : '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
+                  [0, 1, 2].map(n => '<button class="btn sm' +
+                    ((a.opponentGainsAP || 0) === n ? ' primary' : '') + '" style="flex:1" ' +
+                    'data-act="hrap:' + a.id + ':' + n + '">' +
+                    (n === 0 ? 'NOTHING' : n + ' AP') + '</button>').join('') +
+                '</div>') +
+          '</div>';
+        }).join('') +
       '</div>' +
       '<div class="mfoot"><button class="btn ghost" data-act="menu">BACK</button></div>';
   }

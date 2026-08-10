@@ -74,7 +74,9 @@ const Store = (function () {
            practical reading — the token lives until its unit moves or attacks
            — and let the menu switch it back to the strict wording. */
         overwatchEndsWithChain: false,
-        overwatchGrantsAP: false
+        overwatchGrantsAP: false,
+        /* Per-action house rules: { move: { cost: 1, opponentGainsAP: 0 }, ... } */
+        actionOverrides: {}
       },
       players: ((config && config.playerNames) || ['Player 1', 'Player 2']).map(function (nm, i) {
         return {
