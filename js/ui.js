@@ -597,11 +597,27 @@ const UI = (function () {
   }
 
   function passFlow(g, f) {
-    return head('PASS', 'CONFIRM') +
-      '<div class="mbody"><div class="noteline">Your turn ends immediately. Any unspent AP carries over.</div>' +
-      '<div class="noteline">' + esc(g.players[g.control.player].name) + ' currently has ' +
-        g.players[g.control.player].ap + ' AP.</div></div>' +
-      footBack('confirmpass', 'END MY TURN');
+    const o = Engine.passOptions();
+    const me = esc(g.players[g.control.player].name);
+    return head('PASS', o.canEndChain ? 'END THE CHAIN' : 'END YOUR TURN') +
+      '<div class="mbody">' +
+        (o.canEndChain
+          ? '<div class="noteline">The action chain ends here.' +
+            (o.canEndTurn ? ' It is your turn, so you may end that too — or keep your AP and ' +
+              'start a new chain.' : ' Play goes back to ' +
+              esc(g.players[g.turn.player].name) + '.') + '</div>'
+          : '<div class="noteline">No chain is running, so this ends your turn.</div>') +
+        '<div class="noteline">' + me + ' currently has ' + g.players[g.control.player].ap +
+          ' AP. Anything unspent carries over.</div>' +
+      '</div>' +
+      '<div class="mfoot">' +
+        '<button class="btn ghost sm" data-act="flowback">BACK</button>' +
+        (o.canEndChain
+          ? '<button class="btn' + (o.canEndTurn ? '' : ' primary') + '" data-act="confirmpass:0">' +
+            'END THE CHAIN</button>' : '') +
+        (o.canEndTurn
+          ? '<button class="btn primary" data-act="confirmpass:1">END MY TURN</button>' : '') +
+      '</div>';
   }
 
   function secureFlow(g, f) {
@@ -698,6 +714,9 @@ const UI = (function () {
             '<div class="cmain"><div class="cname">' + esc(a.name) + '</div>' +
             '<div class="cdesc">' + esc(a.text) + '</div>' +
             (a.effects || []).map(e => '<div class="cflav">' + effectSummary(e) + '</div>').join('') +
+            '<div class="apnote' + (Engine.abilityLetsThemReact(a) ? ' gives' : ' free') + '">' +
+              (Engine.abilityLetsThemReact(a) ? 'Your opponent gets to react.'
+                                              : 'No reaction — the chain ends.') + '</div>' +
             '</div><div class="ccost">' + a.cost + ' AP</div></button>').join('') +
         '</div>' + footBack();
     }
@@ -724,10 +743,10 @@ const UI = (function () {
         (ab.effects || []).map(e => '<div class="noteline">' + effectSummary(e) +
           targetNames(f.targets[e.id]) + '</div>').join('') +
         '<div class="noteline warn">Costs ' + ab.cost + ' AP. ' +
-          (ab.opponentGainsAP === 'default' || Number(ab.opponentGainsAP) > 0
-            ? 'Your opponent gains ' + (ab.opponentGainsAP === 'default' ? 1 : ab.opponentGainsAP) +
-              ' AP (SPECIAL ABILITY is a Passive Action — they may use any unit).'
-            : 'Your opponent gains no AP.') + '</div>' +
+          (Engine.abilityLetsThemReact(ab)
+            ? 'Your opponent gets to react — the chain continues, and they may answer with any ' +
+              'unit if they have the AP.'
+            : 'Your opponent does not get to react — the action chain ends here.') + '</div>' +
       '</div>' +
       footBack('confirmability', 'USE ABILITY');
   }

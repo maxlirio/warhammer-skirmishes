@@ -27,7 +27,7 @@ const Store = (function () {
   function newAbility(patch) {
     return Object.assign({
       id: nextId('ab'), name: 'Ability', trigger: 'ap', cost: 1,
-      text: '', effects: [], endsChain: 'default', opponentGainsAP: 'default',
+      text: '', effects: [], opponentReacts: true,
       usesPerGame: 0, used: 0
     }, patch || {});
   }
@@ -377,7 +377,7 @@ const PRESETS = [
           effects: [{ kind: 'token', label: 'SNAP SHOT', expiry: 'used', tokenAttack: true,
                       tokenWeapon: 'ranged', tokenHitMod: 0,
                       text: 'Press when an enemy moves into your sights. No RP for them.' }] },
-        { name: 'Choke Hold', trigger: 'ap', cost: 1, endsChain: 'yes',
+        { name: 'Choke Hold', trigger: 'ap', cost: 1, opponentReacts: false,
           text: 'Make an attack with this unit\'s Leathered Fist. Your opponent gets no RP. If ' +
                 'the attack hits, don\'t make a wound roll. Instead end this action chain and ' +
                 'move this unit 3".',
@@ -491,7 +491,7 @@ const PRESETS = [
           effects: [{ kind: 'aura', stat: 'strength', value: 1, side: 'friendly',
                       onlyVsOwner: false, weapon: 'any', range: 6, mode: 'within',
                       text: 'Friendly units within 6" of Boss Nob Blikker have +1 Strength.' }] },
-        { name: 'WAAAAAGH', trigger: 'ap', cost: 1, usesPerGame: 1, endsChain: 'yes',
+        { name: 'WAAAAAGH', trigger: 'ap', cost: 1, usesPerGame: 1, opponentReacts: false,
           text: 'Usable only once per game. Move each of your units up to D6". End the action chain.',
           effects: [{ kind: 'note', text: 'Roll D6 and move each of your units up to that many inches.' }] }
       ]
@@ -574,6 +574,7 @@ const PRESETS = [
           text: 'Each unit within 6", including this one, make a save 3+ or takes 1 damage. If ' +
                 'this unit dies, nobody gets VP. Your opponent gains 1 AP.',
           effects: [{ kind: 'damage', value: 1, pick: 'multi' },
+                    { kind: 'ap_opponent', value: 1 },
                     { kind: 'note',
                       text: 'Every unit within 6" — Riksnik included — rolls a D6. On 1-2 it ' +
                             'takes 1 damage. If Riksnik dies to this, nobody scores VP.' }] }

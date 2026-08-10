@@ -82,18 +82,11 @@ const RULES = (function () {
     },
     {
       id: 'ability', name: 'SPECIAL ABILITY', cost: null, kind: 'passive', flow: 'ability',
-      short: 'Use one of this unit\'s [X] AP abilities. Your opponent gains 1 AP.',
+      short: 'Use one of this unit\'s [X] AP abilities. Each ability says whether your opponent reacts.',
       flavour: '“Watch this.”',
-      text: 'Use one of your unit\'s abilities that begins with “[X] AP —”. Your opponent gains 1 AP.',
-      endsChain: false, opponentGainsAP: 1
-    },
-    {
-      id: 'hold', name: 'HOLD', cost: 0, kind: 'passive', flow: 'simple',
-      short: 'Move up to 1". The chain ends. Only during an action chain.',
-      flavour: '“Let them come.”',
-      text: 'Move a friendly unit up to 1". The action chain ends. Use only during an action chain.',
-      prompt: 'Move the unit up to 1" on the tabletop.',
-      endsChain: true, opponentGainsAP: 0, onlyInChain: true
+      text: 'Use one of your unit\'s abilities that begins with “[X] AP —”. Each ability states ' +
+            'whether or not your opponent gets to react.',
+      endsChain: false, opponentGainsAP: 0
     },
     /* --- unlocked by a mission card, hidden otherwise --- */
     {
@@ -117,11 +110,10 @@ const RULES = (function () {
     },
     {
       id: 'pass', name: 'PASS', cost: 0, kind: 'passive', flow: 'pass',
-      short: 'End your turn. Only on your turn, never during a chain.',
+      short: 'End the action chain. On your own turn you may end the turn too.',
       flavour: '“Let’s see what they do.”',
-      text: 'Only on your own turn, and never during an action chain. Your turn ends.',
-      endsChain: true, opponentGainsAP: 0, onlyOnYourTurn: true, notInChain: true,
-      endsTurn: true, noUnit: true
+      text: 'End the action chain. If it is your turn, you may end your turn.',
+      endsChain: true, opponentGainsAP: 0, noUnit: true
     }
   ];
 

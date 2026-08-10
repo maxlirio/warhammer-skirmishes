@@ -162,8 +162,8 @@ Make it a button. Three ways, in increasing order of automation:
 ## Custom abilities
 
 Abilities are mechanical, not natural language. For each one you specify when it
-fires (`[X] AP`, `[X] RP`, `START:`, `END:`, passive, or a free button) and a list
-of effects the app applies: gain/lose AP, RP or VP, deal or heal damage, modify
+fires (`[X] AP`, `[X] RP`, `START:`, `END:`, passive, or a free button), whether
+your opponent gets to react to it, and a list of effects the app applies: gain/lose AP, RP or VP, deal or heal damage, modify
 Hit or Wound rolls for a chosen duration, place a token with its own trigger
 effects, or just print a reminder.
 
@@ -182,11 +182,15 @@ remember: green *"Your opponent gains no AP"*, amber *"Your opponent gains 1
 AP"*, grey *"The target gains 1 AP if it survives — nothing otherwise"* for the
 Aggressive ones.
 
-As written, only **SPECIAL ABILITY** hands over a flat AP. MOVE, OVERWATCH, HOLD,
-PASS, SECURE and PICK UP THE RELIC give nothing; attacks pay their AP through the
-survivor rule instead. If any of that is wrong for your table, Menu →
-**ACTIONS & AP** lets you change the cost and the AP consequence of every action
-mid-game, and marks what you changed.
+No Standard Action hands over a flat AP. Attacks pay through the survivor rule,
+and a **Special Ability states for itself** whether the opponent gets to react —
+if it should also hand over AP, that is an explicit *"Opponent gains AP"* effect
+on that ability. If any of it is wrong for your table, Menu → **ACTIONS & AP**
+lets you change the cost and the AP consequence of every action mid-game, and
+marks what you changed.
+
+**PASS** (0 AP) ends the action chain, and on your own turn it offers to end the
+turn as well — so it covers both jobs and HOLD is gone.
 
 ## Rules choices worth knowing
 

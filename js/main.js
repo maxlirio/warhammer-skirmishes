@@ -240,7 +240,7 @@
       case 'confirmability': Engine.confirmAbility(); return;
 
       case 'confirmsimple': Engine.confirmSimple(); return;
-      case 'confirmpass': Engine.confirmPass(); return;
+      case 'confirmpass': Engine.confirmPass(p[1] === '1'); return;
       case 'confirmoverwatch': Engine.confirmOverwatch(); return;
 
       /* ---- tokens ---- */

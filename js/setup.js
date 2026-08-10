@@ -483,21 +483,15 @@ const Setup = (function () {
       '</div>' +
 
       (a.trigger === 'ap'
-        ? '<div class="grid2" style="margin-top:8px">' +
-            field('ENDS THE ACTION CHAIN?',
-              '<select data-bind="ability:' + u.id + ':' + a.id + ':endsChain">' +
-                '<option value="default"' + (a.endsChain === 'default' ? ' selected' : '') + '>Rules default (no)</option>' +
-                '<option value="yes"' + (a.endsChain === 'yes' ? ' selected' : '') + '>Yes — chain ends</option>' +
-                '<option value="no"' + (a.endsChain === 'no' ? ' selected' : '') + '>No — chain continues</option>' +
-              '</select>') +
-            field('OPPONENT GAINS AP',
-              '<select data-bind="ability:' + u.id + ':' + a.id + ':opponentGainsAP">' +
-                '<option value="default"' + (a.opponentGainsAP === 'default' ? ' selected' : '') + '>Rules default (1 AP)</option>' +
-                '<option value="0"' + (String(a.opponentGainsAP) === '0' ? ' selected' : '') + '>None</option>' +
-                '<option value="1"' + (String(a.opponentGainsAP) === '1' ? ' selected' : '') + '>1 AP</option>' +
-                '<option value="2"' + (String(a.opponentGainsAP) === '2' ? ' selected' : '') + '>2 AP</option>' +
-              '</select>') +
-          '</div>'
+        ? field('DOES YOUR OPPONENT GET TO REACT?',
+            '<select data-bind="ability:' + u.id + ':' + a.id + ':opponentReacts">' +
+              '<option value="true"' + (a.opponentReacts !== false ? ' selected' : '') + '>' +
+                'Yes — the action chain continues</option>' +
+              '<option value="false"' + (a.opponentReacts === false ? ' selected' : '') + '>' +
+                'No — the action chain ends here</option>' +
+            '</select>') +
+          '<div class="hint">Every ability decides this for itself. If it should also hand your ' +
+            'opponent AP, add a “Opponent gains AP” effect above — it is not automatic.</div>'
         : '') +
     '</div>';
   }
@@ -798,7 +792,8 @@ const Setup = (function () {
     if (kind === 'ability') {
       const a = findAbility(p[1], p[2]); if (!a) return;
       const key = p[3];
-      a[key] = ['cost', 'usesPerGame'].indexOf(key) >= 0 ? Number(value) : value;
+      a[key] = ['cost', 'usesPerGame'].indexOf(key) >= 0 ? Number(value)
+             : (key === 'opponentReacts' ? value === 'true' : value);
       return;
     }
     if (kind === 'effect') {
@@ -1041,7 +1036,7 @@ const Setup = (function () {
             const ab = Store.newAbility({
               name: a.name, trigger: a.trigger, cost: a.cost, text: a.text,
               usesPerGame: a.usesPerGame || 0,
-              endsChain: a.endsChain || 'default'
+              opponentReacts: a.opponentReacts !== false
             });
             ab.effects = (a.effects || []).map(function (e) {
               const row = Store.newEffectRow(e);

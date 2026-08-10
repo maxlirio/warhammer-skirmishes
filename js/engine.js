@@ -313,7 +313,7 @@ const Engine = (function () {
     if (g.pending || g.flow) return;
     const cp = g.control.player;
     if (g.players[cp].ap <= 0 && !g.chain.active) {
-      // HOLD is 0 AP but chain-only; with no chain and no AP, only PASS remains.
+      // With no chain and no AP, only PASS remains.
       if (cp === g.turn.player) {
         log(pname(cp) + ' has no AP left.', 'muted');
         beginEndPhase('no AP remaining');
@@ -1068,8 +1068,9 @@ const Engine = (function () {
     Store.commit('resolve action', function () {
       const g = S();
       const f = g.flow;
+      if (!f) return;
       const action = actionDef(f.actionId);
-      if (!f || !action) return;
+      if (!action) return;
       const actor = g.control.player;
       const responder = pickResponder(f, actor);
       openChain(actor);
@@ -1098,8 +1099,9 @@ const Engine = (function () {
     const a = actionDef(actionId);
     if (!a) return false;
     if (a.kind === 'aggressive') return false;      // the target's owner answers it
-    if (a.endsChain && !a.opponentGainsAP) return false;
-    return a.opponentGainsAP > 0 || !a.endsChain;
+    if (a.id === 'ability') return true;            // narrowed once the ability is chosen
+    if (a.endsChain) return false;
+    return true;
   }
 
   function flowPickControlPoint(cpId) {
@@ -1145,13 +1147,33 @@ const Engine = (function () {
     });
   }
 
-  function confirmPass() {
+  /* PASS always closes the chain. Only the player whose turn it is may also
+     choose to end the turn with it. */
+  function confirmPass(endTurn) {
     Store.commit('pass', function () {
       const g = S();
+      const who = g.control.player;
+      const isTurnPlayer = who === g.turn.player;
       g.flow = null;
-      chainEntry(pname(g.control.player) + ' PASSES — turn ends.', 'action');
-      beginEndPhase('passed');
+      if (endTurn && isTurnPlayer) {
+        chainEntry(pname(who) + ' PASSES — the chain ends and so does their turn.', 'action');
+        beginEndPhase('passed');
+        return;
+      }
+      chainEntry(pname(who) + ' PASSES — the action chain ends.', 'action');
+      closeChain('passed');
+      handOffToTurnPlayer();
+      checkVictory();
     });
+  }
+
+  /* What PASS can do from here: end the chain, end the turn, or both. */
+  function passOptions() {
+    const g = S();
+    return {
+      canEndChain: g.chain.active,
+      canEndTurn: g.control.player === g.turn.player
+    };
   }
 
   function confirmOverwatch() {
@@ -1188,6 +1210,7 @@ const Engine = (function () {
       f.abilityId = abilityId;
       f.targets = {};
       f.pickIndex = 0;
+      f.askOpponent = Store.playerCount() > 2 && abilityLetsThemReact(ab);
       const needs = effectsNeedingTarget(ab, { sourceUnitId: f.unitId });
       f.step = needs.length ? 'pick' : (f.askOpponent ? 'opponent' : 'confirm');
     });
@@ -1231,6 +1254,15 @@ const Engine = (function () {
     });
   }
 
+  /* Each ability states whether the opponent gets to react. Older abilities
+     stored the answer as endsChain, so fall back to that. */
+  function abilityLetsThemReact(ab) {
+    if (!ab) return true;
+    if (ab.opponentReacts !== undefined && ab.opponentReacts !== null) return !!ab.opponentReacts;
+    if (ab.endsChain === 'yes') return false;
+    return true;
+  }
+
   function findAbility(unitId, abilityId) {
     const u = Store.unit(unitId);
     if (!u) return null;
@@ -1262,9 +1294,8 @@ const Engine = (function () {
         label: ab.name, opponent: responder
       };
       applyEffects(ab.effects, ctx);
-      const oppAP = ab.opponentGainsAP === 'default' ? action.opponentGainsAP : Number(ab.opponentGainsAP) || 0;
-      if (oppAP && responder !== null) grantAP(responder, oppAP, 'SPECIAL ABILITY');
-      const ends = ab.endsChain === 'default' ? action.endsChain : ab.endsChain === 'yes';
+      const ends = !abilityLetsThemReact(ab);
+      if (ends) chainEntry('“' + ab.name + '” does not let the opponent react — the chain ends.', 'note');
       const unitId = f.unitId;
       g.flow = null;
 
@@ -2002,7 +2033,7 @@ const Engine = (function () {
     flowPickControlPoint, confirmSecure, confirmRelic,
     missionCard, missionEndTurnItems, toggleUnitFlag, controlledCount,
     relicCarrier, setRelicCarrier, killValue, endGameNow,
-    confirmSimple, confirmPass, confirmOverwatch,
+    confirmSimple, confirmPass, passOptions, confirmOverwatch, abilityLetsThemReact,
     flowPickAbility, flowPickTarget, flowDoneTargets, confirmAbility,
     useFreeAbility, usePhaseAbility,
     flowPickAttackTarget, flowPickWeapon, flowPickReaction, flowEligibility,

@@ -203,11 +203,15 @@ check('Ork Boy alive', U('Ork Boy').alive, true);
 check('miss still hands the AP to the survivor', ap(1), 1);
 check('Ork Boy is the forced unit', G().control.forcedUnitId, U('Ork Boy').id);
 
-console.log('\n== HOLD ends the chain ==');
-Engine.beginAction('hold');
-Engine.confirmSimple();
-check('chain closed by HOLD', G().chain.active, false);
-check('HOLD is free', ap(1), 1);
+console.log('\n== PASS ends the chain without ending the turn ==');
+check('it is not the responder\u2019s turn', Engine.controlMode(), 'reacting');
+Engine.beginAction('pass');
+check('so PASS only offers the chain', Engine.passOptions(),
+  { canEndChain: true, canEndTurn: false });
+Engine.confirmPass(true);                       // asking to end the turn is ignored
+check('chain closed by PASS', G().chain.active, false);
+check('PASS is free', ap(1), 1);
+check('and the turn did not change hands', G().turn.player, 0);
 
 console.log('\n== SPECIAL ABILITY: opponent gains AP, chain continues ==');
 check('control back to the turn player', G().control.player, 0);
@@ -217,8 +221,10 @@ Engine.beginAction('ability');
 Engine.flowPickUnit(U('Intercessor').id);
 Engine.flowPickAbility(U('Intercessor').abilities[0].id);
 Engine.confirmAbility();
-check('opponent gains 1 AP from the Passive Action', ap(1), apOpp + 1);
-check('opponent may pick any unit', G().control.forcedUnitId, null);
+check('no automatic AP — the ability did not grant any', ap(1), apOpp);
+check('but they may still react with any unit', G().control.forcedUnitId, null);
+check('because this ability lets them', Engine.abilityLetsThemReact(
+  U('Intercessor').abilities[0]), true);
 check('+1 to hit effect on the Intercessor', U('Intercessor').effects.length, 1);
 
 console.log('\n== DIVE cancels the attack ==');
@@ -491,7 +497,8 @@ function buildPreset(faction, owner) {
     u.weapons = spec.weapons.map(w => Store.newWeapon(w));
     u.abilities = (spec.abilities || []).map(function (a) {
       const ab = Store.newAbility({ name: a.name, trigger: a.trigger, cost: a.cost,
-        text: a.text, usesPerGame: a.usesPerGame || 0, endsChain: a.endsChain || 'default' });
+        text: a.text, usesPerGame: a.usesPerGame || 0,
+        opponentReacts: a.opponentReacts !== false });
       ab.effects = (a.effects || []).map(function (e) {
         const row = Store.newEffectRow(e);
         if (e.tokenEffects) row.tokenEffects = e.tokenEffects.map(t => Store.newEffectRow(t));
@@ -820,8 +827,11 @@ console.log('\n== which actions hand over AP ==');
 
   const flat = {};
   Engine.actionList().forEach(a => { flat[a.id] = a.opponentGainsAP || 0; });
-  check('only SPECIAL ABILITY hands over a flat AP',
-    Object.keys(flat).filter(k => flat[k] > 0), ['ability']);
+  check('no Standard Action hands over a flat AP any more',
+    Object.keys(flat).filter(k => flat[k] > 0), []);
+  check('an ability says so for itself', Engine.apConsequence(Engine.actionDef('ability')),
+    'Your opponent gains no AP.');
+  check('and HOLD is gone', Engine.actionDef('hold'), null);
   check('MOVE gives nothing', Engine.apConsequence(Engine.actionDef('move')),
     'Your opponent gains no AP.');
   check('OVERWATCH gives nothing', Engine.apConsequence(Engine.actionDef('overwatch')),
@@ -871,9 +881,83 @@ console.log('\n== turn or reaction? ==');
   check('the defender is reacting, not taking a turn', Engine.controlMode(), 'reacting');
   check('it is still player one\\u2019s turn', G().turn.player, 0);
   Engine.adjustAP(0, 2);                   // the turn player still has AP to spend
-  Engine.beginAction('hold');
-  Engine.confirmSimple();
+  Engine.beginAction('pass');
+  Engine.confirmPass(false);
   check('back to the turn player once the chain closes', Engine.controlMode(), 'turn');
+})();
+
+console.log('\n== PASS does both jobs now ==');
+(function () {
+  const us = [
+    mkUnit(0, 'A', 3, 4, [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 }],
+      [{ name: 'Quiet', trigger: 'ap', cost: 1, text: 'x', opponentReacts: false, effects: [] },
+       { name: 'Loud',  trigger: 'ap', cost: 1, text: 'x', opponentReacts: true, effects: [] }]),
+    mkUnit(1, 'B', 3, 4, [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], [])
+  ];
+  Engine.startGame({ playerNames: ['One', 'Two'], vpTarget: 10, firstPlayer: 0,
+                     mission: { id: null }, objectives: [] }, us);
+  Engine.confirmStartPhase();
+  Engine.adjustAP(0, 3);
+
+  // On your own turn with no chain, PASS can only end the turn.
+  check('no chain: only the turn is on offer', Engine.passOptions(),
+    { canEndChain: false, canEndTurn: true });
+  check('PASS is available with a chain running or not',
+    Engine.actionAvailability(Engine.actionDef('pass')).ok, true);
+
+  // Open a chain, then pass out of it without giving up the turn.
+  Engine.beginAction('shoot');
+  Engine.flowPickUnit(U('A').id);
+  Engine.flowPickAttackTarget(U('B').id);
+  Engine.flowPickReaction('none');
+  Engine.flowHit(false);
+  check('the defender is up', Engine.controlMode(), 'reacting');
+  Engine.beginAction('pass');
+  Engine.confirmPass(false);
+  check('the chain is closed', G().chain.active, false);
+  check('and it is still turn one', G().turn.number, 1);
+  check('with the turn player back in control', Engine.controlMode(), 'turn');
+
+  const apBefore = ap(0);
+  Engine.beginAction('pass');
+  check('now both are on offer', Engine.passOptions(),
+    { canEndChain: false, canEndTurn: true });
+  Engine.confirmPass(true);
+  check('PASS costs nothing', ap(0), apBefore);
+  check('and the turn is over', G().pending.type, 'end');
+})();
+
+console.log('\n== an ability decides whether they react ==');
+(function () {
+  const us = [
+    mkUnit(0, 'A', 3, 4, [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 }],
+      [{ name: 'Quiet', trigger: 'ap', cost: 1, text: 'x', opponentReacts: false, effects: [] },
+       { name: 'Loud',  trigger: 'ap', cost: 1, text: 'x', opponentReacts: true,
+         effects: [{ kind: 'ap_opponent', value: 1 }] }]),
+    mkUnit(1, 'B', 3, 4, [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], [])
+  ];
+  Engine.startGame({ playerNames: ['One', 'Two'], vpTarget: 10, firstPlayer: 0,
+                     mission: { id: null }, objectives: [] }, us);
+  Engine.confirmStartPhase();
+  Engine.adjustAP(0, 4);
+  Engine.adjustAP(1, 2);
+
+  const a = U('A');
+  Engine.beginAction('ability');
+  Engine.flowPickUnit(a.id);
+  Engine.flowPickAbility(a.abilities.find(x => x.name === 'Quiet').id);
+  Engine.confirmAbility();
+  check('a no-reaction ability closes the chain', G().chain.active, false);
+  check('so control never left the turn player', G().control.player, 0);
+
+  const oppBefore = ap(1);
+  Engine.beginAction('ability');
+  Engine.flowPickUnit(a.id);
+  Engine.flowPickAbility(a.abilities.find(x => x.name === 'Loud').id);
+  Engine.confirmAbility();
+  check('a reacting ability hands over', G().control.player, 1);
+  check('the chain is live', G().chain.active, true);
+  check('and AP only moved because the ability said so', ap(1), oppBefore + 1);
 })();
 
 console.log('\n== summary ==');
