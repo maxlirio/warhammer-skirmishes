@@ -1908,21 +1908,6 @@ const Engine = (function () {
     });
   }
 
-  function claimSpecialObjective(playerId) {
-    Store.commit('special objective', function () {
-      const g = S();
-      const o = g.players[playerId].objective;
-      if (!o) return;
-      o.completed = (o.completed || 0) + 1;
-      log('★ ' + pname(playerId) + ' completes their Special Objective: “' + o.name + '”.', 'vp');
-      applyEffects(o.effects, {
-        sourceUnitId: null, sourcePlayer: playerId, targets: {}, label: o.name
-      });
-      askVP(playerId, 'Special Objective: ' + o.name, Number(o.vp) || 1);
-      checkVictory();
-    });
-  }
-
   /* -------------------------------------------------- manual adjustments */
 
   function adjustAP(playerId, delta) {
@@ -2054,6 +2039,6 @@ const Engine = (function () {
     addManualEffect, addManualToken, forceControl, forceEndChain, forceEndTurn,
     setPendingVP, scoreVP, promptVP, resolveVP, reassignVP, log,
     needsResponderChoice,
-    scoreMissionObjective, claimSpecialObjective, objectiveScoredBy
+    scoreMissionObjective, objectiveScoredBy
   };
 })();

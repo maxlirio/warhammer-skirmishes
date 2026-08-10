@@ -33,8 +33,8 @@ the app the outcome. It never asks "is the target in range?".
 ## Playing
 
 1. **Setup** is a wizard, one slide at a time: how many players (2–4) and their
-   names → which of the six Mission Cards → one slide per player's army and
-   Special Objective → a briefing slide if the mission needs one → review.
+   names → which of the six Mission Cards → one slide per player's army → a
+   briefing slide if the mission needs one → review.
 2. **ACTION LIST** — pick a Standard Action; the app walks the bookkeeping:
    attacker → defender → weapon → reaction → hit → wound → damage.
 3. The app shows the **target number** for every roll (weapon Hit value and the
@@ -44,8 +44,7 @@ the app the outcome. It never asks "is the target in range?".
    **⌖ FIRE OVERWATCH** button on that unit's card, so with several units ready
    at once you can always see who is firing and who is still waiting. You press
    it when the trigger happens on the table.
-5. Every End Phase runs END: abilities → the mission's scoring → special
-   objectives → any other VP.
+5. Every End Phase runs END: abilities → the mission's scoring → any other VP.
 
 Every number can be corrected by hand (±AP, ±VP, ±wounds), and **UNDO** rolls
 back the last 40 changes.
@@ -53,7 +52,7 @@ back the last 40 changes.
 ## Victory Points are always yours to enter
 
 Missions vary too much for the app to guess. Anything that *might* score — a
-kill, a mission objective, a Special Objective — opens a keypad asking how many
+kill, a mission objective, anything you agree on — opens a keypad asking how many
 VP that is worth to that player, pre-filled with a sensible default you can
 override or zero out. The app adds up what you tell it and nothing else.
 
@@ -91,10 +90,10 @@ pre-filling a guess.
 
 ## It remembers what you typed
 
-Every unit and Special Objective is saved to this browser's library when a game
-starts, and **+ ADD UNIT** offers them back to you instead of a blank form. There
-are **SAVE TO LIBRARY** buttons for saving mid-edit, whole-roster save/load for a
-full team at once, and JSON export/import to move everything to another device.
+Every unit is saved to this browser's library when a game starts, and
+**+ ADD UNIT** offers them back to you instead of a blank form. There is a
+**SAVE** button for saving mid-edit, whole-roster save/load for a full team at
+once, and JSON export/import to move everything to another device.
 
 ## Auras — "+1 to hit within 6\""
 
@@ -128,10 +127,9 @@ was killed.
 
 Both official line-ups ship with every ability wired up, not just written out.
 
-**Astra Militarum** — Guardsmen "Alfred", "Al", "Fred" and "Nick", Commissar
-Briant, and the *Unconventional Tactics* Special Objective. The Commissar's 6"
-aura and his WITHDRAW ban, Nick's Cloaked and Grenade, Fred's Snap Shot and Choke
-Hold, Al's Kill Count, Alfred's unlimited dagger.
+**Astra Militarum** — Guardsmen "Alfred", "Al", "Fred" and "Nick", and Commissar
+Briant. The Commissar's 6" aura and his WITHDRAW ban, Nick's Cloaked and Grenade,
+Fred's Snap Shot and Choke Hold, Al's Kill Count, Alfred's unlimited dagger.
 
 **Orks** — Boss Nob Blikker, Da Hunta, Mikaaaaghhh, Snitcherz and Riksnik. The
 Boss's +1 Strength aura moves the wound table for anyone who ticks it; *Small* is

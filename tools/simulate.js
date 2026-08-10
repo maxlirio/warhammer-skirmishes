@@ -277,13 +277,10 @@ check('mine removed after use', U('Scout').tokens.length, 0);
 check('a mine kill also asks for its VP', G().vpPrompts.length, 1);
 Engine.resolveVP(G().vpPrompts[0].id, 1);
 
-console.log('\n== mission objectives & special objectives ==');
+console.log('\n== mission objectives ==');
 Store.commit('add mission', function () {
   const g = Store.get();
   g.mission = { id: 'hill' };
-  g.players[0].objective = { id: 'so1', name: 'No Mercy', text: 'Kill in melee.', vp: 2,
-    repeat: false, completed: 0,
-    effects: [{ id: 'e1', kind: 'vp_self', value: 2 }, { id: 'e2', kind: 'ap_self', value: 1 }] };
 });
 const vpBefore = vp(0);
 const item = Engine.missionEndTurnItems()[0];
@@ -295,14 +292,6 @@ Engine.resolveVP(G().vpPrompts[0].id, 5);   // but you can type anything
 check('the entered VP is what lands', vp(0), vpBefore + 5);
 check('objective counted', Engine.objectiveScoredBy(item.id, 0), 1);
 
-const vpBefore2 = vp(0), apBefore2 = ap(0);
-Engine.claimSpecialObjective(0);
-check('stored non-VP rewards apply immediately', ap(0), apBefore2 + 1);
-check('and its VP is asked for', G().vpPrompts.length, 1);
-Engine.resolveVP(G().vpPrompts[0].id, 2);
-check('special objective VP', vp(0), vpBefore2 + 2 + 2);   // +2 stored effect, +2 entered
-check('marked completed', Store.get().players[0].objective.completed, 1);
-
 console.log('\n== no AP does not end a chain — you are handed it and must PASS ==');
 (function () {
   const us = [
@@ -310,7 +299,7 @@ console.log('\n== no AP does not end a chain — you are handed it and must PASS
     mkUnit(1, 'Bravo', 3, 4, [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], [])
   ];
   Engine.startGame({ playerNames: ['One', 'Two'], vpTarget: 10, firstPlayer: 0,
-                     mission: { id: null }, objectives: [] }, us);
+                     mission: { id: null } }, us);
   Engine.confirmStartPhase();
   Engine.adjustAP(0, 2);                   // three AP for player one, none for two
 
@@ -379,7 +368,7 @@ function freshGame(missionCfg, playerNames) {
   }
   Engine.startGame({
     playerNames: playerNames || ['One', 'Two'], vpTarget: 10, firstPlayer: 0,
-    mission: missionCfg, objectives: []
+    mission: missionCfg
   }, us);
   Engine.confirmStartPhase();
   return us;
@@ -473,7 +462,7 @@ console.log('\n== MISSION: ASSASSINATION ==');
   ];
   us[1].flags = { target: true };
   Engine.startGame({ playerNames: ['One', 'Two'], vpTarget: 10, firstPlayer: 0,
-                     mission: { id: 'assassination' }, objectives: [] }, us);
+                     mission: { id: 'assassination' } }, us);
   Engine.confirmStartPhase();
   check('the TARGET gains +1 Wound', U('Bravo').maxWounds, 3);
   check('a normal kill is worth 1', Engine.killValue(U('Alpha')), 1);
@@ -502,7 +491,6 @@ check('they gained the survivor AP', ap(2), 1);
 console.log('\n== the Astra Militarum preset ==');
 const astra = sandbox.PRESETS.find(f => f.id === 'astra');
 check('five units on the card', astra.units.length, 5);
-check('and a Special Objective', astra.objective.name, 'Unconventional Tactics');
 
 function buildPreset(faction, owner) {
   return faction.units.map(function (spec) {
@@ -531,7 +519,7 @@ const foes = [mkUnit(1, 'Cultist', 3, 4,
   [{ name: 'Autogun', type: 'ranged', hit: 4, strength: 3, damage: 1 },
    { name: 'Knife', type: 'melee', hit: 4, strength: 3, damage: 1 }], [])];
 Engine.startGame({ playerNames: ['Guard', 'Chaos'], vpTarget: 10, firstPlayer: 0,
-                   mission: { id: null }, objectives: [] }, guard.concat(foes));
+                   mission: { id: null } }, guard.concat(foes));
 Engine.confirmStartPhase();
 
 const alfred = U('Guardsman "Alfred" 434-434');
@@ -675,7 +663,7 @@ const marks = [mkUnit(1, 'Guardsman', 3, 4,
   [{ name: 'Lasgun', type: 'ranged', hit: 3, strength: 4, damage: 1 },
    { name: 'Bayonet', type: 'melee', hit: 3, strength: 4, damage: 1 }], [])];
 Engine.startGame({ playerNames: ['Orks', 'Guard'], vpTarget: 10, firstPlayer: 0,
-                   mission: { id: null }, objectives: [] }, mob.concat(marks));
+                   mission: { id: null } }, mob.concat(marks));
 Engine.confirmStartPhase();
 
 const nob = U('Boss Nob Blikker');
@@ -737,7 +725,7 @@ console.log('\n== Kwik Dakka: the reaction shoots first ==');
   const foe = [mkUnit(1, 'Guardsman', 3, 4,
     [{ name: 'Lasgun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], [])];
   Engine.startGame({ playerNames: ['Orks', 'Guard'], vpTarget: 10, firstPlayer: 1,
-                     mission: { id: null }, objectives: [] }, mob2.concat(foe));
+                     mission: { id: null } }, mob2.concat(foe));
   Engine.confirmStartPhase();
   Engine.adjustAP(1, 4);
   const gm = U('Guardsman'), mk = U('Mikaaaaghhh');
@@ -771,7 +759,7 @@ console.log('\n== Da Hunta marks his quarry for the game ==');
   const foe = [mkUnit(1, 'Guardsman', 3, 4,
     [{ name: 'Lasgun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], [])];
   Engine.startGame({ playerNames: ['Orks', 'Guard'], vpTarget: 10, firstPlayer: 0,
-                     mission: { id: null }, objectives: [] }, mob3.concat(foe));
+                     mission: { id: null } }, mob3.concat(foe));
   Engine.confirmStartPhase();
   const h = U('Da Hunta'), gm = U('Guardsman');
   const ab = h.abilities.find(a => a.name === 'Da Hunta');
@@ -796,7 +784,7 @@ console.log('\n== an area effect: one roll each, tick the failures ==');
     mkUnit(1, 'Guard B', 3, 4, [{ name: 'Lasgun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], [])
   ];
   Engine.startGame({ playerNames: ['Orks', 'Guard'], vpTarget: 10, firstPlayer: 0,
-                     mission: { id: null }, objectives: [] }, mob.concat(foes));
+                     mission: { id: null } }, mob.concat(foes));
   Engine.confirmStartPhase();
   Engine.adjustAP(0, 4);
   const rik = U('Riksnik');
@@ -838,7 +826,7 @@ console.log('\n== which actions hand over AP ==');
     mkUnit(1, 'B', 3, 4, [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], [])
   ];
   Engine.startGame({ playerNames: ['One', 'Two'], vpTarget: 10, firstPlayer: 0,
-                     mission: { id: null }, objectives: [] }, us);
+                     mission: { id: null } }, us);
   Engine.confirmStartPhase();
 
   const flat = {};
@@ -885,7 +873,7 @@ console.log('\n== turn or reaction? ==');
     mkUnit(1, 'B', 3, 4, [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], [])
   ];
   Engine.startGame({ playerNames: ['One', 'Two'], vpTarget: 10, firstPlayer: 0,
-                     mission: { id: null }, objectives: [] }, us);
+                     mission: { id: null } }, us);
   check('a phase modal reads as a phase', Engine.controlMode(), 'phase');
   Engine.confirmStartPhase();
   check('the active player is on their turn', Engine.controlMode(), 'turn');
@@ -911,7 +899,7 @@ console.log('\n== PASS does both jobs now ==');
     mkUnit(1, 'B', 3, 4, [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], [])
   ];
   Engine.startGame({ playerNames: ['One', 'Two'], vpTarget: 10, firstPlayer: 0,
-                     mission: { id: null }, objectives: [] }, us);
+                     mission: { id: null } }, us);
   Engine.confirmStartPhase();
   Engine.adjustAP(0, 3);
 
@@ -953,7 +941,7 @@ console.log('\n== an ability decides whether they react ==');
     mkUnit(1, 'B', 3, 4, [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], [])
   ];
   Engine.startGame({ playerNames: ['One', 'Two'], vpTarget: 10, firstPlayer: 0,
-                     mission: { id: null }, objectives: [] }, us);
+                     mission: { id: null } }, us);
   Engine.confirmStartPhase();
   Engine.adjustAP(0, 4);
   Engine.adjustAP(1, 2);

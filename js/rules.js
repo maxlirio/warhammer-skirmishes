@@ -406,11 +406,6 @@ const RULES = (function () {
       { id: 'manual',  label: 'Until removed by hand' }
     ],
 
-    /* Special Objectives resolve without a unit on the table, so only the
-       effect rows that need no target are offered there. */
-    objectiveEffectKinds: ['ap_self', 'ap_opponent', 'ap_drain', 'rp_self',
-                           'vp_self', 'vp_opponent', 'note'],
-
     tokenExpiries: [
       { id: 'chain',   label: 'End of this action chain' },
       { id: 'turn',    label: 'End of this turn' },

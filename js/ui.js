@@ -398,7 +398,7 @@ const UI = (function () {
         (isStart
           ? '<div class="noteline warn">' + esc(g.players[p.player].name) +
               ' gains 1 AP for the Start Phase (they will have ' + (g.players[p.player].ap + 1) + ' AP).</div>'
-          : missionCheck(g) + specialObjectiveCheck(g) +
+          : missionCheck(g) +
             '<div style="font-size:10px;letter-spacing:.14em;color:var(--gold);font-weight:800;margin:12px 0 6px">' +
             'ANY OTHER VP</div>' +
             '<div class="noteline">Anything else you scored this turn — the app has no idea what your ' +
@@ -467,32 +467,6 @@ const UI = (function () {
     const u = cid ? Store.unit(cid) : null;
     return '<div class="cpchip' + (u ? ' held p' + u.owner : '') + '" style="margin-bottom:8px">' +
       '<b>RELIC</b>' + (u ? esc(u.name) + ' is carrying it' : 'on the ground, unclaimed') + '</div>';
-  }
-
-  function specialObjectiveCheck(g) {
-    const cards = g.players.map(p => p.objective).filter(Boolean);
-    if (!cards.length) return '';
-    return '<div style="font-size:10px;letter-spacing:.14em;color:var(--gold);font-weight:800;margin:12px 0 6px">' +
-        'SPECIAL OBJECTIVES</div>' +
-      g.players.map(function (p) {
-        const o = p.objective;
-        if (!o) return '';
-        const done = (o.completed || 0) > 0 && !o.repeat;
-        return '<div class="sub" style="background:#0f161d;margin-bottom:7px;' +
-          (done ? 'opacity:.55' : '') + '">' +
-          '<div style="font-weight:700;font-size:13px">' + esc(o.name) +
-            ' <span style="color:var(--ink-mute);font-size:11px">· ' + esc(p.name) + '</span></div>' +
-          (o.text ? '<div style="color:var(--ink-dim);font-size:11.5px;margin:3px 0 6px;line-height:1.4">' +
-            esc(o.text) + '</div>' : '<div style="height:6px"></div>') +
-          ((o.effects || []).length
-            ? '<div style="color:var(--gold);font-size:11px;margin-bottom:6px">Also grants: ' +
-              o.effects.map(effectSummary).join(' · ') + '</div>' : '') +
-          (done
-            ? '<div class="noteline">Already completed this game.</div>'
-            : '<button class="btn sm" style="width:100%" data-act="claimobj:' + p.id + '">' +
-              'COMPLETED — ENTER VP</button>') +
-        '</div>';
-      }).join('');
   }
 
   /* --------------------------------------------------------- VP entry pad */
@@ -1115,11 +1089,11 @@ const UI = (function () {
         '<button class="choice" data-act="showlog"><div class="cmain">' +
           '<div class="cname">FULL GAME LOG</div>' +
           '<div class="cdesc">Every AP, VP, wound and effect change since the first turn.</div></div></button>' +
-        ((g.mission && g.mission.id) || g.players.some(p => p.objective)
+        ((g.mission && g.mission.id)
           ? '<button class="choice" data-act="showmission"><div class="cmain">' +
-              '<div class="cname">MISSION &amp; OBJECTIVES</div>' +
-              '<div class="cdesc">The mission card, its objectives and both Special Objectives. ' +
-                'They are also checked automatically in every End Phase.</div></div></button>'
+              '<div class="cname">MISSION</div>' +
+              '<div class="cdesc">The card, its battlefield and what it scores for. Also read ' +
+                'back to you in every End Phase.</div></div></button>'
           : '') +
         '<button class="choice" data-act="forceendchain"><div class="cmain">' +
           '<div class="cname">END THE ACTION CHAIN</div>' +
@@ -1140,7 +1114,7 @@ const UI = (function () {
 
   function missionModal(g) {
     const m = Engine.missionCard();
-    return head('MISSION', m ? m.name : 'OBJECTIVES') +
+    return head('MISSION', m ? m.name : 'NONE') +
       '<div class="mbody">' +
         (m
           ? '<div class="mcflav" style="margin-bottom:10px">' + esc(m.flavour) + '</div>' +
@@ -1154,7 +1128,6 @@ const UI = (function () {
             controlPointStrip(g) + relicStrip(g) +
             (m.unitFlag ? '<div class="noteline">' + esc(m.unitFlag.hint) + '</div>' : '')
           : '<div class="noteline">No mission card this game.</div>') +
-        specialObjectiveCheck(g) +
       '</div>' +
       '<div class="mfoot"><button class="btn ghost" data-act="menu">BACK</button></div>';
   }

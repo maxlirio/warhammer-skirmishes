@@ -133,7 +133,6 @@
       /* ---- missions & special objectives ---- */
       case 'showmission':  UI.setModal('mission'); return;
       case 'scoreobj':     UI.clearVPDraft(); Engine.scoreMissionObjective(p[1], Number(p[2])); return;
-      case 'claimobj':     UI.clearVPDraft(); Engine.claimSpecialObjective(Number(p[1])); return;
       case 'askvp':
         UI.clearVPDraft();
         Engine.promptVP(Number(p[1]), 'objectives and mission scoring', 1);
@@ -172,10 +171,7 @@
           units: JSON.parse(JSON.stringify(cur.units.filter(u => !u.marker))), open: {},
           missionId: (cur.mission && cur.mission.id) || null,
           roles: (cur.mission && cur.mission.roles) || { attacker: null, defender: null },
-          flagged: [null, null, null, null],
-          objectives: cur.players.map(p => p.objective
-            ? Object.assign(JSON.parse(JSON.stringify(p.objective)), { completed: 0 })
-            : Store.newSpecialObjective())
+          flagged: [null, null, null, null]
         };
         st.units.forEach(u => { u.wounds = u.maxWounds; u.alive = true; u.effects = []; u.tokens = []; });
         Store.clear();

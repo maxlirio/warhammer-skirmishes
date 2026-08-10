@@ -39,18 +39,6 @@ const Store = (function () {
     }, patch || {});
   }
 
-  function newMissionObjective(patch) {
-    return Object.assign({
-      id: nextId('mo'), name: 'Objective', text: '', vp: 1, repeat: true
-    }, patch || {});
-  }
-
-  function newSpecialObjective(patch) {
-    return Object.assign({
-      id: nextId('so'), name: '', text: '', vp: 1, effects: [], repeat: false, completed: 0
-    }, patch || {});
-  }
-
   /* Datasheet: MOV / W / T / OC. There is no saving throw in this game. */
   function newUnit(owner, patch) {
     return Object.assign({
@@ -75,10 +63,7 @@ const Store = (function () {
         actionOverrides: {}
       },
       players: ((config && config.playerNames) || ['Player 1', 'Player 2']).map(function (nm, i) {
-        return {
-          id: i, name: nm || ('Player ' + (i + 1)), ap: 0, vp: 0, rp: 0,
-          objective: (config && config.objectives && config.objectives[i]) || null
-        };
+        return { id: i, name: nm || ('Player ' + (i + 1)), ap: 0, vp: 0, rp: 0 };
       }),
       /* { id, roles?, controlPoints?, relic? } — the engine fills the rest in. */
       mission: (config && config.mission) || { id: null },
@@ -195,7 +180,7 @@ const Store = (function () {
      Entries are keyed by name, so re-saving an edited unit replaces it.        */
 
   const KEY_LIB = 'whsk.library.v1';
-  const LIB_KINDS = ['units', 'missions', 'objectives'];
+  const LIB_KINDS = ['units'];
 
   function library() {
     let lib;
@@ -233,20 +218,6 @@ const Store = (function () {
   function libGet(kind, name) {
     const key = String(name).trim().toLowerCase();
     return library()[kind].find(x => String(x.name).trim().toLowerCase() === key) || null;
-  }
-
-  /* Fresh ids for anything pulled back out of the library. */
-  function rekeyOne(entry) {
-    const c = JSON.parse(JSON.stringify(entry));
-    delete c.savedAt;
-    if (c.effects) c.effects.forEach(e => {
-      e.id = nextId('ef');
-      if (e.tokenEffects) e.tokenEffects.forEach(t => { t.id = nextId('ef'); });
-    });
-    if (c.objectives) c.objectives.forEach(o => { o.id = nextId('mo'); });
-    if (c.completed !== undefined) c.completed = 0;
-    c.id = nextId('lib');
-    return c;
   }
 
   /* Re-key a roster's units so the same roster can be loaded twice safely. */
@@ -295,13 +266,12 @@ const Store = (function () {
   return {
     // model factories
     newGame, newUnit, newWeapon, newAbility, newEffectRow, nextId,
-    newMissionObjective, newSpecialObjective,
     // runtime
     get, setState, commit, quiet, undo, canUndo, undoLabel, subscribe, emit,
     save, load, clear,
     // rosters + library
     rosters, saveRoster, deleteRoster, rekey,
-    library, libSave, libDelete, libGet, rekeyOne,
+    library, libSave, libDelete, libGet,
     // lookups
     unit, owner, player, playerCount, nextPlayer, opponentsOf, opponentOf,
     unitsOf, allTokens
@@ -317,12 +287,6 @@ const PRESETS = [
   id: 'astra',
   name: 'Astra Militarum',
   note: 'The official line-up.',
-  objective: {
-    name: 'Unconventional Tactics', vp: 2,
-    text: 'Score this Special Objective if you defeat an enemy unit without using SHOOT, ' +
-          'FIGHT, or CHARGE.',
-    effects: [{ kind: 'ap_self', value: 2 }]
-  },
   units: [
     {
       name: 'Guardsman "Alfred" 434-434', move: 4, maxWounds: 2, toughness: 4, oc: 1,
