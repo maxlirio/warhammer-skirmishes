@@ -611,3 +611,16 @@ h1, h2, h3, h4 { margin: 0; font-weight: 700; letter-spacing: .02em; }
 .apnote.gives { color: var(--warn); }
 .apnote.free  { color: var(--good); }
 .apnote.agg   { color: var(--ink-mute); }
+
+/* -------------------------------------------------------- no AP, must pass */
+
+.badge.must {
+  background: #3a1d18; color: var(--p2); border: 1px solid var(--p2);
+  margin-left: 4px;
+}
+.controlbar.broke { background: #17100e; }
+.bigbtn.must {
+  background: linear-gradient(180deg, #e05c4a, #9c3529);
+  color: #1a0705; border-color: #ef7c6c;
+}
+.ctag.req { color: var(--p2); border-color: var(--p2); }

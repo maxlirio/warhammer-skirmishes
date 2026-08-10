@@ -83,17 +83,19 @@ const UI = (function () {
         : 'resolve END: abilities, then check objectives';
     }
     const mode = Engine.controlMode();
+    const broke = Engine.mustPass();
     const badge = {
       turn:       { t: 'THEIR TURN', c: 'turn' },
       continuing: { t: 'THEIR TURN · IN CHAIN', c: 'turn' },
       reacting:   { t: 'REACTING', c: 'react' },
       phase:      { t: 'PHASE', c: 'phase' }
     }[mode];
-    return '<div class="controlbar p' + cp + ' mode-' + badge.c + '">' +
+    return '<div class="controlbar p' + cp + ' mode-' + badge.c + (broke ? ' broke' : '') + '">' +
       '<div style="min-width:0">' +
         '<div class="badge ' + badge.c + '">' + badge.t +
           (mode === 'reacting' ? ' TO ' + esc(g.players[g.turn.player].name).toUpperCase() : '') +
         '</div>' +
+        (broke ? '<div class="badge must">NO AP — MUST PASS</div>' : '') +
         '<div class="who">' + who + '</div>' +
         '<div class="why">' + why + '</div></div>' +
       '<div class="chip' + (g.chain.active ? ' on' : '') + '">' +
@@ -232,9 +234,10 @@ const UI = (function () {
     const pending = !!g.pending;
     return '<div class="actionbar">' +
       '<button class="sidebtn" data-act="undo"><span class="ic">↺</span>UNDO</button>' +
-      '<button class="bigbtn' + (pending ? '' : '') + '" data-act="' +
+      '<button class="bigbtn' + (!pending && Engine.mustPass() ? ' must' : '') + '" data-act="' +
         (pending ? 'openphase' : 'openactions') + '">' +
-        (pending ? (g.pending.type === 'start' ? 'RESOLVE START PHASE' : 'RESOLVE END PHASE') : 'ACTION LIST') +
+        (pending ? (g.pending.type === 'start' ? 'RESOLVE START PHASE' : 'RESOLVE END PHASE')
+                 : (Engine.mustPass() ? 'NO AP — PASS' : 'ACTION LIST')) +
       '</button>' +
       '<button class="sidebtn" data-act="menu"><span class="ic">≡</span>MENU</button>' +
     '</div>';
@@ -283,7 +286,9 @@ const UI = (function () {
       return '<button class="choice' + (av.ok ? '' : ' disabled') + '" data-act="action:' + a.id + '">' +
         '<div class="cmain">' +
           '<div class="cname">' + a.name +
-            ' <span class="ctag ' + (a.kind === 'aggressive' ? 'agg">AGGRESSIVE' : 'pas">PASSIVE') + '</span></div>' +
+            ' <span class="ctag ' + (a.kind === 'aggressive' ? 'agg">AGGRESSIVE' : 'pas">PASSIVE') + '</span>' +
+            (a.id === 'pass' && Engine.mustPass()
+              ? ' <span class="ctag req">YOUR ONLY MOVE</span>' : '') + '</div>' +
           '<div class="cdesc">' + esc(a.short || a.text) + '</div>' +
           '<div class="apnote' + (a.kind === 'aggressive' ? ' agg'
             : (a.opponentGainsAP > 0 ? ' gives' : ' free')) + '">' +
@@ -298,7 +303,8 @@ const UI = (function () {
     return head('ACTION LIST', esc(g.players[cp].name) + ' · ' + g.players[cp].ap + ' AP AVAILABLE') +
       '<div class="crumbs"><span class="badge ' + (mode === 'reacting' ? 'react' : 'turn') + '">' +
         (mode === 'reacting' ? 'REACTING TO ' + esc(g.players[g.turn.player].name).toUpperCase()
-                             : 'THEIR OWN TURN') + '</span></div>' +
+                             : 'THEIR OWN TURN') + '</span>' +
+        (Engine.mustPass() ? ' <span class="badge must">NO AP — MUST PASS</span>' : '') + '</div>' +
       (g.control.forcedUnitId
         ? '<div class="crumbs">Aggressive Action response: <b>' +
             esc(Store.unit(g.control.forcedUnitId).name) + '</b> must be the acting unit.</div>'
@@ -601,6 +607,10 @@ const UI = (function () {
     const me = esc(g.players[g.control.player].name);
     return head('PASS', o.canEndChain ? 'END THE CHAIN' : 'END YOUR TURN') +
       '<div class="mbody">' +
+        (Engine.mustPass()
+          ? '<div class="noteline warn">You must choose an action, and with no AP left PASS is ' +
+            'the only one you can afford. Persistent buttons still work — fire an overwatch ' +
+            'token or a free ability first if you have one.</div>' : '') +
         (o.canEndChain
           ? '<div class="noteline">The action chain ends here.' +
             (o.canEndTurn ? ' It is your turn, so you may end that too — or keep your AP and ' +

@@ -50,6 +50,13 @@ const Engine = (function () {
     return 'Your opponent gains no AP.';
   }
 
+  /* No AP means exactly one legal action. */
+  function mustPass() {
+    const g = S();
+    if (!g || g.pending || g.flow) return false;
+    return g.players[g.control.player].ap <= 0;
+  }
+
   /* Are you acting on your own turn, or answering inside someone else's? */
   function controlMode() {
     const g = S();
@@ -342,10 +349,10 @@ const Engine = (function () {
 
   /* The heart of the turn machine: who gets to act after an action resolves.
 
-     A chain ends when the action says so, or when the player who is now owed a
-     response has an empty AP pool — either player running dry closes it. The
-     TURN is a separate question: it keeps going as long as the current player
-     still has AP to open a new chain with, and only passes when they hit 0. */
+     Being broke does not end a chain. Whoever is owed a response is handed the
+     chain either way — they MUST choose an action, and with no AP the only one
+     they can afford is PASS, which is what actually closes it. That matters:
+     before passing they can still fire an overwatch token or a free ability. */
   function afterAction(opts) {
     const g = S();
     const actor = opts.actor;
@@ -369,23 +376,21 @@ const Engine = (function () {
       checkVictory();
       return;
     }
-    if (g.players[opp].ap > 0) {
-      g.chain.active = true;
-      const forced = opts.forcedUnitId || null;
-      g.control = {
-        player: opp,
-        forcedUnitId: forced,
-        reason: forced
-          ? uname(forced) + ' must act (Aggressive Action)'
-          : 'may respond with any unit'
-      };
-      chainEntry('→ ' + pname(opp) + ' responds' +
-        (forced ? ' with ' + uname(forced) : ' (any unit)') +
-        ' — ' + g.players[opp].ap + ' AP available.', 'control');
-    } else {
-      closeChain(pname(opp) + ' has no AP to respond');
-      handOffToTurnPlayer();
-    }
+    g.chain.active = true;
+    const forced = opts.forcedUnitId || null;
+    const broke = g.players[opp].ap <= 0;
+    g.control = {
+      player: opp,
+      forcedUnitId: forced,
+      reason: broke
+        ? 'no AP left — they must PASS'
+        : (forced ? uname(forced) + ' must act (Aggressive Action)'
+                  : 'may respond with any unit')
+    };
+    chainEntry('→ ' + pname(opp) + ' must act' +
+      (forced ? ' with ' + uname(forced) : '') +
+      (broke ? ' — no AP, so they must PASS.' : ' — ' + g.players[opp].ap + ' AP available.'),
+      'control');
     checkVictory();
   }
 
@@ -1117,6 +1122,7 @@ const Engine = (function () {
     Store.commit('secure', function () {
       const g = S();
       const f = g.flow;
+      if (!f || !f.unitId) return;
       const actor = g.control.player;
       const responder = pickResponder(f, actor);
       const action = actionDef('secure');
@@ -1133,6 +1139,7 @@ const Engine = (function () {
     Store.commit('pick up relic', function () {
       const g = S();
       const f = g.flow;
+      if (!f || !f.unitId) return;
       const actor = g.control.player;
       const responder = pickResponder(f, actor);
       const action = actionDef('relic');
@@ -1152,6 +1159,7 @@ const Engine = (function () {
   function confirmPass(endTurn) {
     Store.commit('pass', function () {
       const g = S();
+      if (!g.flow) return;
       const who = g.control.player;
       const isTurnPlayer = who === g.turn.player;
       g.flow = null;
@@ -1180,6 +1188,7 @@ const Engine = (function () {
     Store.commit('overwatch', function () {
       const g = S();
       const f = g.flow;
+      if (!f || !f.unitId) return;
       const actor = g.control.player;
       const responder = pickResponder(f, actor);
       const action = actionDef('overwatch');
@@ -1273,6 +1282,7 @@ const Engine = (function () {
     Store.commit('use ability', function () {
       const g = S();
       const f = g.flow;
+      if (!f) return;
       /* A card button, not a Standard Action: no AP, no effect on the chain. */
       if (f.freeUse) {
         const uid = f.unitId, aid = f.abilityId, tg = f.targets;
@@ -1831,8 +1841,9 @@ const Engine = (function () {
     Store.commit('resolve token', function () {
       const g = S();
       const f = g.flow;
+      if (!f) return;
       const u = Store.unit(f.unitId);
-      const t = (u.tokens || []).find(x => x.id === f.tokenId);
+      const t = u && (u.tokens || []).find(x => x.id === f.tokenId);
       if (!t) { g.flow = null; return; }
       applyEffects(tokenEffects(f.unitId, f.tokenId), {
         sourceUnitId: f.unitId, sourcePlayer: u.owner, targets: f.targets, label: t.label
@@ -2026,7 +2037,7 @@ const Engine = (function () {
 
   return {
     startGame, beginTurn, confirmStartPhase, confirmEndPhase, beginEndPhase,
-    actionDef, actionList, setActionOverride, apConsequence, controlMode,
+    actionDef, actionList, setActionOverride, apConsequence, controlMode, mustPass,
     actionAvailability, eligibleUnits, usableAPAbilities, usableFreeAbilities,
     weaponsFor, findAbility,
     beginAction, cancelFlow, flowBack, flowPickUnit, flowPickResponder,

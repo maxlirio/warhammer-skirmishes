@@ -301,46 +301,60 @@ Engine.resolveVP(G().vpPrompts[0].id, 2);
 check('special objective VP', vp(0), vpBefore2 + 2 + 2);   // +2 stored effect, +2 entered
 check('marked completed', Store.get().players[0].objective.completed, 1);
 
-console.log('\n== either empty pool ends the chain; the turn keeps going ==');
-// Turn player holds AP, opponent has none: the chain must stay open and the
-// weapon lockout must survive.
-Store.commit('setup', function () {
-  const g = Store.get();
-  g.turn.player = 0;
-  g.players[0].ap = 3;
-  g.players[1].ap = 0;
-  g.control = { player: 0, forcedUnitId: null, reason: 'test' };
-});
-// Open the chain with an attack so a weapon is locked out, then act again with
-// a Passive Action that hands the opponent nothing.
-Engine.beginAction('shoot');
-Engine.flowPickUnit(U('Intercessor').id);
-Engine.flowPickAttackTarget(U('Ork Nob').id);
-Engine.flowPickWeapon(U('Intercessor').weapons[0].id);
-Engine.flowPickReaction('none');
-Engine.flowHit(false);
-check('the miss still gives the defender its AP', ap(1), 1);
-Store.commit('drain opponent', function () {
-  const g = Store.get();
-  g.players[1].ap = 0;
-  g.control = { player: 0, forcedUnitId: null, reason: 'test' };
-});
-Engine.beginAction('overwatch');           // Passive, grants the opponent no AP
-Engine.flowPickUnit(U('Intercessor').id);
-Engine.confirmOverwatch();
-check('opponent at 0 AP closes the chain', G().chain.active, false);
-check('but the turn continues with the current player', G().control.player, 0);
-check('no forced unit', G().control.forcedUnitId, null);
-check('a new chain starts clean — weapon lockout cleared',
-  Engine.weaponsFor(U('Intercessor').id, 'ranged')[0].used, false);
-check('turn player still holds AP', ap(0), 1);
+console.log('\n== no AP does not end a chain — you are handed it and must PASS ==');
+(function () {
+  const us = [
+    mkUnit(0, 'Alpha', 3, 4, [{ name: 'Rifle', type: 'ranged', hit: 3, strength: 4, damage: 1 }], []),
+    mkUnit(1, 'Bravo', 3, 4, [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], [])
+  ];
+  Engine.startGame({ playerNames: ['One', 'Two'], vpTarget: 10, firstPlayer: 0,
+                     mission: { id: null }, objectives: [] }, us);
+  Engine.confirmStartPhase();
+  Engine.adjustAP(0, 2);                   // three AP for player one, none for two
 
-// Spend the last AP: now the turn itself passes.
-Engine.beginAction('overwatch');
-Engine.flowPickUnit(U('Scout').id);
-Engine.confirmOverwatch();
-check('current player at 0 AP ends the turn', G().chain.active, false);
-check('and rolls into the End Phase', G().pending.type, 'end');
+  // Open a chain with an attack so a weapon gets locked out.
+  Engine.beginAction('shoot');
+  Engine.flowPickUnit(U('Alpha').id);
+  Engine.flowPickAttackTarget(U('Bravo').id);
+  Engine.flowPickReaction('none');
+  Engine.flowHit(false);
+  check('the survivor still gets its AP', ap(1), 1);
+  Store.commit('drain', function () {
+    const g = Store.get();
+    g.players[1].ap = 0;                   // ...but say they spent it elsewhere
+    g.control = { player: 0, forcedUnitId: null, reason: 'test' };
+  });
+
+  // A Passive Action that hands them nothing.
+  Engine.beginAction('overwatch');
+  Engine.flowPickUnit(U('Alpha').id);
+  Engine.confirmOverwatch();
+  check('the chain stays open', G().chain.active, true);
+  check('and is handed to the broke player anyway', G().control.player, 1);
+  check('who is told they must pass', Engine.mustPass(), true);
+  check('their only affordable action is PASS',
+    Engine.actionList().filter(a => Engine.actionAvailability(a).ok).map(a => a.id), ['pass']);
+  check('the weapon lockout is still in force',
+    Engine.weaponsFor(U('Alpha').id, 'ranged')[0].used, true);
+
+  const apLeft = ap(0);
+  Engine.beginAction('pass');
+  Engine.confirmPass(true);                // asking to end the turn is ignored: not theirs
+  check('passing closes the chain', G().chain.active, false);
+  check('the turn never changed hands', G().turn.player, 0);
+  check('the turn player is back on', G().control.player, 0);
+  check('with their AP intact', ap(0), apLeft);
+
+  // Drain the turn player and let the loop run out.
+  Store.commit('drain', function () { Store.get().players[0].ap = 1; });
+  Engine.beginAction('overwatch');
+  Engine.flowPickUnit(U('Alpha').id);
+  Engine.confirmOverwatch();
+  check('the broke opponent is handed it again', Engine.mustPass(), true);
+  Engine.beginAction('pass');
+  Engine.confirmPass(false);
+  check('and with nobody holding AP the turn ends', G().pending.type, 'end');
+})();
 
 console.log('\n== undo ==');
 const apPreUndo = ap(0);

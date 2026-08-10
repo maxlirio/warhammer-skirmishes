@@ -192,6 +192,10 @@ marks what you changed.
 **PASS** (0 AP) ends the action chain, and on your own turn it offers to end the
 turn as well — so it covers both jobs and HOLD is gone.
 
+When you have no AP, the app says so rather than skipping you: a red
+**NO AP — MUST PASS** badge, the main button becomes **NO AP — PASS**, and PASS
+is tagged *YOUR ONLY MOVE* in the action list.
+
 ## Rules choices worth knowing
 
 - **Overwatch expiry.** The card says "until the end of this action chain", but a
@@ -202,10 +206,11 @@ turn as well — so it covers both jobs and HOLD is gone.
 - **Overwatch AP.** An overwatch shot is an interrupt: the defender gains no RP
   (per the card) and no survivor AP, and control does not change hands unless the
   target dies.
-- **Chain continuation.** A chain ends when the action says it ends, or when
-  either player's AP pool is empty at the moment they are owed a response. The
-  *turn* is separate: it keeps going as long as the current player still has AP
-  to open a new chain with, and only passes when they hit 0.
+- **Chain continuation.** Being broke does not end a chain. Whoever is owed a
+  response is handed it either way — they must choose an action, and with no AP
+  the only affordable one is PASS, which is what closes it. That matters: before
+  passing they can still fire an overwatch token or a free ability. A chain also
+  ends when the action itself says so, or when a unit is destroyed.
 - **DISTRACT** grants its 1 AP immediately, on top of the standard survivor AP.
 - **Elevation.** Shooting from higher ground is +1 to Hit; charging from higher
   ground is +1 to Wound and +1 Damage. Both are a checkbox in the attack flow
