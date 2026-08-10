@@ -203,9 +203,8 @@ is tagged *YOUR ONLY MOVE* in the action list.
 - **Overwatch.** Place a token within 12" of the unit and visible to it. Later in
   the game, so long as that unit has not moved or attacked, an enemy coming
   within 3" of the token lets you fire at -1 to hit with no RP for them. The
-  token therefore lives until its unit moves or attacks, not until the end of the
-  action chain — Menu → *Overwatch ends with the chain* switches to the strict
-  card wording if you want it.
+  token lives until its unit moves or attacks — it survives action chains and
+  turns until then.
 - **Overwatch AP.** An overwatch shot is an interrupt: the defender gains no RP
   (per the card) and no survivor AP, and control does not change hands unless the
   target dies.

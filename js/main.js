@@ -161,12 +161,6 @@
         UI.setModal(null);
         Engine.forceControl(Number(p[1]), null);
         return;
-      case 'toggleow':
-        Store.commit('setting', function () {
-          const s = Store.get();
-          s.settings.overwatchEndsWithChain = !s.settings.overwatchEndsWithChain;
-        });
-        return;
       case 'newgame': {
         if (!confirm('End this game and go back to roster setup?')) return;
         const cur = Store.get();

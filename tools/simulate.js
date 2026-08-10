@@ -165,6 +165,8 @@ Engine.confirmOverwatch();
 check('token placed', U('Ork Boy').tokens.map(t => t.label), ['OVERWATCH']);
 check('AP spent', ap(1), 0);
 check('token survives the chain closing', U('Ork Boy').tokens.length, 1);
+check('and it expires on its owner acting, nothing else',
+  U('Ork Boy').tokens[0].expiry, 'ownerActs');
 
 Engine.confirmEndPhase();
 Engine.confirmStartPhase();          // turn 3, P1

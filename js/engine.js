@@ -439,13 +439,11 @@ const Engine = (function () {
 
   function expireTokens(expiry, playerFilter) {
     const g = S();
-    const owEndsWithChain = g.settings.overwatchEndsWithChain;
     g.units.forEach(function (u) {
       const keep = [];
       (u.tokens || []).forEach(function (t) {
-        let match = t.expiry === expiry &&
+        const match = t.expiry === expiry &&
           (playerFilter === null || playerFilter === undefined || u.owner === playerFilter);
-        if (t.kind === 'overwatch' && expiry === 'chain' && !owEndsWithChain) match = false;
         if (match) log('Token removed: [' + t.label + '] (' + u.name + ').', 'muted');
         else keep.push(t);
       });
@@ -1198,7 +1196,7 @@ const Engine = (function () {
       u.tokens = (u.tokens || []).filter(t => t.kind !== 'overwatch');
       u.tokens.push({
         id: Store.nextId('tk'), label: 'OVERWATCH', kind: 'overwatch',
-        expiry: 'chain', isAttack: true,
+        expiry: 'ownerActs', isAttack: true,
         text: 'Attack an enemy that moves within 3" of the token, at -1 to hit. No RP for the defender.'
       });
       chainEntry(pname(actor) + ': ' + u.name + ' → OVERWATCH. Token placed.', 'action');

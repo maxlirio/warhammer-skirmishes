@@ -712,8 +712,8 @@ const UI = (function () {
           'the app never decides that.</div>' +
         '<div class="noteline">The shot is at <b>-1 to hit</b> with ' +
           esc(ranged.length ? ranged[0].name : 'no ranged weapon!') + ', and the defender gains no RP.</div>' +
-        '<div class="noteline warn">Removed if this unit moves or attacks' +
-          (g.settings.overwatchEndsWithChain ? ', or when this action chain ends' : '') + '.</div>' +
+        '<div class="noteline warn">Removed if this unit moves or attacks. It survives action ' +
+          'chains and turns until then.</div>' +
       '</div>' +
       footBack('confirmoverwatch', 'PLACE TOKEN — 1 AP');
   }
@@ -1131,11 +1131,6 @@ const UI = (function () {
           '<button class="choice p' + o + '" data-act="swapcontrol:' + o + '"><div class="cmain">' +
             '<div class="cname">GIVE CONTROL TO ' + esc(g.players[o].name).toUpperCase() + '</div>' +
             '<div class="cdesc">Override: they act next, with a free choice of unit.</div></div></button>').join('') +
-        '<button class="choice" data-act="toggleow"><div class="cmain">' +
-          '<div class="cname">OVERWATCH ENDS WITH THE CHAIN: ' +
-            (g.settings.overwatchEndsWithChain ? 'ON' : 'OFF') + '</div>' +
-          '<div class="cdesc">The rules say “until the end of this action chain”. Turn this off if ' +
-            'you house-rule overwatch to persist until the unit moves or attacks.</div></div></button>' +
         '<button class="choice" data-act="newgame"><div class="cmain">' +
           '<div class="cname" style="color:var(--bad)">END GAME &amp; EDIT ROSTERS</div>' +
           '<div class="cdesc">Returns to setup. The current game state is discarded.</div></div></button>' +

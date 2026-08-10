@@ -68,12 +68,8 @@ const Store = (function () {
       screen: 'play',
       settings: {
         vpTarget: (config && config.vpTarget) || RULES.defaultVPTarget,
-        /* The card says "until the end of this action chain", but a chain
-           usually closes the moment the opponent runs out of AP, which would
-           delete the token before anyone could walk into it. Default to the
-           practical reading — the token lives until its unit moves or attacks
-           — and let the menu switch it back to the strict wording. */
-        overwatchEndsWithChain: false,
+        /* An overwatch shot is an interrupt: no RP for the defender, and no
+           survivor AP either. */
         overwatchGrantsAP: false,
         /* Per-action house rules: { move: { cost: 1, opponentGainsAP: 0 }, ... } */
         actionOverrides: {}
