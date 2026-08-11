@@ -231,9 +231,9 @@ const RULES = (function () {
         hint: 'Tap a unit’s DETAILS to mark it as standing on the HIGH GROUND. The app will then ' +
               'suggest 2 VP if it is destroyed.'
       },
-      endTurn: [{ id: 'hill-vp', name: 'The HIGH GROUND',
-                  text: 'At the end of each turn, the player with a unit on the HIGH GROUND gains 1 VP.',
-                  vp: 1 }]
+      endTurn: [{ id: 'hill-vp', name: 'The HIGH GROUND', mode: 'auto',
+                  score: 'unitFlag', flag: 'highground', vp: 1,
+                  text: 'At the end of each turn, the player with a unit on the HIGH GROUND gains 1 VP.' }]
     },
     {
       id: 'ambush', name: 'AMBUSH',
@@ -256,7 +256,7 @@ const RULES = (function () {
         markers: [{ label: 'BAIT', wounds: 3, toughness: 4, killVP: 4, killVPFor: 'attacker' }] },
       rosterMod: { woundsDelta: -1, woundsMin: 1 },
       endsWhenAPlayerIsWipedOut: true,
-      killNote: 'The defending player scores 2 VP instead of 1 for a kill in their own deployment zone.',
+      killZoneBonus: { role: 'defender', vp: 2, zone: 'their own deployment zone' },
       endTurn: []
     },
     {
@@ -277,8 +277,10 @@ const RULES = (function () {
         hint: 'Each player names one of their units as the TARGET. It gains +1 Wound, and killing ' +
               'an enemy TARGET is worth 3 VP.'
       },
-      endTurn: [{ id: 'assn-obj', name: 'Standard scoring of objectives',
-                  text: 'The objective marker in the center of the battlefield.', vp: 1 }]
+      endTurn: [{ id: 'assn-obj', name: 'The centre objective', mode: 'ask', ask: 'who', vp: 1,
+                  question: 'Who has the most OC at the objective in the centre?',
+                  text: 'Standard scoring of objectives: 1 VP for the objective in the centre of ' +
+                        'the battlefield, to whoever has the most OC there.' }]
     },
     {
       id: 'secure', name: 'SECURE THE AREA',
@@ -295,9 +297,10 @@ const RULES = (function () {
       endsShort: 'FIRST TO 10 VP',
       controlPoints: ['LEFT', 'CENTER', 'RIGHT'],
       extraActions: ['secure'],
-      endTurn: [{ id: 'secure-vp', name: 'Objectives controlled', autoVP: 'controlPoints',
+      endTurn: [{ id: 'secure-vp', name: 'Objectives controlled', mode: 'auto',
+                  score: 'controlPoints', vp: 1,
                   text: 'At the end of each turn, a player gains 1 VP for each objective they ' +
-                        'control. The app counts the ones it has seen SECURED.' }]
+                        'control. The app counts the ones it watched being SECURED.' }]
     },
     {
       id: 'relic', name: 'THE RELIC',
@@ -313,7 +316,9 @@ const RULES = (function () {
       endsShort: 'RELIC CARRIED HOME',
       relic: true,
       extraActions: ['relic'],
-      endTurn: [{ id: 'relic-home', name: 'Relic carried home', vp: 3, endsGame: true,
+      endTurn: [{ id: 'relic-home', name: 'Relic carried home', mode: 'ask', ask: 'yesno',
+                  vp: 3, endsGame: true, onlyIfCarried: true, scorer: 'relicCarrier',
+                  question: 'Has the RELIC carrier reached their own side of the battlefield?',
                   text: 'If a carrier of the RELIC reaches their side of the battlefield, that ' +
                         'player scores 3 VP and the game ends.' }]
     }
@@ -322,12 +327,6 @@ const RULES = (function () {
   const missionById = id => missions.find(m => m.id === id) || null;
 
   /* The standard game mode, used when no Mission Card is chosen. */
-  const standardScoring = {
-    id: 'standard-oc',
-    name: 'Objective control',
-    text: '1 VP for each objective where you have the most OC, at the end of your turn.',
-    vp: 1
-  };
 
   /* --------------------------------------------------------------------
      WOUND TABLE
@@ -368,7 +367,7 @@ const RULES = (function () {
   return {
     version: '1.0',
     defaultVPTarget: 10,
-    actions, rangedReactions, meleeReactions, missions, standardScoring,
+    actions, rangedReactions, meleeReactions, missions,
     woundTarget, woundLabel, applyMod, actionById, reactionById, missionById,
 
     /* Ability trigger slots offered by the unit editor. */
@@ -403,6 +402,7 @@ const RULES = (function () {
       { id: 'attack',       label: 'Make a free attack',       attack: true },
       { id: 'place',        label: 'Place a unit anywhere (teleport)', place: true },
       { id: 'dice',         label: 'Roll extra dice with one weapon', dice: true },
+      { id: 'resource',     label: 'Gain your faction card\u2019s resource (PSY)', num: true, unit: '' },
       { id: 'mod_move',     label: 'Modify MOV"',              num: true, unit: '"', signed: true, pick: 'any', dur: true },
       { id: 'stat',         label: 'Change a stat permanently', stat: true },
       { id: 'redirect',     label: 'Redirect the attack to another unit', redirect: true },

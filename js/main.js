@@ -167,24 +167,12 @@
 
       /* ---- missions & special objectives ---- */
       case 'showmission':  UI.setModal('mission'); return;
-      case 'scoreobj':     UI.clearVPDraft(); Engine.scoreMissionObjective(p[1], Number(p[2])); return;
-      case 'askvp':
-        UI.clearVPDraft();
-        Engine.promptVP(Number(p[1]), 'objectives and mission scoring', 1);
-        return;
-
-      /* ---- VP entry ---- */
-      case 'vpset': UI.setVPDraft(Number(p[1])); return;
-      case 'vpadd': {
-        const q = g.vpPrompts[0];
-        const cur = UI.getVPDraft() === null ? (Number(q && q.suggested) || 0) : UI.getVPDraft();
-        UI.setVPDraft(cur + Number(p[1]));
-        return;
-      }
-      case 'vpok': {
-        const q = g.vpPrompts[0];
-        UI.clearVPDraft();
-        if (q) Engine.resolveVP(q.id, Number(p[1]));
+      /* ---- the few facts the app cannot see ---- */
+      case 'objans':  Engine.answerMissionAsk(p[1], p[2] === 'none' ? 'none' :
+                        (p[2] === 'yes' ? true : (p[2] === 'no' ? false : Number(p[2])))); return;
+      case 'askans': {
+        const q = (g.asks || [])[0];
+        if (q) Engine.answerAsk(q.id, p[1] === '1');
         return;
       }
 

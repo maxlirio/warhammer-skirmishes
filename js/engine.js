@@ -344,7 +344,6 @@ const Engine = (function () {
     g.pending = {
       type: 'start',
       player: playerId,
-      manualVP: 0,
       firstTurn: !!firstTurn
     };
   }
@@ -367,7 +366,7 @@ const Engine = (function () {
     const g = S();
     g.turn.phase = 'end';
     closeChain(note || 'both AP pools empty');
-    g.pending = { type: 'end', player: g.turn.player, manualVP: 0 };
+    g.pending = { type: 'end', player: g.turn.player, answers: {} };
     log('End Phase — ' + pname(g.turn.player) + '.', 'phase');
   }
 
@@ -375,6 +374,9 @@ const Engine = (function () {
     Store.commit('end phase', function () {
       const g = S();
       const p = g.pending ? g.pending.player : g.turn.player;
+      /* "…checked in the End Phase after END: abilities are resolved." */
+      scoreEndOfTurn();
+      if (g.winner !== null && g.winner !== undefined) { g.pending = null; return; }
       expireEffects('turn', null);
       expireTokens('turn', null);
       g.pending = null;
@@ -711,8 +713,18 @@ const Engine = (function () {
             g.mission.roles[u.killVPFor] !== undefined) {
           scorer = g.mission.roles[u.killVPFor];
         }
-        askVP(scorer, 'destroyed ' + u.name, killValue(u));
-        if (m && m.killNote) chainEntry(m.killNote, 'note');
+        /* The card says what a kill is worth, so the app scores it. The only
+           thing it cannot see is WHERE it happened, so that is all it asks. */
+        const zb = m && m.killZoneBonus;
+        const zoneOwner = (zb && g.mission && g.mission.roles)
+          ? g.mission.roles[zb.role] : null;
+        if (zb && !u.marker && zoneOwner !== null && zoneOwner !== undefined &&
+            scorer === zoneOwner) {
+          ask({ kind: 'killzone', player: scorer, victim: u.name,
+                zone: zb.zone, yes: zb.vp, no: killValue(u) });
+        } else {
+          scoreVP(scorer, killValue(u), 'destroyed ' + u.name);
+        }
       }
       if (u.endsGameOnDeath) {
         chainEntry('The mission ends: ' + u.name + ' has been destroyed.', 'win');
@@ -726,40 +738,25 @@ const Engine = (function () {
 
   /* VP is never assumed. Anything that could score queues a prompt and the
      player types the number their mission actually gives them. */
-  function askVP(playerId, reason, suggested) {
+  /* The app never asks how many VP something is worth — the card says. It only
+     ever asks about what it cannot see from here, then works the VP out. */
+  function ask(q) {
     const g = S();
-    if (!g.vpPrompts) g.vpPrompts = [];
-    g.vpPrompts.push({
-      id: Store.nextId('vp'),
-      player: playerId,
-      reason: reason,
-      suggested: suggested === undefined ? 1 : suggested
-    });
+    if (!g.asks) g.asks = [];
+    g.asks.push(Object.assign({ id: Store.nextId('ask') }, q));
   }
 
-  function promptVP(playerId, reason, suggested) {
-    Store.commit('score VP', function () { askVP(playerId, reason, suggested); });
-  }
-
-  function resolveVP(promptId, amount) {
-    Store.commit('enter VP', function () {
+  function answerAsk(askId, yes) {
+    Store.commit('answer', function () {
       const g = S();
-      const p = (g.vpPrompts || []).find(x => x.id === promptId);
-      g.vpPrompts = (g.vpPrompts || []).filter(x => x.id !== promptId);
-      if (!p) return;
-      const n = Math.max(0, Number(amount) || 0);
-      if (n > 0) scoreVP(p.player, n, p.reason);
-      else log(pname(p.player) + ' scores no VP for ' + p.reason + '.', 'muted');
+      const q = (g.asks || []).find(x => x.id === askId);
+      g.asks = (g.asks || []).filter(x => x.id !== askId);
+      if (!q) return;
+      if (q.kind === 'killzone') {
+        scoreVP(q.player, yes ? q.yes : q.no,
+          'destroyed ' + q.victim + (yes ? ' in ' + q.zone : ''));
+      }
     });
-  }
-
-  function heal(unitId, amount) {
-    const u = Store.unit(unitId);
-    if (!u || !u.alive) return;
-    const before = u.wounds;
-    u.wounds = Math.min(u.maxWounds, u.wounds + (Number(amount) || 0));
-    chainEntry(u.name + ' restores ' + (u.wounds - before) + ' W — now ' +
-      u.wounds + '/' + u.maxWounds + '.', 'heal');
   }
 
   function scoreVP(playerId, amount, why) {
@@ -1046,6 +1043,18 @@ const Engine = (function () {
           chainEntry(pname(me) + ': ' + ctx.label + ' is ready — ' +
             (e.weaponName ? 'the next ' + e.weaponName + ' attack' : 'the next attack') +
             ' rolls ' + (Number(e.value) || 2) + ' dice.', 'effect');
+          break;
+        }
+        /* "Gain 1 PSY" — straight into the faction card's pool. */
+        case 'resource': {
+          const c = cardOf(me);
+          if (!c || !c.resource) {
+            chainEntry(ctx.label + ': ' + pname(me) + ' has no faction card to gain on.', 'muted');
+            break;
+          }
+          c.resource.value = Math.max(0, (Number(c.resource.value) || 0) + v);
+          chainEntry(pname(me) + ' gains ' + v + ' ' + c.resource.name + ' (' + ctx.label +
+            ') — now ' + c.resource.value + '.', 'effect');
           break;
         }
         case 'note':
@@ -2086,6 +2095,10 @@ const Engine = (function () {
       const a = attackNumbers();
       f.damage = (a ? a.damage : 1) * n;
       chainEntry(n + ' of ' + (f.hits || 1) + ' hits WOUND ' + uname(f.targetId) + '.', 'hitline');
+      if (a && !a.variableDamage) {
+        finishAttack({ hit: true, wound: true, damage: f.damage });
+        return;
+      }
       f.step = 'damage';
     });
   }
@@ -2098,11 +2111,18 @@ const Engine = (function () {
         finishAttack({ hit: true, wound: false });
       } else {
         const n = attackNumbers();
-        f.damage = n ? n.damage : 1;
         chainEntry('The attack WOUNDS ' + uname(f.targetId) + '.', 'hitline');
         if (n && n.elevWound) {
           chainEntry('High ground: +1 to Wound and +1 Damage from the charge.', 'note');
         }
+        /* The weapon's damage is on the card, so the app applies it. It only
+           asks when the card itself says to roll (D3, D6). */
+        if (n && !n.variableDamage) {
+          f.damage = n.damage;
+          finishAttack({ hit: true, wound: true, damage: f.damage });
+          return;
+        }
+        f.damage = n ? n.damage : 1;
         f.step = 'damage';
       }
     });
@@ -2540,42 +2560,79 @@ const Engine = (function () {
 
   /* ------------------------------------------- missions & special objectives */
 
-  function objectiveScoredBy(objId, playerId) {
-    const g = S();
-    const rec = g.objectiveScores[objId];
-    return rec ? (rec[playerId] || 0) : 0;
-  }
-
-  /* The app never works out whether an objective was met — it reads the card's
-     text back at the end of the turn and takes your number. The one exception
-     is SECURE THE AREA, where it has watched every SECURE action and can count
-     the markers for you. */
+  /* What this mission scores at the end of a turn. `mode: 'auto'` means the app
+     worked it out from what it watched; `mode: 'ask'` means one tabletop fact
+     stands in the way — and the VP that follows from the answer is still the
+     card's number, never the player's choice. */
   function missionEndTurnItems() {
     const m = missionCard();
-    if (!m) return [Object.assign({}, RULES.standardScoring)];
-    return (m.endTurn || []).map(function (o) {
+    if (!m) return [];
+    return (m.endTurn || []).filter(function (o) {
+      return o.onlyIfCarried ? !!relicCarrier() : true;
+    }).map(function (o) {
       const item = Object.assign({}, o);
-      if (o.autoVP === 'controlPoints') {
-        item.perPlayerVP = S().players.map(p => controlledCount(p.id));
-      }
+      if (o.mode === 'auto') item.award = autoAward(o);
+      if (o.mode === 'ask') item.answer = missionAnswer(o.id);
       return item;
     });
   }
 
-  function scoreMissionObjective(objId, playerId) {
-    Store.commit('score objective', function () {
+  /* VP each player has earned from an automatic objective, as things stand. */
+  function autoAward(o) {
+    const g = S();
+    const vp = Number(o.vp) || 1;
+    if (o.score === 'controlPoints') return g.players.map(p => controlledCount(p.id) * vp);
+    if (o.score === 'unitFlag') {
+      return g.players.map(p => Store.unitsOf(p.id, true)
+        .some(u => u.flags && u.flags[o.flag]) ? vp : 0);
+    }
+    return g.players.map(() => 0);
+  }
+
+  const missionAnswer = id => {
+    const g = S();
+    const a = g.pending && g.pending.answers;
+    return (a && a[id] !== undefined) ? a[id] : null;
+  };
+
+  /* The answer to the one fact the app cannot see. 'none' is a real answer:
+     nobody scored it this turn. */
+  function answerMissionAsk(objId, value) {
+    Store.commit('objective', function () {
       const g = S();
-      const item = missionEndTurnItems().find(x => x.id === objId);
-      if (!item) return;
-      if (!g.objectiveScores[objId]) g.objectiveScores[objId] = {};
-      g.objectiveScores[objId][playerId] = (g.objectiveScores[objId][playerId] || 0) + 1;
-      const suggested = item.perPlayerVP ? item.perPlayerVP[playerId] : (Number(item.vp) || 1);
-      askVP(playerId, item.name, suggested);
-      if (item.endsGame) {
-        chainEntry('The mission ends: ' + item.name + '.', 'win');
-        declareWinnerOnVP(item.name);
-      }
+      if (!g.pending) return;
+      if (!g.pending.answers) g.pending.answers = {};
+      g.pending.answers[objId] = value;
     });
+  }
+
+  /* Applied when the End Phase is confirmed, so END: abilities land first. */
+  function scoreEndOfTurn() {
+    const g = S();
+    let ended = null;
+    missionEndTurnItems().forEach(function (o) {
+      if (o.mode === 'auto') {
+        let any = false;
+        (o.award || []).forEach(function (n, i) {
+          if (n > 0) { scoreVP(i, n, o.name); any = true; }
+        });
+        if (!any) log('No VP from ' + o.name + ' this turn.', 'muted');
+        return;
+      }
+      const a = missionAnswer(o.id);
+      if (a === null || a === 'none' || a === false) {
+        log('No VP from ' + o.name + ' this turn.', 'muted');
+        return;
+      }
+      const who = o.scorer === 'relicCarrier' ? Store.owner(relicCarrier()) : Number(a);
+      if (who === null || who === undefined || isNaN(who)) return;
+      scoreVP(who, Number(o.vp) || 1, o.name);
+      if (o.endsGame) ended = o.name;
+    });
+    if (ended) {
+      log('\u2605 The mission ends: ' + ended + '.', 'win');
+      declareWinnerOnVP(ended);
+    }
   }
 
   /* -------------------------------------------------- manual adjustments */
@@ -2621,7 +2678,7 @@ const Engine = (function () {
       if (!u) return;
       u.wounds = 0; u.alive = false; u.tokens = []; u.effects = [];
       log('Manual: ' + u.name + ' removed from the battlefield.', 'kill');
-      if (awardVP) askVP(Store.opponentOf(u.owner), 'destroyed ' + u.name, 1);
+      if (awardVP) scoreVP(Store.opponentOf(u.owner), killValue(u), 'destroyed ' + u.name);
     });
   }
 
@@ -2680,13 +2737,6 @@ const Engine = (function () {
     });
   }
 
-  function setPendingVP(v) {
-    Store.quiet(function () {
-      const g = S();
-      if (g.pending) g.pending.manualVP = v;
-    });
-  }
-
   return {
     startGame, beginTurn, confirmStartPhase, confirmEndPhase, beginEndPhase,
     actionDef, actionList, setActionOverride, apConsequence, controlMode, mustPass,
@@ -2711,7 +2761,6 @@ const Engine = (function () {
     overwatchCandidates, flowToggleOverwatch, flowFireOverwatch,
     adjustAP, adjustVP, adjustWounds, removeUnit, removeEffect,
     addManualEffect, addManualToken, forceControl, forceEndChain, forceEndTurn,
-    setPendingVP, scoreVP, promptVP, resolveVP, log,
-    scoreMissionObjective, objectiveScoredBy
+    scoreVP, log, ask, answerAsk, answerMissionAsk, scoreEndOfTurn
   };
 })();

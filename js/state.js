@@ -86,9 +86,10 @@ const Store = (function () {
       }),
       /* { id, roles?, controlPoints?, relic? } — the engine fills the rest in. */
       mission: (config && config.mission) || { id: null },
-      objectiveScores: {},
       units: [],
-      vpPrompts: [],
+      /* Things the app cannot see from here and has to ask about. Never
+         "how many VP?" — only "where did that happen?" */
+      asks: [],
       turn: { number: 0, player: (config && config.firstPlayer) || 0, phase: 'start' },
       control: { player: 0, forcedUnitId: null, reason: '' },
       chain: { active: false, id: 0, initiator: null, entries: [], weaponsUsed: [] },
@@ -499,53 +500,9 @@ const PRESETS = [
           effects: [{ kind: 'place', pick: 'multi', side: 'friendly', max: 2,
                       text: 'Place up to two friendly units anywhere greater than 6" away ' +
                             'from an enemy unit.' }] },
-        { name: 'Into the Warp', trigger: 'ap', cost: 1, usesPerTurn: 1, opponentReacts: false,
-          text: 'Usable once per turn. Roll 1 D6 for each enemy unit within 6". For each 5+, ' +
-                'deal 1 damage to that enemy unit. Your opponent gains 1 AP for each unit ' +
-                'damaged in this way, to a maximum of 2. End the action chain.',
-          effects: [{ kind: 'damage', value: 1, pick: 'multi', side: 'enemy',
-                      text: 'Roll 1 D6 for each enemy unit within 6" — tick each one that ' +
-                            'rolled 5+.' },
-                    { kind: 'ap_opponent', perDamaged: true, max: 2, value: 1 }] }
-      ]
-    }
-  ]
-},
-{
-  id: 'marines',
-  name: 'Space Marines',
-  note: 'An example roster, not an official card.',
-  units: [
-    {
-      name: 'Intercessor Sergeant', move: 6, maxWounds: 3, toughness: 4, oc: 2,
-      weapons: [
-        { name: 'Bolt Rifle', type: 'ranged', range: 24, hit: 3, strength: 4, damage: 1 },
-        { name: 'Power Fist', type: 'melee', range: 1, hit: 3, strength: 8, damage: 2 }
-      ],
-      abilities: [
-        { name: 'Squad Discipline', trigger: 'rp', cost: 1,
-          text: 'Subtract 1 from the attacker\'s Wound roll and gain 1 AP.',
-          effects: [{ kind: 'mod_wound', value: -1, pick: 'attacker', duration: 'attack' },
-                    { kind: 'ap_self', value: 1 }] }
-      ]
-    },
-    {
-      name: 'Scout with Sniper', move: 6, maxWounds: 2, toughness: 3, oc: 1,
-      weapons: [
-        { name: 'Sniper Rifle', type: 'ranged', range: 36, hit: 3, strength: 5, damage: 2 },
-        { name: 'Combat Knife', type: 'melee', range: 1, hit: 4, strength: 3, damage: 1 }
-      ],
-      abilities: [
-        { name: 'Proximity Mine', trigger: 'ap', cost: 1,
-          text: 'Place a mine. When an enemy triggers it, it suffers 2 damage.',
-          effects: [{ kind: 'token', label: 'PROXIMITY MINE', expiry: 'used',
-                      text: 'Deals 2 damage to the unit that triggered it.',
-                      tokenEffects: [{ kind: 'damage', value: 2, pick: 'prompt' }] }] },
-        { name: 'Camo Cloak', trigger: 'passive', cost: 0,
-          text: 'Enemies shooting this unit from further than 12" are at -1 to hit.',
-          effects: [{ kind: 'aura', stat: 'hit', value: -1, side: 'enemy', onlyVsOwner: true,
-                      weapon: 'ranged', range: 12, mode: 'beyond',
-                      text: 'Camo Cloak: shots from further than 12" are at -1 to hit.' }] }
+        { name: 'Psychic Mastery', trigger: 'ap', cost: 1, opponentReacts: true,
+          text: 'Gain 1 PSY.',
+          effects: [{ kind: 'resource', value: 1 }] }
       ]
     }
   ]

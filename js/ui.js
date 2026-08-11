@@ -6,7 +6,6 @@ const UI = (function () {
 
   let modal = null;          // UI-only overlays: {acts} | 'menu' | 'log' | {unit:id}
   let damageDraft = null;
-  let vpDraft = null;
 
   const esc = s => String(s === null || s === undefined ? '' : s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -393,7 +392,7 @@ const UI = (function () {
     if (g.flow) return wrap(flowModal(g));
     // Anything that might score sits at the front of the queue: nothing else
     // matters until the player has said what it was worth.
-    if ((g.vpPrompts || []).length) return wrap(vpModal(g));
+    if ((g.asks || []).length) return wrap(askModal(g));
     if (modal && modal.card !== undefined) return wrap(cardModal(g, modal.card));
     if (modal && modal.acts) return wrap(unitActionsModal(g, modal.acts));
     if (modal && modal.abil) return wrap(abilityInfoModal(g, modal.abil[0], modal.abil[1]));
@@ -570,16 +569,7 @@ const UI = (function () {
         (isStart
           ? '<div class="noteline warn">' + esc(g.players[p.player].name) +
               ' gains 1 AP for the Start Phase (they will have ' + (g.players[p.player].ap + 1) + ' AP).</div>'
-          : missionCheck(g) +
-            '<div style="font-size:10px;letter-spacing:.14em;color:var(--gold);font-weight:800;margin:12px 0 6px">' +
-            'ANY OTHER VP</div>' +
-            '<div class="noteline tip">Anything else you scored this turn — the app has no idea what your ' +
-              'mission rewards, so tell it.</div>' +
-            '<div style="display:flex;gap:7px;margin-bottom:8px;flex-wrap:wrap">' +
-              g.players.map(pl => '<button class="btn sm p' + pl.id + '" style="flex:1 1 45%" ' +
-                'data-act="askvp:' + pl.id + '">VP FOR ' + esc(pl.name).toUpperCase() +
-                '</button>').join('') +
-            '</div>') +
+          : missionCheck(g)) +
       '</div>' +
       '<div class="mfoot">' +
         '<button class="btn primary" data-act="' + (isStart ? 'confirmStart' : 'confirmEnd') + '">' +
@@ -587,40 +577,69 @@ const UI = (function () {
       '</div>';
   }
 
-  /* End of turn: the app reads the mission card back to you and takes your
-     number. For SECURE THE AREA it has watched every SECURE and counts for you. */
+  /* End of turn. Everything the app watched, it scores itself; the one or two
+     facts it cannot see from here it asks about — and the VP that follows is
+     still the card's number. */
   function missionCheck(g) {
     const m = Engine.missionCard();
     const items = Engine.missionEndTurnItems();
     return '<div style="font-size:10px;letter-spacing:.14em;color:var(--gold);font-weight:800;margin:12px 0 6px">' +
         (m ? 'MISSION — ' + m.name : 'SCORING') + '</div>' +
-      '<div class="noteline">' + (m ? lines(m.objective)
-        : esc('Standard game mode: at the end of each turn, 1 VP for each objective where you ' +
-              'have the most OC.')) + '</div>' +
+      (m ? '<div class="noteline">' + lines(m.objective) + '</div>'
+         : '<div class="noteline">No Mission Card, so there is nothing for the app to score. ' +
+           'Use the \u00b1 buttons on the score plates for whatever the two of you agreed.</div>') +
       controlPointStrip(g) +
       relicStrip(g) +
-      (items.length
-        ? items.map(function (o) {
-            return '<div class="sub" style="background:#0f161d;margin-bottom:7px">' +
-              '<div style="font-weight:700;font-size:13px">' + esc(o.name) + '</div>' +
-              (o.text ? '<div style="color:var(--ink-dim);font-size:11.5px;margin:3px 0 7px;line-height:1.4">' +
-                esc(o.text) + '</div>' : '<div style="height:6px"></div>') +
-              '<div style="font-size:10px;color:var(--ink-mute);letter-spacing:.1em;font-weight:800;margin-bottom:4px">' +
-                'SCORED BY?</div>' +
-              '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
-                g.players.map(function (pl) {
-                  const c = Engine.objectiveScoredBy(o.id, pl.id);
-                  const sug = o.perPlayerVP ? o.perPlayerVP[pl.id] : null;
-                  return '<button class="btn sm p' + pl.id + '" style="flex:1 1 45%" ' +
-                    'data-act="scoreobj:' + o.id + ':' + pl.id + '">' + esc(pl.name) +
-                    (sug !== null ? ' · ' + sug + ' VP' : '') + (c ? ' ·' + c + 'x' : '') + '</button>';
-                }).join('') +
-              '</div>' +
-            '</div>';
-          }).join('')
-        : '<div class="noteline">Nothing is scored at the end of a turn in this mission — its VP ' +
-          'comes from what happens on the table.</div>');
+      items.map(o => o.mode === 'auto' ? autoScoreRow(g, o) : askScoreRow(g, o)).join('') +
+      (m && !items.length
+        ? '<div class="noteline">Nothing is scored at the end of a turn in this mission — its VP ' +
+          'comes from what happens on the table, and the app has been counting.</div>'
+        : '');
   }
+
+  /* The app worked this one out: it says what it will score, and why. */
+  function autoScoreRow(g, o) {
+    const any = (o.award || []).some(n => n > 0);
+    return '<div class="scorerow' + (any ? ' scoring' : '') + '">' +
+      '<div class="srhead"><span class="srname">' + esc(o.name) + '</span>' +
+        '<span class="srtag auto">COUNTED FOR YOU</span></div>' +
+      (o.text ? '<div class="srtext tip">' + esc(o.text) + '</div>' : '') +
+      '<div class="srawards">' +
+        g.players.map((pl, i) => '<div class="sraward p' + i + ((o.award[i] || 0) > 0 ? ' on' : '') +
+          '"><span class="v">+' + (o.award[i] || 0) + '</span> VP · ' + esc(pl.name) +
+          '</div>').join('') +
+      '</div>' +
+      '<div class="srfoot">' + (any ? 'Scored when you end the turn.'
+        : 'Nobody scores this one this turn.') + '</div>' +
+    '</div>';
+  }
+
+  /* One fact only the players can see. The number is not theirs to choose. */
+  function askScoreRow(g, o) {
+    const a = o.answer;
+    const answered = a !== null && a !== undefined;
+    const live = answered && a !== 'none' && a !== false;
+    const btn = (val, label, on) =>
+      '<button class="btn sm' + (on ? ' primary' : '') + '" style="flex:1 1 30%" ' +
+        'data-act="objans:' + o.id + ':' + val + '">' + label + '</button>';
+    const carrier = Engine.relicCarrier();
+    const who = (o.scorer === 'relicCarrier' && carrier)
+      ? esc((Store.unit(carrier) || {}).name) + ' is carrying it' : '';
+    return '<div class="scorerow' + (live ? ' scoring' : (answered ? '' : ' unanswered')) + '">' +
+      '<div class="srhead"><span class="srname">' + esc(o.name) + '</span>' +
+        '<span class="srtag ' + (answered ? 'auto' : 'ask') + '">' +
+        (answered ? 'ANSWERED' : 'ONLY YOU CAN SEE THIS') + '</span></div>' +
+      (o.text ? '<div class="srtext tip">' + esc(o.text) + '</div>' : '') +
+      '<div class="srq">' + esc(o.question) + (who ? ' <b>' + who + '.</b>' : '') + '</div>' +
+      '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
+        (o.ask === 'yesno'
+          ? btn('yes', 'YES — ' + o.vp + ' VP', a === true) + btn('no', 'NOT YET', a === false)
+          : g.players.map((pl, i) => btn(String(i), esc(pl.name) + ' · ' + o.vp + ' VP',
+              a === i)).join('') + btn('none', 'NOBODY', a === 'none')) +
+      '</div>' +
+    '</div>';
+  }
+
 
   function controlPointStrip(g) {
     const cps = (g.mission && g.mission.controlPoints) || [];
@@ -642,34 +661,26 @@ const UI = (function () {
       '<b>RELIC</b>' + (u ? esc(u.name) + ' is carrying it' : 'on the ground, unclaimed') + '</div>';
   }
 
-  /* --------------------------------------------------------- VP entry pad */
-
-  function vpModal(g) {
-    const p = g.vpPrompts[0];
-    const draft = vpDraft === null ? (Number(p.suggested) || 0) : vpDraft;
-    return head('VICTORY POINTS', esc(g.players[p.player].name).toUpperCase(), 'vpok:0') +
+  /* The only VP question left in the app: not "how many?" but "where did that
+     happen?". The card supplies the number either way. */
+  function askModal(g) {
+    const q = g.asks[0];
+    if (q.kind !== 'killzone') return '';
+    return head('ONE THING THE APP CANNOT SEE', esc(g.players[q.player].name).toUpperCase()) +
       '<div class="mbody">' +
         '<div class="rollbox">' +
-          '<div class="lbl">' + esc(p.reason).toUpperCase() + '</div>' +
-          '<div class="big">' + draft + '</div>' +
-          '<div class="sub">How many VP does ' + esc(g.players[p.player].name) +
-            ' score for this? They are on ' + g.players[p.player].vp + ' VP' +
-            (g.settings.vpTarget ? ' of ' + g.settings.vpTarget : '') + '.</div>' +
-        '</div>' +
-        '<div class="numpad">' +
-          [0, 1, 2, 3, 4, 5, 6, 7].map(x =>
-            '<button data-act="vpset:' + x + '">' + x + '</button>').join('') +
-        '</div>' +
-        '<div style="display:flex;gap:7px">' +
-          '<button class="btn sm" style="flex:1" data-act="vpadd:-1">− 1</button>' +
-          '<button class="btn sm" style="flex:1" data-act="vpadd:1">+ 1</button>' +
+          '<div class="lbl">' + esc(q.victim).toUpperCase() + ' WAS DESTROYED</div>' +
+          '<div class="big" style="font-size:19px">In ' + esc(q.zone) + '?</div>' +
+          '<div class="sub">The card scores ' + q.yes + ' VP if it was and ' + q.no +
+            ' VP if it was not. Only you can see the board.</div>' +
         '</div>' +
       '</div>' +
       '<div class="mfoot">' +
-        '<button class="btn ghost sm" data-act="vpok:0">NONE</button>' +
-        '<button class="btn primary" data-act="vpok:' + draft + '">SCORE ' + draft + ' VP</button>' +
+        '<button class="btn" data-act="askans:0">NO — ' + q.no + ' VP</button>' +
+        '<button class="btn primary" data-act="askans:1">YES — ' + q.yes + ' VP</button>' +
       '</div>';
   }
+
 
   /* =============================================================== FLOWS */
 
@@ -1569,11 +1580,8 @@ const UI = (function () {
   function clearDamageDraft() { damageDraft = null; }
   function getDamageDraft() { return damageDraft; }
 
-  function setVPDraft(v) { vpDraft = Math.max(0, v); render(); }
-  function clearVPDraft() { vpDraft = null; }
-  function getVPDraft() { return vpDraft; }
 
   return { render, setModal, getModal: () => modal,
            setDamageDraft, clearDamageDraft, getDamageDraft,
-           setVPDraft, clearVPDraft, getVPDraft, esc };
+           esc };
 })();

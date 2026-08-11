@@ -88,6 +88,22 @@ function settleSetup() {
   }
 }
 Engine.startGame = function (cfg, units) { rawStartGame(cfg, units); settleSetup(); };
+
+/* Fixed damage is on the card, so the app applies it and never opens the pad.
+   Only a weapon written as D3/D6 still asks, so a test's roll is a no-op
+   unless the app is actually waiting for one. */
+/* Several tests need a guaranteed kill. They used to type a huge damage
+   number; now the card's damage applies, so soften the target instead. */
+function deathsDoor(unitId) {
+  const u = Store.unit(unitId);
+  if (u && u.wounds > 1) Engine.adjustWounds(unitId, -(u.wounds - 1));
+}
+
+const rawDamage = Engine.flowDamage;
+Engine.flowDamage = function (n) {
+  const f = G() && G().flow;
+  if (f && f.kind === 'attack' && f.step === 'damage') rawDamage(n);
+};
 const U = name => G().units.find(u => u.name === name);
 const ap = i => G().players[i].ap;
 const vp = i => G().players[i].vp;
@@ -152,6 +168,9 @@ const wep = Engine.weaponsFor(U('Ork Nob').id, 'melee');
 check('Big Choppa marked used', wep[0].used, true);
 
 console.log('\n== kill ends the chain and scores VP ==');
+/* The Power Fist deals a flat 2, so put the Nob within reach of it — the app
+   applies the card's damage now and no longer takes a typed number. */
+Engine.adjustWounds(U('Ork Nob').id, -(U('Ork Nob').wounds - 2));
 Engine.beginAction('fight');
 Engine.flowPickAttackTarget(U('Ork Nob').id);
 Engine.flowPickWeapon(U('Intercessor').weapons[1].id);
@@ -160,11 +179,8 @@ Engine.flowHit(true);
 Engine.flowWound(true);
 Engine.flowDamage(3);
 check('Nob destroyed', U('Ork Nob').alive, false);
-check('a VP prompt is queued, nothing assumed', G().vpPrompts.length, 1);
-check('the prompt names the reason', G().vpPrompts[0].reason, 'destroyed Ork Nob');
-check('no VP scored until it is answered', vp(0), 0);
-Engine.resolveVP(G().vpPrompts[0].id, 3);   // this mission pays 3 for a kill
-check('the entered VP is what lands', vp(0), 3);
+check('the kill scores itself — no keypad', vp(0), 1);
+check('and nothing is left to answer', (G().asks || []).length, 0);
 check('chain ended', G().chain.active, false);
 check('nothing ends the turn by itself', G().pending, null);
 check('the active player is up again', G().control.player, 0);
@@ -308,23 +324,21 @@ const boyBefore = U('Ork Boy').wounds;
 Engine.confirmToken();
 check('mine deals 2 damage', Math.max(0, boyBefore - 2), U('Ork Boy').alive ? U('Ork Boy').wounds : 0);
 check('mine removed after use', U('Scout').tokens.length, 0);
-check('a mine kill also asks for its VP', G().vpPrompts.length, 1);
-Engine.resolveVP(G().vpPrompts[0].id, 1);
+check('a mine kill scores itself too', (G().asks || []).length, 0);
 
 console.log('\n== mission objectives ==');
 Store.commit('add mission', function () {
   const g = Store.get();
   g.mission = { id: 'hill' };
 });
-const vpBefore = vp(0);
 const item = Engine.missionEndTurnItems()[0];
 check('KING OF THE HILL has an end-of-turn item', item.name, 'The HIGH GROUND');
-Engine.scoreMissionObjective(item.id, 0);
-check('objective queues a VP prompt', G().vpPrompts.length, 1);
-check('pre-filled from the card', G().vpPrompts[0].suggested, 1);
-Engine.resolveVP(G().vpPrompts[0].id, 5);   // but you can type anything
-check('the entered VP is what lands', vp(0), vpBefore + 5);
-check('objective counted', Engine.objectiveScoredBy(item.id, 0), 1);
+check('and the app works it out itself', item.mode, 'auto');
+check('nobody is on the hill, so nobody scores', item.award, [0, 0]);
+Engine.toggleUnitFlag(U('Scout').id, 'highground');
+check('put a unit up there and it knows',
+  Engine.missionEndTurnItems()[0].award, [1, 0]);
+Engine.toggleUnitFlag(U('Scout').id, 'highground');
 
 console.log('\n== no AP does not end a chain — you are handed it and must PASS ==');
 (function () {
@@ -412,14 +426,14 @@ check('markers are 5W T4', [objs[0].maxWounds, objs[0].toughness], [5, 4]);
 check('markers have no RP', objs[0].noRP, true);
 // Shooting a marker skips the reaction step entirely.
 Engine.adjustAP(0, 3);
+deathsDoor(objs.find(o => o.owner === 1).id);
 Engine.beginAction('shoot');
 Engine.flowPickUnit(U('Alpha').id);
 Engine.flowPickAttackTarget(objs.find(o => o.owner === 1).id);
 check('no RP means no reaction step', G().flow.step, 'hit');
 Engine.flowHit(true); Engine.flowWound(true); Engine.flowDamage(5);
 check('the enemy OBJECTIVE is destroyed', G().units.find(u => u.id === objs.find(o => o.owner === 1).id).alive, false);
-check('and it suggests the card’s 3 VP', G().vpPrompts[0].suggested, 3);
-Engine.resolveVP(G().vpPrompts[0].id, 3);
+check('the card’s 3 VP are scored outright', vp(0), 3);
 check('destroying it ends the game', !!G().gameOver, true);
 
 console.log('\n== MISSION: SECURE THE AREA ==');
@@ -436,7 +450,7 @@ Engine.confirmSecure();
 check('marker is held by player 0', G().mission.controlPoints[0].controller, 0);
 check('the app counts what it holds', Engine.controlledCount(0), 1);
 const secItem = Engine.missionEndTurnItems()[0];
-check('end-of-turn VP is computed, not guessed', secItem.perPlayerVP, [1, 0]);
+check('end-of-turn VP is computed, not guessed', secItem.award, [1, 0]);
 // An enemy takes it back.
 Engine.forceControl(1, null);
 Engine.adjustAP(1, 2);
@@ -445,6 +459,13 @@ Engine.flowPickUnit(U('Bravo').id);
 Engine.flowPickControlPoint(cps[0].id);
 Engine.confirmSecure();
 check('SECURING it takes it from the holder', G().mission.controlPoints[0].controller, 1);
+/* And the End Phase pays it out with nobody typing a number. */
+(function () {
+  const before = [vp(0), vp(1)];
+  Engine.beginEndPhase('test');
+  Engine.confirmEndPhase();
+  check('the End Phase scores it by itself', [vp(0) - before[0], vp(1) - before[1]], [0, 1]);
+})();
 
 console.log('\n== MISSION: THE RELIC ==');
 freshGame({ id: 'relic' });
@@ -461,6 +482,7 @@ check('and it cannot be picked up twice',
 // Killing the carrier drops it.
 Engine.forceControl(1, null);
 Engine.adjustAP(1, 3);
+deathsDoor(U('Alpha').id);
 Engine.beginAction('fight');
 Engine.flowPickUnit(U('Bravo').id);
 Engine.flowPickAttackTarget(U('Alpha').id);
@@ -477,12 +499,13 @@ const bait = G().units.find(u => u.marker);
 check('the BAIT belongs to the defender', bait.owner, 1);
 check('BAIT is 3W T4', [bait.maxWounds, bait.toughness], [3, 4]);
 Engine.adjustAP(0, 3);
+deathsDoor(bait.id);
 Engine.beginAction('shoot');
 Engine.flowPickUnit(U('Alpha').id);
 Engine.flowPickAttackTarget(bait.id);
 Engine.flowHit(true); Engine.flowWound(true); Engine.flowDamage(3);
-check('killing the BAIT suggests the card’s 4 VP', G().vpPrompts[0].suggested, 4);
-check('and it is the attacker who scores it', G().vpPrompts[0].player, 0);
+check('killing the BAIT scores the card’s 4 VP', vp(0), 4);
+check('and it is the attacker who got them', vp(1), 0);
 
 console.log('\n== MISSION: ASSASSINATION ==');
 (function () {
@@ -630,6 +653,7 @@ check('OC untouched by a Lasgun hit', U('Guardsman "Al" 434-435').oc, ocBefore);
 Engine.forceEndChain();
 Engine.forceControl(0, null);
 Engine.adjustAP(0, 6);
+deathsDoor(cultist.id);
 Engine.beginAction('fight');
 Engine.flowPickUnit(al.id);
 Engine.flowPickAttackTarget(cultist.id);
@@ -638,7 +662,6 @@ Engine.flowPickReaction('none');
 Engine.flowHit(true); Engine.flowWound(true); Engine.flowDamage(9);
 check('the cultist is down', U('Cultist').alive, false);
 check('and OC went up by itself', U('Guardsman "Al" 434-435').oc, ocBefore + 1);
-Engine.resolveVP(G().vpPrompts[0].id, 1);
 
 console.log('\n== Grappling Hook hands over an AP, as its card says ==');
 Engine.forceEndChain();
@@ -785,7 +808,6 @@ Engine.flowHit(true);
 Engine.flowWound(true);
 Engine.flowDamage(3);                        // the player rolled a 3
 check('the rolled damage lands', U('Guardsman').wounds, 0);
-Engine.resolveVP(G().vpPrompts[0].id, 1);
 
 console.log('\n== Kwik Dakka: the reaction shoots first ==');
 (function () {
@@ -812,6 +834,7 @@ console.log('\n== Kwik Dakka: the reaction shoots first ==');
   // Now kill the attacker with the counter.
   Engine.forceControl(1, null);
   Engine.adjustAP(1, 4);
+  deathsDoor(gm.id);
   Engine.beginAction('shoot');
   Engine.flowPickUnit(gm.id);
   Engine.flowPickAttackTarget(mk.id);
@@ -1202,7 +1225,6 @@ console.log('\n== committing two and the first one kills: the second is wasted =
   check('the Cannon spent its token', U('Cannon').tokens.length, 0);
   check('and Spare\u2019s is wasted too, never fired', U('Spare').tokens.length, 0);
   check('nothing is left running', G().flow, null);
-  Engine.resolveVP(G().vpPrompts[0].id, 1);
 })();
 
 console.log('\n== committing only one leaves the other on the table ==');
@@ -1235,7 +1257,6 @@ console.log('\n== committing only one leaves the other on the table ==');
   check('the diver is dead', U('Diver').alive, false);
   check('the Cannon spent its token', U('Cannon').tokens.length, 0);
   check('Spare kept hers, never committed', U('Spare').tokens.length, 1);
-  Engine.resolveVP(G().vpPrompts[0].id, 1);
 })();
 
 console.log('\n== a trigger that kills the mover stops what it was doing ==');
@@ -1265,7 +1286,6 @@ console.log('\n== a trigger that kills the mover stops what it was doing ==');
   check('the diver is dead', U('Diver').alive, false);
   check('the parked shot is gone', G().flow, null);
   check('and produced nothing, not even the survivor AP', ap(1), apBefore);
-  Engine.resolveVP(G().vpPrompts[0].id, 1);
 })();
 
 console.log('\n== a MOVE walks into overwatch too ==');
@@ -1441,7 +1461,7 @@ console.log('\n== every kind of move gets the overwatch look ==');
   // 3. a START: ability, fired from the phase modal
   r = fresh();
   Store.commit('phase', function () {
-    Store.get().pending = { type: 'start', player: 0, manualVP: 0 };
+    Store.get().pending = { type: 'start', player: 0 };
   });
   Engine.usePhaseAbility(r.id, r.abilities.find(a => a.name === 'Dawn Dash').id);
   check('a START: ability that moves', G().flow && G().flow.kind, 'owcheck');
@@ -1552,11 +1572,12 @@ const gk = sandbox.PRESETS.find(f => f.id === 'greyknights');
   Engine.flowHits(3);
   check('3 of 4 hit', G().flow.hits, 3);
   check('the wound step knows it', G().flow.step, 'wound');
+  const cultBefore = U('Cultist').wounds;
   Engine.flowWounds(2);
-  check('2 of those wound', G().flow.woundCount, 2);
-  check('damage is 1 per wound', G().flow.damage, 2);
-  Engine.flowDamage(2);
-  check('the Cultist takes both', U('Cultist').wounds, 1);
+  /* The Psilencer deals a flat 1, so 2 wounds = 2 damage. The app works that
+     out and applies it — there is no pad to tap. */
+  check('the attack resolves without asking for a number', G().flow, null);
+  check('the Cultist takes 1 damage per wound', cultBefore - U('Cultist').wounds, 2);
   check('the buff survived an attack that never used it', G().players[0].buffs.length, 1);
 })();
 
@@ -1620,22 +1641,15 @@ console.log('\n== GREY KNIGHTS: Purifying Flame, Into the Warp, Gate of Infinity
     Engine.blockedReactions(U('Cultist').id, drusius.id, flame).dive,
     'Brother Drusius: Unescapable Wrath');
 
-  /* Into the Warp: tick who failed, opponent gains 1 AP each, capped at 2. */
+  /* Psychic Mastery: 1 AP for 1 PSY, straight into the faction card's pool. */
   const aurelius = U('Justicar Aurelius');
-  const warp = aurelius.abilities.find(a => a.name === 'Into the Warp');
+  const mastery = aurelius.abilities.find(a => a.name === 'Psychic Mastery');
+  const psyBefore = G().players[0].card.resource.value;
   Engine.beginAction('ability', aurelius.id);
-  Engine.flowPickAbility(warp.id);
-  const dmgEff = warp.effects[0];
-  Engine.flowPickTarget(dmgEff.id, U('Cultist').id);
-  Engine.flowPickTarget(dmgEff.id, U('Champion').id);
-  Engine.flowDoneTargets();
-  const apBefore = G().players[1].ap;
+  Engine.flowPickAbility(mastery.id);
   Engine.confirmAbility();
-  check('both take a wound', [U('Cultist').wounds, U('Champion').wounds], [2, 3]);
-  check('the opponent gains 1 AP per unit damaged', G().players[1].ap - apBefore, 2);
-  check('it ends the action chain', G().chain.active, false);
-  check('and it is once per turn',
-    Engine.usableAPAbilities(U('Justicar Aurelius')).some(a => a.name === 'Into the Warp'), false);
+  check('it tops up the card', G().players[0].card.resource.value - psyBefore, 1);
+  check('the chain carries on — the opponent may react', G().chain.active, true);
 
   /* END: Gate of Infinity places up to two friendlies — and no more. */
   Engine.forceEndTurn();
@@ -1715,10 +1729,8 @@ console.log('\n== a Grey Knight is worth 2 VP ==');
   Engine.flowWound(true);
   Engine.flowDamage(4);
   check('Lucius is down', U('Brother Lucius').alive, false);
-  check('the keypad opens pre-filled with 2', G().vpPrompts[0].suggested, 2);
-  check('but nothing is scored until it is answered', vp(1), 0);
-  Engine.resolveVP(G().vpPrompts[0].id, 2);
-  check('and then it is', vp(1), 2);
+  check('and the 2 VP land without being asked for', vp(1), 2);
+  check('with nothing left to answer', (G().asks || []).length, 0);
 })();
 
 console.log('\n== a home-made "+3 MOV" ability ==');
@@ -1741,6 +1753,87 @@ console.log('\n== a home-made "+3 MOV" ability ==');
   check('and the ability adds to it', Engine.unitMoveMod(U('Runner').id), 3);
   Engine.forceEndChain();
   check('it goes when the chain does', Engine.unitMoveMod(U('Runner').id), 0);
+})();
+
+
+console.log('\n== the app scores what it can see, and asks only what it cannot ==');
+(function () {
+  /* KING OF THE HILL: it knows who is standing up there. */
+  const us = [mkUnit(0, 'Alpha', 3, 4, [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], []),
+              mkUnit(1, 'Bravo', 3, 4, [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], [])];
+  Engine.startGame({ playerNames: ['A', 'B'], firstPlayer: 0, mission: { id: 'hill' } }, us);
+  Engine.confirmStartPhase();
+  Engine.toggleUnitFlag(U('Bravo').id, 'highground');
+  const before = [vp(0), vp(1)];
+  Engine.beginEndPhase('test');
+  check('it shows what it will score before you commit',
+    Engine.missionEndTurnItems()[0].award, [0, 1]);
+  Engine.confirmEndPhase();
+  check('and pays it out with no keypad', [vp(0) - before[0], vp(1) - before[1]], [0, 1]);
+})();
+
+(function () {
+  /* ASSASSINATION: OC at the centre objective is a fact only the players see —
+     but the VP that follows is the card's. */
+  const us = [mkUnit(0, 'Alpha', 3, 4, [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], []),
+              mkUnit(1, 'Bravo', 3, 4, [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], [])];
+  Engine.startGame({ playerNames: ['A', 'B'], firstPlayer: 0, mission: { id: 'assassination' } }, us);
+  Engine.confirmStartPhase();
+  Engine.beginEndPhase('test');
+  const item = Engine.missionEndTurnItems()[0];
+  check('it asks rather than assumes', item.mode, 'ask');
+  check('and it asks about the table, not the score', item.ask, 'who');
+  check('unanswered scores nothing', (function () {
+    const b = vp(0); Engine.scoreEndOfTurn(); return vp(0) - b; })(), 0);
+  Engine.answerMissionAsk(item.id, 0);
+  const b = [vp(0), vp(1)];
+  Engine.confirmEndPhase();
+  check('answered, the card pays its own number',
+    [vp(0) - b[0], vp(1) - b[1]], [1, 0]);
+})();
+
+(function () {
+  /* THE RELIC: the app knows who is carrying it, not whether they got home. */
+  const us = [mkUnit(0, 'Alpha', 3, 4, [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], []),
+              mkUnit(1, 'Bravo', 3, 4, [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], [])];
+  Engine.startGame({ playerNames: ['A', 'B'], firstPlayer: 0, mission: { id: 'relic' } }, us);
+  Engine.confirmStartPhase();
+  Engine.beginEndPhase('test');
+  check('nobody is carrying it, so it is not even asked',
+    Engine.missionEndTurnItems().length, 0);
+  Engine.confirmEndPhase();
+  Engine.setRelicCarrier(U('Alpha').id);
+  Engine.beginEndPhase('test');
+  const item = Engine.missionEndTurnItems()[0];
+  check('now it asks', item.ask, 'yesno');
+  Engine.answerMissionAsk(item.id, true);
+  Engine.confirmEndPhase();
+  check('3 VP to the carrier’s player', vp(0), 3);
+  check('and the game is over', G().winner !== null && G().winner !== undefined, true);
+})();
+
+(function () {
+  /* AMBUSH: the one place VP genuinely depends on where a unit was standing. */
+  const us = [mkUnit(0, 'Raider', 3, 4,
+                [{ name: 'Blade', type: 'melee', hit: 2, strength: 8, damage: 4 }], []),
+              mkUnit(1, 'Holder', 3, 4,
+                [{ name: 'Blade', type: 'melee', hit: 2, strength: 8, damage: 4 }], [])];
+  Engine.startGame({ playerNames: ['Attacker', 'Defender'], firstPlayer: 1,
+                     mission: { id: 'ambush', roles: { attacker: 0, defender: 1 } } }, us);
+  Engine.confirmStartPhase();
+  Engine.adjustAP(1, 3);
+  Engine.beginAction('fight');
+  Engine.flowPickUnit(U('Holder').id);
+  Engine.flowPickAttackTarget(U('Raider').id);
+  Engine.flowPickReaction('none');
+  Engine.flowHit(true);
+  Engine.flowWound(true);
+  check('the defender’s kill pauses on the one thing the app cannot see',
+    (G().asks || []).length, 1);
+  check('and it is a WHERE question, not a HOW MANY one', G().asks[0].kind, 'killzone');
+  check('nothing scored yet', vp(1), 0);
+  Engine.answerAsk(G().asks[0].id, true);
+  check('in their own deployment zone the card pays 2', vp(1), 2);
 })();
 
 console.log('\n== summary ==');

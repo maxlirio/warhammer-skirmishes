@@ -17,8 +17,8 @@ launcher.
 |---|---|
 | **AP** | Start-phase AP, action costs, survivor AP, reaction AP, ability AP, carry-over between turns |
 | **RP** | Granted per attack, spent on a reaction, cleared when the attack ends |
-| **VP** | Never assumed — anything that could score asks you for the number, and the running totals are always on screen |
-| **Wounds** | Damage applied automatically; a unit at 0 W is removed and its killer is asked what that was worth |
+| **VP** | Scored from the card — kills, objectives and mission scoring are worked out and applied, never typed |
+| **Wounds** | Damage applied automatically; a unit at 0 W is removed and its killer scores whatever the card says it was worth |
 | **Passes** | Consecutive passes, so the chain closes when both players decline |
 | **Action chains** | Who initiated, who is acting, who is targeted, whether the chain is still alive |
 | **Turn machine** | Start → Action → End phase, whose AP forces whose activation, when the turn passes |
@@ -67,55 +67,61 @@ every popup — stays upright. Also switchable mid-game from the menu.
    wound → damage.
 4. The app shows the **target number** for every roll (weapon Hit value and the
    S-vs-T wound table, with every modifier already folded in). You roll the dice
-   and press HIT / MISS, WOUND / FAILED.
+   and press HIT / MISS, WOUND / FAILED. **Damage, VP and AP then follow from the
+   card without being asked for** — the only time the app takes a number from you
+   is when the card itself says to roll one (a `D3` or `D6` weapon).
 5. **PASS is a card between the two rosters**, not an action buried in a list. It
    tells you what it will do before you touch it — *ends the chain*, *ends
    Player 1's turn* — and just does it. You are only asked to confirm when there
    is a genuine choice to make between ending the chain and ending your turn.
-6. Every End Phase runs END: abilities → the mission's scoring → any other VP.
+6. Every End Phase runs END: abilities, then the mission's scoring — which the
+   app works out and applies itself.
 
 Every number can be corrected by hand (±AP, ±VP, ±wounds), and **UNDO** rolls
 back the last 40 changes.
 
-## Victory Points are always yours to enter
+## Victory Points score themselves
 
-Missions vary too much for the app to guess. Anything that *might* score — a
-kill, a mission objective, anything you agree on — opens a keypad asking how many
-VP that is worth to that player, pre-filled with a sensible default you can
-override or zero out. The app adds up what you tell it and nothing else.
+The app knows what everything is worth, so it applies it. A kill scores the
+number on the datasheet — 1 by default, 2 for a Grey Knight, 3 for an
+Assassination TARGET, 4 for the Ambush BAIT — and the mission's end-of-turn
+scoring resolves the moment you end the turn. Nothing asks you to type a
+figure, and nothing waits for confirmation.
 
-Where a card names a price on a unit's head — *the Grey Knights are worth 2 VP
-each* — that number goes on the datasheet (**WORTH THIS MANY VP WHEN
-DESTROYED**), shows on the unit's card, and is what the keypad opens with. It is
-still only a suggestion, and the keypad still asks.
+Where a card names a price on a unit's head, that number lives on its datasheet
+(**WORTH THIS MANY VP WHEN DESTROYED**) and shows as a chip on its card, so the
+VP that lands is never a surprise.
+
+The ± buttons on the score plates are still there for anything you want to
+correct by hand.
 
 ## Mission Cards
 
-All six printed cards are built in, and the app owns as much of each as it
-honestly can:
+All six printed cards are built in and fully implemented. Each is reproduced
+**verbatim** — battlefield, objective and special rules, line for line — and the
+app resolves its scoring on its own. Where it genuinely cannot see the table, it
+asks about **the table**, never about the score:
 
-| Card | What the app tracks for you |
+| Card | How it scores |
 |---|---|
-| **Sabotage** | Places an OBJECTIVE (5W, T4, no RP) per player as a real, shootable unit; destroying one suggests 3 VP and ends the game |
-| **King of the Hill** | Mark a unit as being on the HIGH GROUND and killing it suggests 2 VP; asks the end-of-turn VP question |
-| **Ambush** | Attacker and defender chosen at setup, a BAIT marker (3W, T4, no RP) for the defender worth 4 VP to the attacker, -1 Wound across every roster, and the game ends when all of a player's units are dead |
-| **Assassination** | Each player names a TARGET at setup; it gains +1 Wound and killing an enemy TARGET suggests 3 VP |
-| **Secure the Area** | Three markers whose controller it remembers, a SECURE action, and an end-of-turn VP total it counts itself |
-| **The Relic** | Who is carrying it, blocks OVERWATCH for the carrier, and drops it where the carrier died |
+| **Sabotage** | The OBJECTIVE is a real 5 W / T4 unit with no RP. Destroy the enemy's and 3 VP land and the game ends — no confirmation |
+| **King of the Hill** | Mark whoever is standing up there; at the end of every turn the app awards the 1 VP itself, and that unit is worth 2 VP when killed |
+| **Ambush** | Attacker and defender chosen at setup, a BAIT worth 4 VP to the attacker, -1 Wound across both rosters, and the game ends when one side is wiped out. The defender's kills ask **one** question — *was it in your deployment zone?* — because that is 2 VP instead of 1 and only you can see where it happened |
+| **Assassination** | Each TARGET gains +1 Wound and is worth 3 VP. At the end of the turn the app asks who has the most OC at the centre objective and awards the 1 VP itself |
+| **Secure the Area** | It watched every SECURE, so it knows who holds what and pays out 1 VP per marker with nobody touching anything |
+| **The Relic** | It knows who is carrying it and blocks their OVERWATCH; each End Phase it asks whether the carrier got home, and awards the 3 VP and ends the game if so |
 
-Each card is reproduced **verbatim** — battlefield, objective and special rules,
-line for line — and carries its own win condition: 10 VP for Sabotage, King of
-the Hill, Assassination and Secure the Area; last one standing for Ambush; relic
-carried home for The Relic. Everything above still asks before it scores — the
-app suggests the card's number and you confirm or change it.
+Each carries its own win condition: 10 VP for Sabotage, King of the Hill,
+Assassination and Secure the Area; last one standing for Ambush; relic carried
+home for The Relic.
 
 ## Datasheets
 
 Units carry exactly what the card carries: **MOV, W, T, OC**, then ranged and
 melee weapons with **RANGE, HIT, STRENGTH, DAMAGE**. There is no saving throw in
-this game. Range is stored as a reminder and never checked. Damage may be written
-as `D3` or `D6` — the app shows the card's wording and takes your roll rather than
-pre-filling a guess.
+this game. Range is stored as a reminder and never checked. A fixed damage value
+is applied without asking; only `D3` or `D6` still opens a pad, because that is
+the card telling you to roll.
 
 ## It remembers what you typed
 
@@ -211,7 +217,8 @@ every other number in the app.
 
 The Grey Knights' **PSY** is the built-in example — 4 to begin with, 1 more at
 the start of every turn including the first, spent on *Sanctifying Barrage*
-(1), *Gate of Infinity* (2) or *Warp Charge* (3). Outside that phase the powers
+(1), *Gate of Infinity* (2) or *Warp Charge* (3). An ability can pay into the
+pool too, which is what Aurelius's *Psychic Mastery* does. Outside that phase the powers
 are shown but struck out with the reason, so nobody has to remember when they
 were allowed, and anything you cannot currently afford says so.
 
@@ -263,15 +270,14 @@ interrupts — the counter-attack resolves first, and if it kills the attacker
 their attack never happens.
 
 **Grey Knights** — Brother Drusius, Brother Lucius and Justicar Aurelius, plus
-the GREY KNIGHTS PSYCHIC card. Each of them is worth **2 VP** when destroyed. Drusius starts in reserve and *Deep Strikes* in;
+the GREY KNIGHTS PSYCHIC card. Each of them is worth **2 VP** when destroyed.
+Aurelius's *Psychic Mastery* pays 1 AP straight back into the PSY pool. Drusius starts in reserve and *Deep Strikes* in;
 his *Unescapable Wrath* strikes DIVE off the enemy's reaction list **only** when
 he is firing the Purifying Flame. Lucius's *Heavy Gatling* offers four dice when
 the app agrees he has not moved. Aurelius's *Into the Warp* takes the ticks for
 who failed their D6, deals the damage, and hands the opponent 1 AP per unit
 damaged **capped at 2**; his *Gate of Infinity* is a once-per-game END: ability
 that places up to two friendlies and will not let you pick a third.
-
-Space Marines are included as a clearly-labelled example.
 
 ## Area effects
 
