@@ -290,8 +290,7 @@ const Engine = (function () {
       log(pname(p) + ' gains 1 AP for the Start Phase (now ' + g.players[p].ap + ' AP).', 'ap');
       g.turn.phase = 'action';
       g.pending = null;
-      g.control = { player: p, forcedUnitId: null, reason: 'your turn — spend AP or PASS' };
-      checkStall();
+      g.control = { player: p, forcedUnitId: null, reason: 'spend an AP, or PASS to end your turn' };
     });
   }
 
@@ -314,26 +313,13 @@ const Engine = (function () {
     });
   }
 
-  /* If nobody can do anything, roll straight into the End Phase. */
-  function checkStall() {
-    const g = S();
-    if (g.pending || g.flow) return;
-    const cp = g.control.player;
-    if (g.players[cp].ap <= 0 && !g.chain.active) {
-      // With no chain and no AP, only PASS remains.
-      if (cp === g.turn.player) {
-        log(pname(cp) + ' has no AP left.', 'muted');
-        beginEndPhase('no AP remaining');
-      }
-    }
-  }
-
   /* --------------------------------------------------------- action chain */
 
   function openChain(initiator) {
     const g = S();
     if (g.chain.active) return;
-    g.chain = { active: true, id: g.chain.id + 1, initiator: initiator, entries: [], weaponsUsed: [] };
+    g.chain = { active: true, id: g.chain.id + 1, initiator: initiator, entries: [],
+                weaponsUsed: [], passes: 0 };
     log('Action chain #' + g.chain.id + ' begins (' + pname(initiator) + ').', 'chain');
   }
 
@@ -342,6 +328,7 @@ const Engine = (function () {
     if (!g.chain.active) return;
     g.chain.active = false;
     g.chain.weaponsUsed = [];
+    g.chain.passes = 0;
     expireEffects('chain', null);
     expireTokens('chain', null);
     chainEntry('Action chain ends' + (reason ? ' — ' + reason : '') + '.', 'chain-end');
@@ -357,6 +344,7 @@ const Engine = (function () {
     const g = S();
     const actor = opts.actor;
     expireEffects('nextAP', actor);
+    if (!opts.isPass) g.chain.passes = 0;   // only consecutive passes count
 
     if (opts.endsChain) {
       closeChain(opts.reason || null);
@@ -384,21 +372,19 @@ const Engine = (function () {
     checkVictory();
   }
 
-  /* The chain is over — the turn only passes if the current player is dry. */
+  /* The chain is over: "The Active Player spends an AP or takes a PASS action."
+     Nothing ends the turn except the active player choosing to. */
   function handOffToTurnPlayer() {
     const g = S();
     const tp = g.turn.player;
-    if (g.players[tp].ap > 0) {
-      g.control = { player: tp, forcedUnitId: null, reason: 'may start a new action chain' };
-      chainEntry(pname(tp) + ' still has ' + g.players[tp].ap +
-        ' AP — the turn continues with a new chain.', 'control');
-    } else {
-      const other = Store.opponentOf(tp);
-      if (g.players[other].ap > 0) {
-        log(pname(other) + ' keeps ' + g.players[other].ap + ' AP — it carries into their turn.', 'muted');
-      }
-      beginEndPhase('the current player has no AP left');
-    }
+    g.control = {
+      player: tp,
+      forcedUnitId: null,
+      reason: g.players[tp].ap > 0
+        ? 'spend an AP to start a new chain, or PASS'
+        : 'no AP — PASS, and end the turn if you are done'
+    };
+    chainEntry(pname(tp) + ' is up with ' + g.players[tp].ap + ' AP.', 'control');
   }
 
   /* ------------------------------------------------------- effects/tokens */
@@ -1016,7 +1002,7 @@ const Engine = (function () {
       const f = S().flow;
       if (!f) return;
       const order = {
-        attack: ['attacker', 'target', 'weapon', 'reaction', 'redirect', 'eligible', 'hit', 'wound', 'damage'],
+        attack: ['attacker', 'target', 'weapon', 'reaction', 'redirect', 'hit', 'wound', 'damage'],
         ability: ['unit', 'ability', 'pick', 'confirm'],
         overwatch: ['unit', 'confirm'],
         secure: ['unit', 'point', 'confirm'],
@@ -1096,8 +1082,8 @@ const Engine = (function () {
     });
   }
 
-  /* PASS always closes the chain. Only the player whose turn it is may also
-     choose to end the turn with it. */
+  /* PASS on its own does nothing except let the active player end their turn.
+     Two passes in a row — one from each player — end the action chain. */
   function confirmPass(endTurn) {
     Store.commit('pass', function () {
       const g = S();
@@ -1105,23 +1091,38 @@ const Engine = (function () {
       const who = g.control.player;
       const isTurnPlayer = who === g.turn.player;
       g.flow = null;
+
       if (endTurn && isTurnPlayer) {
-        chainEntry(pname(who) + ' PASSES — the chain ends and so does their turn.', 'action');
-        beginEndPhase('passed');
+        chainEntry(pname(who) + ' PASSES and ends their turn.', 'action');
+        beginEndPhase('the active player ended their turn');
         return;
       }
-      chainEntry(pname(who) + ' PASSES — the action chain ends.', 'action');
-      closeChain('passed');
-      handOffToTurnPlayer();
-      checkVictory();
+
+      if (!g.chain.active) {
+        chainEntry(pname(who) + ' PASSES — no chain is running, so nothing changes.', 'note');
+        checkVictory();
+        return;
+      }
+
+      g.chain.passes = (g.chain.passes || 0) + 1;
+      chainEntry(pname(who) + ' PASSES.', 'action');
+      if (g.chain.passes >= 2) {
+        closeChain('both players passed');
+        handOffToTurnPlayer();
+        checkVictory();
+        return;
+      }
+      // A pass is a Passive Action: the other player answers with any unit.
+      afterAction({ actor: who, endsChain: false, forcedUnitId: null, isPass: true });
     });
   }
 
-  /* What PASS can do from here: end the chain, end the turn, or both. */
+  /* What PASS can do from here. */
   function passOptions() {
     const g = S();
     return {
-      canEndChain: g.chain.active,
+      inChain: g.chain.active,
+      wouldEndChain: g.chain.active && (g.chain.passes || 0) >= 1,
       canEndTurn: g.control.player === g.turn.player
     };
   }
@@ -1447,7 +1448,7 @@ const Engine = (function () {
           label: r.name + ' — ' + r.selfEffect.label,
           detail: r.selfEffect.detail || '',
           hitMod: r.selfEffect.hitBonus || 0,
-          woundMod: 0,
+          woundMod: r.selfEffect.woundBonus || 0,
           duration: r.selfEffect.duration || 'chain',
           ownerPlayer: defPlayer
         });
@@ -1461,7 +1462,7 @@ const Engine = (function () {
       if (r.onSurviveTabletop) f.onSurviveTabletop = r.onSurviveTabletop;
 
       primeAttackMods();
-      f.step = r.askEligible ? 'eligible' : 'hit';
+      f.step = 'hit';
     });
   }
 
@@ -1475,17 +1476,6 @@ const Engine = (function () {
       f.redirect = false;
       chainEntry('The attack is redirected from ' + from + ' to ' + uname(newTargetId) + '.', 'reaction');
       f.step = 'hit';
-    });
-  }
-
-  function flowEligibility(stillEligible) {
-    Store.commit('eligibility', function () {
-      const g = S();
-      const f = g.flow;
-      if (stillEligible) { f.step = 'hit'; return; }
-      f.cancelled = true;
-      chainEntry(uname(f.targetId) + ' is no longer an eligible target — the attack does not happen.', 'reaction');
-      finishAttack({ hit: false, cancelled: true });
     });
   }
 
@@ -1819,7 +1809,7 @@ const Engine = (function () {
      the markers for you. */
   function missionEndTurnItems() {
     const m = missionCard();
-    if (!m) return [];
+    if (!m) return [Object.assign({}, RULES.standardScoring)];
     return (m.endTurn || []).map(function (o) {
       const item = Object.assign({}, o);
       if (o.autoVP === 'controlPoints') {
@@ -1852,7 +1842,6 @@ const Engine = (function () {
       const g = S();
       g.players[playerId].ap = Math.max(0, g.players[playerId].ap + delta);
       log('Manual: ' + pname(playerId) + ' AP → ' + g.players[playerId].ap + '.', 'manual');
-      checkStall();
     });
   }
 
@@ -1967,7 +1956,7 @@ const Engine = (function () {
     confirmSimple, confirmPass, passOptions, confirmOverwatch, abilityLetsThemReact,
     flowPickAbility, flowPickTarget, flowDoneTargets, confirmAbility,
     useFreeAbility, usePhaseAbility,
-    flowPickAttackTarget, flowPickWeapon, flowPickReaction, flowEligibility,
+    flowPickAttackTarget, flowPickWeapon, flowPickReaction,
     flowHit, flowWound, flowDamage, attackNumbers, setElevation,
     applicableAuras, toggleAura, blockedReactions, flowRedirect, openFreeAttack,
     effectsNeedingTarget,

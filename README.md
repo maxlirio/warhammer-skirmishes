@@ -19,6 +19,7 @@ launcher.
 | **RP** | Granted per attack, spent on a reaction, cleared when the attack ends |
 | **VP** | Never assumed — anything that could score asks you for the number, and the running totals are always on screen |
 | **Wounds** | Damage applied automatically; a unit at 0 W is removed and its killer is asked what that was worth |
+| **Passes** | Consecutive passes, so the chain closes when both players decline |
 | **Action chains** | Who initiated, who is acting, who is targeted, whether the chain is still alive |
 | **Turn machine** | Start → Action → End phase, whose AP forces whose activation, when the turn passes |
 | **Effects** | Reaction modifiers, ability modifiers, their durations and expiry |
@@ -182,8 +183,9 @@ on that ability. If any of it is wrong for your table, Menu → **ACTIONS & AP**
 lets you change the cost and the AP consequence of every action mid-game, and
 marks what you changed.
 
-**PASS** (0 AP) ends the action chain, and on your own turn it offers to end the
-turn as well — so it covers both jobs and HOLD is gone.
+**PASS** (0 AP) does nothing on its own but decline to act. On your own turn it
+offers to end the turn — nothing else ever will. **Two passes in a row, one from
+each player, end the action chain.**
 
 When you have no AP, the app says so rather than skipping you: a red
 **NO AP — MUST PASS** badge, the main button becomes **NO AP — PASS**, and PASS
@@ -191,20 +193,23 @@ is tagged *YOUR ONLY MOVE* in the action list.
 
 ## Rules choices worth knowing
 
-- **Overwatch.** Place a token within 12" of the unit and visible to it. Later in
-  the game, so long as that unit has not moved or attacked, an enemy coming
-  within 3" of the token lets you fire at -1 to hit with no RP for them. The
-  token lives until its unit moves or attacks — it survives action chains and
-  turns until then.
+- **Overwatch.** Place a token within 12" of the unit. When an enemy moves within
+  3" of it you interrupt and resolve a full shoot sequence, skipping steps 2 and
+  3 — so no RP for the defender, and no to-hit penalty. The token lives until its
+  unit moves or attacks.
 - **Overwatch AP.** An overwatch shot is an interrupt: the defender gains no RP
   (per the card) and no survivor AP, and control does not change hands unless the
   target dies.
-- **Chain continuation.** Being broke does not end a chain. Whoever is owed a
-  response is handed it either way — they must choose an action, and with no AP
-  the only affordable one is PASS, which is what closes it. That matters: before
-  passing they can still fire an overwatch token or a free ability. A chain also
-  ends when the action itself says so, or when a unit is destroyed.
-- **DISTRACT** grants its 1 AP immediately, on top of the standard survivor AP.
+- **Chain continuation.** A chain ends in exactly two ways: an action says "End
+  the Action Chain" (MOVE, WITHDRAW, a kill), or both players pass consecutively.
+  Running out of AP does not end it — you are handed the chain anyway and must
+  PASS out of it, which matters because you can still fire an overwatch token or
+  a card button first.
+- **DISTRACT** grants its 1 AP immediately, on top of the standard survivor AP,
+  and **PARRY** likewise grants its own AP on top.
+- **CHARGE** hands the opponent 1 AP in its own right, on top of the survivor AP
+  from the fight sequence — both are stated explicitly, and the golden rule says
+  do what is written.
 - **Elevation.** Shooting from higher ground is +1 to Hit; charging from higher
   ground is +1 to Wound and +1 Damage. Both are a checkbox in the attack flow
   because only you can see the terrain.

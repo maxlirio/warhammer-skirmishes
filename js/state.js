@@ -285,20 +285,19 @@ const PRESETS = [
   note: 'The official line-up.',
   units: [
     {
-      name: 'Guardsman "Alfred" 434-434', move: 4, maxWounds: 2, toughness: 4, oc: 1,
-      notes: 'Don\'t cross his crosshairs.',
+      name: 'Guardsman "Fred" 434-436', move: 4, maxWounds: 2, toughness: 4, oc: 1,
+      notes: '434-434 almost removed him from his squad after an unpleasant incident involving ' +
+             'his quick trigger.',
       weapons: [
-        { name: 'Lasgun', type: 'ranged', range: 18, hit: 2, strength: 4, damage: 1 },
-        { name: 'Dagger', type: 'melee', range: 1, hit: 3, strength: 3, damage: 1, unlimited: true }
+        { name: 'Modded Lasgun', type: 'ranged', range: 12, hit: 5, strength: 4, damage: 2 },
+        { name: 'Leathered Fist', type: 'melee', range: 1, hit: 4, strength: 2, damage: 1 }
       ],
       abilities: [
-        { name: 'Practised Blade', trigger: 'passive', cost: 0,
-          text: 'This unit\'s dagger can be used any number of times in the same action chain.',
-          effects: [] },
-        { name: 'Grappling Hook', trigger: 'ap', cost: 1,
-          text: 'Use only if terrain is within 3". Move this unit up to 5" in the direction of ' +
-                'the terrain, ignoring height.',
-          effects: [{ kind: 'note', text: 'Move up to 5" toward the terrain, ignoring height.' }] }
+        { name: 'Snap Shot', trigger: 'free', cost: 0, usesPerGame: 1,
+          text: 'Once per game, when an enemy unit moves within 6" of this unit, if it is an ' +
+                'eligible ranged target, this unit may interrupt their action. Resolve a shoot ' +
+                'sequence against that unit. Skip steps 2 and 3.',
+          effects: [{ kind: 'attack', weapon: 'ranged', noRP: true, hitMod: 0, skipWound: false }] }
       ]
     },
     {
@@ -312,64 +311,43 @@ const PRESETS = [
         { name: 'Bayonet Charge', trigger: 'passive', cost: 0,
           text: 'When this unit charges, his Bayonet has +1 damage for the attack.',
           effects: [] },
-        { name: 'Kill Count', trigger: 'ap', cost: 1,
-          text: 'Whenever this unit defeats an enemy unit with his Bayonet, permanently increase ' +
-                'his OC by one.',
+        { name: 'Kill Count', trigger: 'free', cost: 0,
+          text: 'Whenever this unit defeats an enemy unit using its Bayonet, permanently ' +
+                'increase his OC by one.',
           effects: [{ kind: 'stat', stat: 'oc', value: 1, pick: 'self' }] }
       ]
     },
     {
-      name: 'Guardsman "Fred" 434-436', move: 4, maxWounds: 2, toughness: 4, oc: 1,
-      notes: '434-436 was chosen by 434-434 not for his accuracy, but for his power.',
+      name: 'Guardsman "Alfred" 434-434', move: 4, maxWounds: 2, toughness: 4, oc: 1,
+      notes: 'Many have found themselves with a bullet or dagger hole in their chest when they ' +
+             'thought they were alone.',
       weapons: [
-        { name: 'Modded Lasgun', type: 'ranged', range: 12, hit: 4, strength: 4, damage: 2 },
-        { name: 'Leathered Fist', type: 'melee', range: 1, hit: 3, strength: 2, damage: 1 }
+        { name: 'Lasgun', type: 'ranged', range: 18, hit: 2, strength: 4, damage: 1 },
+        { name: 'Bolt Pistol', type: 'ranged', range: 12, hit: 3, strength: 3, damage: 1 },
+        { name: 'Dagger', type: 'melee', range: 1, hit: 3, strength: 3, damage: 1, unlimited: true }
       ],
       abilities: [
-        { name: 'Snap Shot', trigger: 'free', cost: 0, usesPerGame: 1,
-          text: 'Once per game, when an enemy unit moves, if it is an eligible target, this unit ' +
-                'may make a ranged attack against that unit. This attack does not give your ' +
-                'opponent RP.',
-          effects: [{ kind: 'token', label: 'SNAP SHOT', expiry: 'used', tokenAttack: true,
-                      tokenWeapon: 'ranged', tokenHitMod: 0,
-                      text: 'Press when an enemy moves into your sights. No RP for them.' }] },
-        { name: 'Choke Hold', trigger: 'ap', cost: 1, opponentReacts: false,
-          text: 'Make an attack with this unit\'s Leathered Fist. Your opponent gets no RP. If ' +
-                'the attack hits, don\'t make a wound roll. Instead end this action chain and ' +
-                'move this unit 3".',
-          effects: [
-            { kind: 'attack', weapon: 'melee', noRP: true, hitMod: 0, skipWound: true },
-            { kind: 'note', text: 'On a hit: end the action chain and move this unit 3".' }
-          ] }
-      ]
-    },
-    {
-      name: 'Guardsman "Nick" 847-832', move: 4, maxWounds: 2, toughness: 3, oc: 1,
-      notes: 'Legend has it he once made a nick in a Chaos Lord\'s armor.',
-      weapons: [
-        { name: 'Lasgun', type: 'ranged', range: 18, hit: 3, strength: 4, damage: 1 },
-        { name: 'Bayonet', type: 'melee', range: 2, hit: 4, strength: 4, damage: 1 }
-      ],
-      abilities: [
-        { name: 'Grenade', trigger: 'rp', cost: 1,
-          text: 'Place a mine token up to D6" away from this unit\'s position. It deals 1 damage ' +
-                'to each unit within 3" of it at the end of this action chain.',
-          effects: [{ kind: 'token', label: 'GRENADE', expiry: 'chain',
-                      text: 'At the end of this action chain, tick every unit within 3" of the ' +
-                            'token — each takes 1 damage.',
-                      tokenEffects: [{ kind: 'damage', value: 1, pick: 'multi' }] }] },
-        { name: 'Cloaked', trigger: 'ap', cost: 1,
+        { name: 'Practiced Blade', trigger: 'passive', cost: 0,
+          text: 'This unit\'s dagger can be used any number of times in the same action chain.',
+          effects: [] },
+        { name: 'Cloaked', trigger: 'passive', cost: 0,
           text: 'Enemy units greater than 6" away have -1 to hit this unit.',
           effects: [{ kind: 'aura', stat: 'hit', value: -1, side: 'enemy', onlyVsOwner: true,
-                      weapon: 'any', range: 6, mode: 'beyond', duration: 'manual', pick: 'self',
-                      text: 'Cloaked: enemy units further than 6" away have -1 to hit this unit.' }] }
+                      weapon: 'any', range: 6, mode: 'beyond',
+                      text: 'Cloaked: enemy units further than 6" away have -1 to hit this unit.' }] },
+        { name: 'Grappling Hook', trigger: 'ap', cost: 1,
+          text: 'Use only if terrain is within 3". Move this unit up to 5" in the direction of ' +
+                'the terrain, ignoring height. Your opponent gains 1 AP.',
+          effects: [{ kind: 'ap_opponent', value: 1 },
+                    { kind: 'note',
+                      text: 'Move up to 5" toward the terrain, ignoring height.' }] }
       ]
     },
     {
       name: 'Commissar Briant', move: 4, maxWounds: 2, toughness: 4, oc: 2,
       notes: '"I don\'t even want to hear it." BLAM.',
       weapons: [
-        { name: 'Bolt Pistol', type: 'ranged', range: 12, hit: 3, strength: 3, damage: 1 },
+        { name: 'Bolt Pistol', type: 'ranged', range: 12, hit: 2, strength: 3, damage: 1 },
         { name: 'Uppercut', type: 'melee', range: 1, hit: 3, strength: 2, damage: 1 }
       ],
       abilities: [
@@ -384,8 +362,32 @@ const PRESETS = [
           ] },
         { name: "It's Your Job", trigger: 'rp', cost: 1,
           text: 'Choose one of your units that would be an eligible target for the enemy unit\'s ' +
-                'attack instead. It targets that unit instead.',
+                'attack. It targets that unit instead.',
           effects: [{ kind: 'redirect' }] }
+      ]
+    },
+    {
+      name: 'Guardsman "Nick" 847-832', move: 4, maxWounds: 2, toughness: 3, oc: 1,
+      notes: 'Legend has it he once made a nick in a Chaos Lord\'s armor. ' +
+             '847-832 has neither confirmed nor denied.',
+      weapons: [
+        { name: 'Lasgun', type: 'ranged', range: 18, hit: 3, strength: 4, damage: 1 },
+        { name: 'Bolt Pistol', type: 'ranged', range: 12, hit: 3, strength: 3, damage: 1 },
+        { name: 'Bayonet', type: 'melee', range: 2, hit: 4, strength: 4, damage: 1 }
+      ],
+      abilities: [
+        { name: 'Cloaked', trigger: 'passive', cost: 0,
+          text: 'Enemy units greater than 6" away have -1 to hit this unit.',
+          effects: [{ kind: 'aura', stat: 'hit', value: -1, side: 'enemy', onlyVsOwner: true,
+                      weapon: 'any', range: 6, mode: 'beyond',
+                      text: 'Cloaked: enemy units further than 6" away have -1 to hit this unit.' }] },
+        { name: 'Grenade', trigger: 'rp', cost: 1,
+          text: 'Place a grenade token up to D6" away from this unit\'s position. It deals 1 ' +
+                'damage to each unit within 3" of it at the end of this action chain.',
+          effects: [{ kind: 'token', label: 'GRENADE', expiry: 'chain',
+                      text: 'At the end of this action chain, tick every unit within 3" of the ' +
+                            'token — each takes 1 damage.',
+                      tokenEffects: [{ kind: 'damage', value: 1, pick: 'multi' }] }] }
       ]
     }
   ]

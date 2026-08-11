@@ -201,7 +201,6 @@
       case 'pickweapon': Engine.flowPickWeapon(p[1]); return;
       case 'reaction': Engine.flowPickReaction(p[1], null); return;
       case 'reactionsp': Engine.flowPickReaction('special', p[1]); return;
-      case 'eligible': Engine.flowEligibility(p[1] === '1'); return;
       case 'elev': Engine.setElevation(!g.flow.elevation); return;
       case 'aura': Engine.toggleAura(cmd.slice(5)); return;
       case 'redirect': Engine.flowRedirect(p[1]); return;

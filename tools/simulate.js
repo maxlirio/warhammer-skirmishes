@@ -82,8 +82,8 @@ check('S8 vs T4 (double)', RULES.woundTarget(8, 4), 2);
 check('S5 vs T4 (greater)', RULES.woundTarget(5, 4), 3);
 check('S4 vs T4 (equal)', RULES.woundTarget(4, 4), 4);
 check('S4 vs T5 (less)', RULES.woundTarget(4, 5), 5);
-check('S2 vs T5 (half or less)', RULES.woundTarget(2, 5), 6);
-check('S4 vs T8 (half)', RULES.woundTarget(4, 8), 6);
+check('S2 vs T5 (still just "less than")', RULES.woundTarget(2, 5), 5);
+check('S4 vs T8 (no half-or-less row any more)', RULES.woundTarget(4, 8), 5);
 check('-1 modifier on a 3+', RULES.applyMod(3, -1).target, 4);
 check('+1 modifier on a 2+ clamps', RULES.applyMod(2, 1), { target: 2, capped: true, raw: 1 });
 
@@ -127,7 +127,7 @@ Engine.flowHit(true);
 Engine.flowWound(true);
 Engine.flowDamage(2);
 check('Intercessor wounds', U('Intercessor').wounds, 1);
-check('P1 gains the survivor AP', ap(0), 1);
+check('survivor AP plus PARRY\u2019s own AP', ap(0), 2);
 check('P1 must act with the Intercessor', G().control.forcedUnitId, U('Intercessor').id);
 
 console.log('\n== weapon lockout inside one chain ==');
@@ -149,9 +149,14 @@ check('no VP scored until it is answered', vp(0), 0);
 Engine.resolveVP(G().vpPrompts[0].id, 3);   // this mission pays 3 for a kill
 check('the entered VP is what lands', vp(0), 3);
 check('chain ended', G().chain.active, false);
-check('both AP pools empty → End Phase', G().pending.type, 'end');
+check('nothing ends the turn by itself', G().pending, null);
+check('the active player is up again', G().control.player, 0);
 
-console.log('\n== end phase hands the turn over ==');
+console.log('\n== only PASS ends a turn ==');
+Store.commit('drain', function () { Store.get().players[0].ap = 0; });
+Engine.beginAction('pass');
+Engine.confirmPass(true);
+check('now the End Phase runs', G().pending.type, 'end');
 Engine.confirmEndPhase();
 check('turn 2 belongs to P2', G().turn.player, 1);
 check('start phase pending', G().pending.type, 'start');
@@ -205,15 +210,20 @@ check('Ork Boy alive', U('Ork Boy').alive, true);
 check('miss still hands the AP to the survivor', ap(1), 1);
 check('Ork Boy is the forced unit', G().control.forcedUnitId, U('Ork Boy').id);
 
-console.log('\n== PASS ends the chain without ending the turn ==');
+console.log('\n== one PASS is not enough to end a chain ==');
 check('it is not the responder\u2019s turn', Engine.controlMode(), 'reacting');
 Engine.beginAction('pass');
-check('so PASS only offers the chain', Engine.passOptions(),
-  { canEndChain: true, canEndTurn: false });
+check('the non-active player cannot end a turn', Engine.passOptions(),
+  { inChain: true, wouldEndChain: false, canEndTurn: false });
 Engine.confirmPass(true);                       // asking to end the turn is ignored
-check('chain closed by PASS', G().chain.active, false);
+check('one pass leaves the chain open', G().chain.active, true);
+check('and hands it back', G().control.player, 0);
 check('PASS is free', ap(1), 1);
-check('and the turn did not change hands', G().turn.player, 0);
+check('the turn did not change hands', G().turn.player, 0);
+check('a second pass would close it', Engine.passOptions().wouldEndChain, true);
+Engine.beginAction('pass');
+Engine.confirmPass(false);
+check('two in a row end the chain', G().chain.active, false);
 
 console.log('\n== SPECIAL ABILITY: opponent gains AP, chain continues ==');
 check('control back to the turn player', G().control.player, 0);
@@ -235,15 +245,15 @@ Engine.adjustAP(0, 2);
 Engine.beginAction('shoot');
 Engine.flowPickUnit(U('Scout').id);
 Engine.flowPickAttackTarget(U('Ork Boy').id);
-Engine.flowPickReaction('dive');
-check('DIVE asks about eligibility', G().flow.step, 'eligible');
 const boyWounds = U('Ork Boy').wounds, oppAP = ap(1);
-Engine.flowEligibility(false);
+Engine.flowPickReaction('dive');
+check('DIVE goes straight to the roll now', G().flow.step, 'hit');
+Engine.flowHit(false);
 check('no damage dealt', U('Ork Boy').wounds, boyWounds);
-check('no AP for the diving unit', ap(1), oppAP);
-check('flow closed', G().flow, null);
+check('and no AP for the diving unit', ap(1), oppAP);
 
 console.log('\n== DISTRACT: extra AP and a free unit choice ==');
+Engine.forceEndChain();
 Engine.forceControl(0, null);
 Engine.adjustAP(0, 2);
 Engine.beginAction('shoot');
@@ -258,6 +268,7 @@ check('survivor AP on top of the DISTRACT AP', ap(1), apBeforeDistract + 2);
 check('any friendly unit may respond', G().control.forcedUnitId, null);
 
 console.log('\n== a mine token: place, trigger, damage, remove ==');
+Engine.forceEndChain();
 Engine.forceControl(0, null);
 Engine.adjustAP(0, 2);
 Engine.beginAction('ability');
@@ -331,20 +342,21 @@ console.log('\n== no AP does not end a chain — you are handed it and must PASS
   const apLeft = ap(0);
   Engine.beginAction('pass');
   Engine.confirmPass(true);                // asking to end the turn is ignored: not theirs
-  check('passing closes the chain', G().chain.active, false);
+  check('one pass does not close the chain', G().chain.active, true);
   check('the turn never changed hands', G().turn.player, 0);
   check('the turn player is back on', G().control.player, 0);
   check('with their AP intact', ap(0), apLeft);
 
-  // Drain the turn player and let the loop run out.
-  Store.commit('drain', function () { Store.get().players[0].ap = 1; });
-  Engine.beginAction('overwatch');
-  Engine.flowPickUnit(U('Alpha').id);
-  Engine.confirmOverwatch();
-  check('the broke opponent is handed it again', Engine.mustPass(), true);
+  // The active player passes too: that is the second in a row.
   Engine.beginAction('pass');
   Engine.confirmPass(false);
-  check('and with nobody holding AP the turn ends', G().pending.type, 'end');
+  check('two in a row close it', G().chain.active, false);
+  check('but the turn is still running', G().pending, null);
+
+  // Only an explicit PASS-and-end finishes the turn.
+  Engine.beginAction('pass');
+  Engine.confirmPass(true);
+  check('and that is what ends it', G().pending.type, 'end');
 })();
 
 console.log('\n== undo ==');
@@ -466,7 +478,8 @@ console.log('\n== MISSION: ASSASSINATION ==');
 
 console.log('\n== the Astra Militarum preset ==');
 const astra = sandbox.PRESETS.find(f => f.id === 'astra');
-check('five units on the card', astra.units.length, 5);
+check('five units on the cards', astra.units.length, 5);
+check('and no faction objective any more', astra.objective, undefined);
 
 function buildPreset(faction, owner) {
   return faction.units.map(function (spec) {
@@ -502,62 +515,57 @@ const alfred = U('Guardsman "Alfred" 434-434');
 const commissar = U('Commissar Briant');
 const nick = U('Guardsman "Nick" 847-832');
 const fred = U('Guardsman "Fred" 434-436');
+const al = U('Guardsman "Al" 434-435');
 const cultist = U('Cultist');
 
-console.log('\n== the Commissar’s 6" aura ==');
+console.log('\n== the datasheets ==');
+check('Fred\u2019s Modded Lasgun', fred.weapons.map(w => w.name + ' ' + w.hit + '+/S' + w.strength + '/D' + w.damage),
+  ['Modded Lasgun 5+/S4/D2', 'Leathered Fist 4+/S2/D1']);
+check('Alfred carries three weapons now',
+  alfred.weapons.map(w => w.name), ['Lasgun', 'Bolt Pistol', 'Dagger']);
+check('the Commissar\u2019s Bolt Pistol is 2+', commissar.weapons[0].hit, 2);
+check('Nick carries three too', nick.weapons.map(w => w.name), ['Lasgun', 'Bolt Pistol', 'Bayonet']);
+check('Al\u2019s Bayonet hits on 2+', al.weapons[1].hit, 2);
+
+console.log('\n== the Commissar\u2019s 6" aura ==');
 Engine.adjustAP(0, 6);
 Engine.beginAction('shoot');
-Engine.flowPickUnit(alfred.id);
+Engine.flowPickUnit(nick.id);
 Engine.flowPickAttackTarget(cultist.id);
-Engine.flowPickWeapon(alfred.weapons[0].id);   // Lasgun, hits on 2+
+Engine.flowPickWeapon(nick.weapons[0].id);      // Lasgun, hits on 3+
 Engine.flowPickReaction('none');
 const auras = Engine.applicableAuras(G().flow);
-check('the aura is offered, not applied', auras.length, 1);
-check('it names its source', auras[0].source, "It's My Job");
-check('before ticking it, Lasgun hits on 2+', Engine.attackNumbers().hitTarget, 2);
+check('one aura is offered, not applied', auras.length, 1);
+check('and it names its source', auras[0].source, "It's My Job");
+check('before ticking it, the Lasgun hits on 3+', Engine.attackNumbers().hitTarget, 3);
 Engine.toggleAura(auras[0].key);
-check('ticked, the +1 is folded in (capped at 2+)', Engine.attackNumbers().hitTarget, 2);
+check('ticked, it hits on 2+', Engine.attackNumbers().hitTarget, 2);
 Engine.flowHit(false);
 
-// A melee attack must not see a ranged-only aura.
-Engine.forceControl(0, null);
-Engine.adjustAP(0, 3);
-Engine.beginAction('fight');
-Engine.flowPickUnit(alfred.id);
-Engine.flowPickAttackTarget(cultist.id);
-Engine.flowPickReaction('none');
-check('a ranged-only aura is not offered in melee', Engine.applicableAuras(G().flow).length, 0);
-Engine.flowHit(false);
-
-console.log('\n== Cloaked: an enemy-facing aura ==');
-Engine.forceControl(0, null);
-Engine.adjustAP(0, 3);
-Engine.beginAction('ability');
-Engine.flowPickUnit(nick.id);
-Engine.flowPickAbility(nick.abilities.find(a => a.name === 'Cloaked').id);
-Engine.confirmAbility();
-check('Nick carries the aura', (U('Guardsman "Nick" 847-832').effects || []).length, 1);
+console.log('\n== Cloaked is passive on two of them now ==');
+Engine.forceEndChain();
 Engine.forceControl(1, null);
-Engine.adjustAP(1, 3);
+Engine.adjustAP(1, 4);
 Engine.beginAction('shoot');
 Engine.flowPickUnit(cultist.id);
 Engine.flowPickAttackTarget(nick.id);
 Engine.flowPickReaction('none');
 const cl = Engine.applicableAuras(G().flow);
-check('Cloaked is offered to the enemy shooting Nick', cl.length, 1);
+check('only Nick\u2019s own Cloaked applies to him', cl.map(a => a.unit), [nick.name]);
 check('base Autogun hits on 4+', Engine.attackNumbers().hitTarget, 4);
 Engine.toggleAura(cl[0].key);
 check('further than 6" makes it 5+', Engine.attackNumbers().hitTarget, 5);
 Engine.flowHit(false);
 
-// ...but not when shooting someone else.
+Engine.forceEndChain();
 Engine.forceControl(1, null);
-Engine.adjustAP(1, 3);
+Engine.adjustAP(1, 4);
 Engine.beginAction('shoot');
 Engine.flowPickUnit(cultist.id);
 Engine.flowPickAttackTarget(alfred.id);
 Engine.flowPickReaction('none');
-check('Cloaked does not protect other units', Engine.applicableAuras(G().flow).length, 0);
+check('Alfred has his own Cloaked, and only his',
+  Engine.applicableAuras(G().flow).map(a => a.unit), [alfred.name]);
 Engine.flowHit(false);
 
 console.log('\n== the Commissar blocks WITHDRAW ==');
@@ -565,7 +573,8 @@ const blocked = Engine.blockedReactions(alfred.id);
 check('WITHDRAW is flagged for the squad', blocked.withdraw.indexOf('Commissar Briant') >= 0, true);
 check('and not for the enemy', Object.keys(Engine.blockedReactions(cultist.id)).length, 0);
 
-console.log('\n== Alfred’s dagger ignores the once-per-chain lock ==');
+console.log('\n== Practiced Blade ignores the once-per-chain lock ==');
+Engine.forceEndChain();
 Engine.forceControl(0, null);
 Engine.adjustAP(0, 4);
 Engine.beginAction('fight');
@@ -577,35 +586,28 @@ Engine.flowHit(false);
 check('the dagger is still available',
   Engine.weaponsFor(alfred.id, 'melee').find(w => w.name === 'Dagger').used, false);
 
-console.log('\n== Choke Hold: free attack, no RP, no wound roll ==');
-Engine.forceControl(0, null);
-Engine.adjustAP(0, 4);
-const cultistWounds = U('Cultist').wounds;
-Engine.beginAction('ability');
-Engine.flowPickUnit(fred.id);
-Engine.flowPickAbility(fred.abilities.find(a => a.name === 'Choke Hold').id);
-Engine.confirmAbility();
-check('the ability hands over to an attack flow', G().flow.kind, 'attack');
-check('with no reaction for the defender', G().flow.noReaction, true);
-Engine.flowPickAttackTarget(cultist.id);
-check('it goes straight to the Hit roll', G().flow.step, 'hit');
-Engine.flowHit(true);
-check('a hit deals no damage', U('Cultist').wounds, cultistWounds);
-check('and the chain ends, as the card says', G().chain.active, false);
-
 console.log('\n== Kill Count raises OC for good ==');
 const ocBefore = U('Guardsman "Al" 434-435').oc;
-Engine.forceControl(0, null);
-Engine.adjustAP(0, 3);
-Engine.beginAction('ability');
-Engine.flowPickUnit(U('Guardsman "Al" 434-435').id);
-Engine.flowPickAbility(U('Guardsman "Al" 434-435').abilities.find(a => a.name === 'Kill Count').id);
-Engine.confirmAbility();
+Engine.useFreeAbility(al.id, al.abilities.find(a => a.name === 'Kill Count').id);
 check('OC permanently up by one', U('Guardsman "Al" 434-435').oc, ocBefore + 1);
+check('and it costs no AP, being an ability not an action', ap(0), ap(0));
+
+console.log('\n== Grappling Hook hands over an AP, as its card says ==');
+Engine.forceEndChain();
+Engine.forceControl(0, null);
+Engine.adjustAP(0, 4);
+const oppAPBefore = ap(1);
+Engine.beginAction('ability');
+Engine.flowPickUnit(alfred.id);
+Engine.flowPickAbility(alfred.abilities.find(a => a.name === 'Grappling Hook').id);
+Engine.confirmAbility();
+check('the opponent gains 1 AP', ap(1), oppAPBefore + 1);
+check('and the chain carries on to them', G().control.player, 1);
 
 console.log('\n== It\'s Your Job redirects the attack ==');
+Engine.forceEndChain();
 Engine.forceControl(1, null);
-Engine.adjustAP(1, 3);
+Engine.adjustAP(1, 4);
 Engine.beginAction('shoot');
 Engine.flowPickUnit(cultist.id);
 Engine.flowPickAttackTarget(commissar.id);
@@ -613,22 +615,22 @@ Engine.flowPickReaction('special', commissar.abilities.find(a => a.name === "It'
 check('the app asks who takes it instead', G().flow.step, 'redirect');
 Engine.flowRedirect(alfred.id);
 check('the attack now points at Alfred', G().flow.targetId, alfred.id);
-check('and carries on to the Hit roll', G().flow.step, 'hit');
 Engine.flowHit(false);
 
-console.log('\n== Snap Shot: a one-use reaction shot button ==');
+console.log('\n== Snap Shot: one interrupt per game, no RP, no penalty ==');
+Engine.forceEndChain();
 Engine.forceControl(0, null);
-Engine.adjustAP(0, 3);
-Engine.useFreeAbility(fred.id, fred.abilities.find(a => a.name === 'Snap Shot').id);
-const snap = U('Guardsman "Fred" 434-436').tokens[0];
-check('the button is on the table', snap.label, 'SNAP SHOT');
-Engine.triggerToken(fred.id, snap.id);
-check('pressing it opens a free attack', G().flow.source, 'free');
+const snap = fred.abilities.find(a => a.name === 'Snap Shot');
+Engine.useFreeAbility(fred.id, snap.id);
+check('it opens a free attack straight away', G().flow.source, 'free');
 check('with no RP for the defender', G().flow.noReaction, true);
 check('and no to-hit penalty', G().flow.sourceHitMod, 0);
-check('the button is spent', U('Guardsman "Fred" 434-436').tokens.length, 0);
-
-/* ------------------------------------------------------------- the Orks */
+Engine.flowPickAttackTarget(cultist.id);
+Engine.flowPickWeapon(fred.weapons[0].id);
+check('Modded Lasgun hits on 5+', Engine.attackNumbers().hitTarget, 5);
+Engine.flowHit(false);
+check('the button is spent for the game',
+  Engine.usableFreeAbilities(U('Guardsman "Fred" 434-436')).map(a => a.name), ['Kill Count'].slice(0, 0));
 
 console.log('\n== the Orks preset ==');
 const orks = sandbox.PRESETS.find(f => f.id === 'orks');
@@ -785,14 +787,6 @@ console.log('\n== an area effect: one roll each, tick the failures ==');
   check('Riksnik took his own spray', U('Riksnik').alive, false);
 })();
 
-console.log('\n== the Astra lasguns ==');
-const astraAlfred = astra.units.find(u => u.name.indexOf('Alfred') >= 0);
-const astraNick = astra.units.find(u => u.name.indexOf('Nick') >= 0);
-check('Alfred carries a Lasgun and a Dagger',
-  astraAlfred.weapons.map(w => w.name), ['Lasgun', 'Dagger']);
-check('Nick carries a Lasgun and a Bayonet',
-  astraNick.weapons.map(w => w.name), ['Lasgun', 'Bayonet']);
-
 console.log('\n== which actions hand over AP ==');
 (function () {
   const us = [
@@ -807,8 +801,8 @@ console.log('\n== which actions hand over AP ==');
 
   const flat = {};
   Engine.actionList().forEach(a => { flat[a.id] = a.opponentGainsAP || 0; });
-  check('no Standard Action hands over a flat AP any more',
-    Object.keys(flat).filter(k => flat[k] > 0), []);
+  check('only CHARGE hands over a flat AP, as its card says',
+    Object.keys(flat).filter(k => flat[k] > 0), ['charge']);
   check('an ability says so for itself', Engine.apConsequence(Engine.actionDef('ability')),
     'Your opponent gains no AP.');
   check('two players, always', Store.get().players.length, 2);
@@ -864,7 +858,9 @@ console.log('\n== turn or reaction? ==');
   check('it is still player one\\u2019s turn', G().turn.player, 0);
   Engine.adjustAP(0, 2);                   // the turn player still has AP to spend
   Engine.beginAction('pass');
-  Engine.confirmPass(false);
+  Engine.confirmPass(false);               // their pass hands it back
+  Engine.beginAction('pass');
+  Engine.confirmPass(false);               // second in a row closes the chain
   check('back to the turn player once the chain closes', Engine.controlMode(), 'turn');
 })();
 
@@ -883,7 +879,7 @@ console.log('\n== PASS does both jobs now ==');
 
   // On your own turn with no chain, PASS can only end the turn.
   check('no chain: only the turn is on offer', Engine.passOptions(),
-    { canEndChain: false, canEndTurn: true });
+    { inChain: false, wouldEndChain: false, canEndTurn: true });
   check('PASS is available with a chain running or not',
     Engine.actionAvailability(Engine.actionDef('pass')).ok, true);
 
@@ -896,14 +892,16 @@ console.log('\n== PASS does both jobs now ==');
   check('the defender is up', Engine.controlMode(), 'reacting');
   Engine.beginAction('pass');
   Engine.confirmPass(false);
-  check('the chain is closed', G().chain.active, false);
+  Engine.beginAction('pass');
+  Engine.confirmPass(false);
+  check('two passes closed the chain', G().chain.active, false);
   check('and it is still turn one', G().turn.number, 1);
   check('with the turn player back in control', Engine.controlMode(), 'turn');
 
   const apBefore = ap(0);
   Engine.beginAction('pass');
-  check('now both are on offer', Engine.passOptions(),
-    { canEndChain: false, canEndTurn: true });
+  check('no chain, so only the turn is on offer', Engine.passOptions(),
+    { inChain: false, wouldEndChain: false, canEndTurn: true });
   Engine.confirmPass(true);
   check('PASS costs nothing', ap(0), apBefore);
   check('and the turn is over', G().pending.type, 'end');

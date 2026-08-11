@@ -418,11 +418,12 @@ const UI = (function () {
      number. For SECURE THE AREA it has watched every SECURE and counts for you. */
   function missionCheck(g) {
     const m = Engine.missionCard();
-    if (!m) return '';
     const items = Engine.missionEndTurnItems();
     return '<div style="font-size:10px;letter-spacing:.14em;color:var(--gold);font-weight:800;margin:12px 0 6px">' +
-        'MISSION — ' + m.name + '</div>' +
-      '<div class="noteline">' + esc(m.objective) + '</div>' +
+        (m ? 'MISSION — ' + m.name : 'SCORING') + '</div>' +
+      '<div class="noteline">' + esc(m ? m.objective
+        : 'Standard game mode: at the end of each turn, 1 VP for each objective where you have ' +
+          'the most OC.') + '</div>' +
       controlPointStrip(g) +
       relicStrip(g) +
       (items.length
@@ -555,26 +556,34 @@ const UI = (function () {
   function passFlow(g, f) {
     const o = Engine.passOptions();
     const me = esc(g.players[g.control.player].name);
-    return head('PASS', o.canEndChain ? 'END THE CHAIN' : 'END YOUR TURN') +
+    return head('PASS', o.wouldEndChain ? 'THE SECOND PASS — THE CHAIN ENDS'
+                                        : (o.inChain ? 'DECLINE TO ACT' : 'YOUR TURN')) +
       '<div class="mbody">' +
         (Engine.mustPass()
-          ? '<div class="noteline warn">You must choose an action, and with no AP left PASS is ' +
-            'the only one you can afford. Persistent buttons still work — fire an overwatch ' +
-            'token or a free ability first if you have one.</div>' : '') +
-        (o.canEndChain
-          ? '<div class="noteline">The action chain ends here.' +
-            (o.canEndTurn ? ' It is your turn, so you may end that too — or keep your AP and ' +
-              'start a new chain.' : ' Play goes back to ' +
-              esc(g.players[g.turn.player].name) + '.') + '</div>'
-          : '<div class="noteline">No chain is running, so this ends your turn.</div>') +
+          ? '<div class="noteline warn">With no AP left, PASS is the only action you can afford. ' +
+            'Persistent buttons still work — fire an overwatch token or a card button first if ' +
+            'you have one.</div>' : '') +
+        (o.inChain
+          ? (o.wouldEndChain
+              ? '<div class="noteline">' + esc(g.players[Store.opponentOf(g.control.player)].name) +
+                ' passed too, so this ends the action chain and play returns to ' +
+                esc(g.players[g.turn.player].name) + '.</div>'
+              : '<div class="noteline">Passing on its own does nothing but decline to act — the ' +
+                'chain carries on to ' + esc(g.players[Store.opponentOf(g.control.player)].name) +
+                '. If they pass too, the chain ends.</div>')
+          : '<div class="noteline">No action chain is running. Passing changes nothing unless you ' +
+            'also end your turn.</div>') +
+        (o.canEndTurn
+          ? '<div class="noteline warn">It is your turn, so you may end it here. Nothing else ' +
+            'will.</div>' : '') +
         '<div class="noteline">' + me + ' currently has ' + g.players[g.control.player].ap +
           ' AP. Anything unspent carries over.</div>' +
       '</div>' +
       '<div class="mfoot">' +
         '<button class="btn ghost sm" data-act="flowback">BACK</button>' +
-        (o.canEndChain
+        (o.inChain || !o.canEndTurn
           ? '<button class="btn' + (o.canEndTurn ? '' : ' primary') + '" data-act="confirmpass:0">' +
-            'END THE CHAIN</button>' : '') +
+            (o.wouldEndChain ? 'PASS — END THE CHAIN' : 'JUST PASS') + '</button>' : '') +
         (o.canEndTurn
           ? '<button class="btn primary" data-act="confirmpass:1">END MY TURN</button>' : '') +
       '</div>';
@@ -641,14 +650,15 @@ const UI = (function () {
       '<div class="mbody">' +
         '<div class="rollbox"><div class="lbl">TOKEN</div><div class="big" style="font-size:20px">' +
           esc(u.name) + '</div>' +
-          '<div class="sub">Place a token within 12" of this unit, and visible to it.</div></div>' +
+          '<div class="sub">Place an overwatch token within 12" of this unit.</div></div>' +
         '<div class="noteline">A <b>⌖ FIRE OVERWATCH</b> button appears on ' + esc(u.name) +
-          '\u2019s card. Later, if an enemy moves within 3" of the token, press it yourself — ' +
-          'the app never decides that.</div>' +
-        '<div class="noteline">The shot is at <b>-1 to hit</b> with ' +
-          esc(ranged.length ? ranged[0].name : 'no ranged weapon!') + ', and the defender gains no RP.</div>' +
-        '<div class="noteline warn">Removed if this unit moves or attacks. It survives action ' +
-          'chains and turns until then.</div>' +
+          '\u2019s card. When an enemy moves within 3" of the token and is a legal target, press ' +
+          'it to interrupt — the app never decides that.</div>' +
+        '<div class="noteline">You interrupt and resolve a full shoot sequence, skipping steps 2 ' +
+          'and 3 — so <b>the defender gains no RP</b> and there is no to-hit penalty. Any of ' +
+          esc(u.name) + '\u2019s ranged weapons may be used' +
+          (ranged.length ? '' : ' — but this unit has none!') + '.</div>' +
+        '<div class="noteline warn">Removed the moment this unit moves or attacks.</div>' +
       '</div>' +
       footBack('confirmoverwatch', 'PLACE TOKEN — 1 AP');
   }
@@ -936,18 +946,6 @@ const UI = (function () {
             '<div class="cdesc">' + esc(target.name) + ' takes it after all.</div></div></button>' +
         '</div>' +
         '<div class="mfoot"><button class="btn ghost sm" data-act="flowback">BACK</button></div>';
-    }
-
-    if (f.step === 'eligible') {
-      return head('DIVE', 'DID THE ATTACK STILL HAPPEN?') + crumb +
-        '<div class="mbody">' +
-          '<div class="noteline">' + esc(target.name) + ' moved 2". You decide on the table whether ' +
-            'it is still an eligible target.</div>' +
-        '</div>' +
-        '<div class="mfoot">' +
-          '<button class="btn" data-act="eligible:1">STILL ELIGIBLE</button>' +
-          '<button class="btn good" data-act="eligible:0">OUT OF SIGHT — ATTACK CANCELLED</button>' +
-        '</div>';
     }
 
     const n = Engine.attackNumbers();
