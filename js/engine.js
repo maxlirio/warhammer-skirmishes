@@ -1816,6 +1816,17 @@ const Engine = (function () {
 
     const mover = Store.unit(f.moverId);
     if (!mover || !mover.alive) {
+      /* You chose which triggers were firing and took the risk: the ones still
+         queued are spent whether or not there was anything left to shoot at. */
+      f.queue.forEach(function (q) {
+        const owner = Store.unit(q.unitId);
+        const tok = owner && (owner.tokens || []).find(x => x.id === q.tokenId);
+        if (!tok) return;
+        owner.tokens = owner.tokens.filter(x => x.id !== q.tokenId);
+        chainEntry(owner.name + '\u2019s [' + tok.label + '] is wasted — ' + uname(f.moverId) +
+          ' was already down.', 'muted');
+      });
+      f.queue = [];
       chainEntry(uname(f.moverId) + ' was destroyed mid-move — nothing comes of the action ' +
         'that was interrupted.', 'note');
       finishOverwatchCheck(true);

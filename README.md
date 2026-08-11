@@ -110,6 +110,10 @@ attack resumes at its Hit roll, or the MOVE completes. **If the moving unit is
 destroyed on the way, it does not** — per the rule below, the interrupted action
 produces nothing at all.
 
+Committing more than one is a gamble. If the first kills the target, the ones
+still queued are **spent anyway** — you chose them, and they fired into a corpse.
+A token you did not commit stays on the table.
+
 ## Interrupted actions
 
 If something stops an action being performed at all — a DIVE that goes out of

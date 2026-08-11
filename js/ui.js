@@ -535,9 +535,11 @@ const UI = (function () {
         }).join('') +
         (f.queue.length
           ? '<div class="noteline warn">They resolve in that order. If ' +
-            esc(mover ? mover.name : 'the moving unit') + ' is destroyed, whatever it was doing ' +
-            'produces nothing.</div>'
-          : '') +
+            esc(mover ? mover.name : 'the moving unit') + ' is destroyed partway through, the ' +
+            'rest are <b>still spent</b> and whatever it was doing produces nothing — that is ' +
+            'the risk of committing more than one.</div>'
+          : '<div class="noteline">Choose which are firing and risk wasting one, or choose none ' +
+            'at all — an unfired token stays on the table.</div>') +
       '</div>' +
       '<div class="mfoot">' +
         '<button class="btn primary" data-act="owgo">' +

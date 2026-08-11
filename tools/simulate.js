@@ -1107,6 +1107,76 @@ console.log('\n== two overwatches fire in the order chosen ==');
   check('all unwound', G().flow, null);
 })();
 
+console.log('\n== committing two and the first one kills: the second is wasted ==');
+(function () {
+  const us = [
+    mkUnit(0, 'Shooter', 3, 4, [{ name: 'Rifle', type: 'ranged', hit: 3, strength: 4, damage: 1 }], []),
+    mkUnit(0, 'Cannon', 3, 4, [{ name: 'Cannon', type: 'ranged', hit: 3, strength: 9, damage: 9 }], []),
+    mkUnit(0, 'Spare', 3, 4, [{ name: 'Rifle', type: 'ranged', hit: 3, strength: 4, damage: 1 }], []),
+    mkUnit(1, 'Diver', 3, 4, [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], [])
+  ];
+  Engine.startGame({ playerNames: ['One', 'Two'], firstPlayer: 0, vpTarget: 10,
+                     mission: { id: null } }, us);
+  Engine.confirmStartPhase();
+  Engine.adjustAP(0, 9);
+  Engine.adjustAP(1, 3);
+  ['Cannon', 'Spare'].forEach(function (n) {
+    Engine.forceControl(0, null);
+    Engine.beginAction('overwatch');
+    Engine.flowPickUnit(U(n).id);
+    Engine.confirmOverwatch();
+  });
+  Engine.forceControl(0, null);
+  Engine.beginAction('shoot');
+  Engine.flowPickUnit(U('Shooter').id);
+  Engine.flowPickAttackTarget(U('Diver').id);
+  Engine.flowPickReaction('dive');
+  // Commit both, Cannon first.
+  Engine.flowToggleOverwatch(U('Cannon').id, U('Cannon').tokens[0].id);
+  Engine.flowToggleOverwatch(U('Spare').id, U('Spare').tokens[0].id);
+  check('both committed', G().flow.queue.length, 2);
+  Engine.flowFireOverwatch();
+  Engine.flowHit(true); Engine.flowWound(true); Engine.flowDamage(9);
+  check('the diver is dead', U('Diver').alive, false);
+  check('the Cannon spent its token', U('Cannon').tokens.length, 0);
+  check('and Spare\u2019s is wasted too, never fired', U('Spare').tokens.length, 0);
+  check('nothing is left running', G().flow, null);
+  Engine.resolveVP(G().vpPrompts[0].id, 1);
+})();
+
+console.log('\n== committing only one leaves the other on the table ==');
+(function () {
+  const us = [
+    mkUnit(0, 'Shooter', 3, 4, [{ name: 'Rifle', type: 'ranged', hit: 3, strength: 4, damage: 1 }], []),
+    mkUnit(0, 'Cannon', 3, 4, [{ name: 'Cannon', type: 'ranged', hit: 3, strength: 9, damage: 9 }], []),
+    mkUnit(0, 'Spare', 3, 4, [{ name: 'Rifle', type: 'ranged', hit: 3, strength: 4, damage: 1 }], []),
+    mkUnit(1, 'Diver', 3, 4, [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], [])
+  ];
+  Engine.startGame({ playerNames: ['One', 'Two'], firstPlayer: 0, vpTarget: 10,
+                     mission: { id: null } }, us);
+  Engine.confirmStartPhase();
+  Engine.adjustAP(0, 9);
+  Engine.adjustAP(1, 3);
+  ['Cannon', 'Spare'].forEach(function (n) {
+    Engine.forceControl(0, null);
+    Engine.beginAction('overwatch');
+    Engine.flowPickUnit(U(n).id);
+    Engine.confirmOverwatch();
+  });
+  Engine.forceControl(0, null);
+  Engine.beginAction('shoot');
+  Engine.flowPickUnit(U('Shooter').id);
+  Engine.flowPickAttackTarget(U('Diver').id);
+  Engine.flowPickReaction('dive');
+  Engine.flowToggleOverwatch(U('Cannon').id, U('Cannon').tokens[0].id);
+  Engine.flowFireOverwatch();
+  Engine.flowHit(true); Engine.flowWound(true); Engine.flowDamage(9);
+  check('the diver is dead', U('Diver').alive, false);
+  check('the Cannon spent its token', U('Cannon').tokens.length, 0);
+  check('Spare kept hers, never committed', U('Spare').tokens.length, 1);
+  Engine.resolveVP(G().vpPrompts[0].id, 1);
+})();
+
 console.log('\n== a trigger that kills the mover stops what it was doing ==');
 (function () {
   const us = [
