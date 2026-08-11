@@ -1041,7 +1041,12 @@ const Engine = (function () {
       if (action.opponentGainsAP) {
         grantAP(responder, action.opponentGainsAP, action.name);
       }
+      const movedUnit = f.unitId;
       g.flow = null;
+      if (action.movesUnit && openOverwatchCheck(movedUnit, {
+            type: 'simple', actor: actor, endsChain: action.endsChain, reason: action.name })) {
+        return;
+      }
       afterAction({ actor: actor, endsChain: action.endsChain, forcedUnitId: null,
                     reason: action.name });
     });
@@ -1373,6 +1378,13 @@ const Engine = (function () {
       chainEntry(defender.name + ' gains 1 RP.', 'rp');
       f.step = 'reaction';
     }
+
+    /* A charge moves the attacker first, which may walk into a waiting trigger. */
+    const action2 = actionDef(f.actionId);
+    if (action2 && action2.movesUnit) {
+      const parked = JSON.parse(JSON.stringify(f));
+      if (openOverwatchCheck(f.attackerId, { type: 'attack', flow: parked })) return;
+    }
   }
 
   /* Fold standing unit effects into the attack's running modifiers. */
@@ -1471,6 +1483,13 @@ const Engine = (function () {
 
       primeAttackMods();
       f.step = 'hit';
+
+      /* A reaction that moves the defender can walk them into a waiting
+         trigger — DODGE 1", DIVE 3", WITHDRAW 3". */
+      if (r.moves) {
+        const parkedR = JSON.parse(JSON.stringify(f));
+        if (openOverwatchCheck(f.targetId, { type: 'attack', flow: parkedR })) return;
+      }
     });
   }
 
@@ -1624,6 +1643,13 @@ const Engine = (function () {
     /* Something interrupted an attack — a counter-attack, an overwatch fired
        into a DIVE. If either party is down, the parked action cannot be
        performed and nothing comes of it. */
+    if (f.resumeFlow && f.resumeFlow.kind === 'owcheck') {
+      g.flow = f.resumeFlow;
+      runOverwatchQueue();
+      checkVictory();
+      return;
+    }
+
     if (f.resumeFlow) {
       const parked = f.resumeFlow;
       const atk = Store.unit(parked.attackerId);
@@ -1740,13 +1766,15 @@ const Engine = (function () {
 
   /* ------------------------------------------------------ token triggers */
 
-  /* Buttons that can interrupt whatever is happening right now. An interrupt
-     may itself be interrupted — each one parks the flow beneath it. */
-  function interruptOptions() {
+  /* Overwatch triggers on MOVEMENT, so it is offered when something moves —
+     never as a free-floating interrupt. Several may be waiting; the moving
+     player's opponent fires them in whatever order they choose. */
+  function overwatchCandidates(moverId) {
     const g = S();
-    if (!g) return [];
+    const mover = Store.unit(moverId);
+    if (!g || !mover) return [];
     const out = [];
-    g.units.filter(u => u.alive).forEach(function (u) {
+    g.units.filter(u => u.alive && u.owner !== mover.owner).forEach(function (u) {
       (u.tokens || []).forEach(function (t) {
         if (t.kind === 'overwatch' || t.attackOpts) {
           out.push({ unitId: u.id, tokenId: t.id, label: t.label,
@@ -1757,11 +1785,100 @@ const Engine = (function () {
     return out;
   }
 
-  /* Park the attack being resolved so the interrupt can run on top of it. */
-  function parkCurrentFlow() {
+  /* Something moved. Park what comes next and ask which triggers fire. */
+  function openOverwatchCheck(moverId, after) {
     const g = S();
-    if (!g.flow || g.flow.kind !== 'attack') return null;
-    return JSON.parse(JSON.stringify(g.flow));
+    if (!overwatchCandidates(moverId).length) return false;
+    g.flow = { kind: 'owcheck', moverId: moverId, queue: [], after: after };
+    chainEntry(uname(moverId) + ' moved — checking for waiting triggers.', 'note');
+    return true;
+  }
+
+  function flowToggleOverwatch(unitId, tokenId) {
+    Store.commit('queue overwatch', function () {
+      const f = S().flow;
+      if (!f || f.kind !== 'owcheck') return;
+      const i = f.queue.findIndex(q => q.tokenId === tokenId);
+      if (i >= 0) f.queue.splice(i, 1);
+      else f.queue.push({ unitId: unitId, tokenId: tokenId });
+    });
+  }
+
+  /* Fire the next queued trigger, or carry on if the queue is empty. */
+  function flowFireOverwatch() {
+    Store.commit('overwatch', function () { runOverwatchQueue(); });
+  }
+
+  function runOverwatchQueue() {
+    const g = S();
+    const f = g.flow;
+    if (!f || f.kind !== 'owcheck') return;
+
+    const mover = Store.unit(f.moverId);
+    if (!mover || !mover.alive) {
+      chainEntry(uname(f.moverId) + ' was destroyed mid-move — nothing comes of the action ' +
+        'that was interrupted.', 'note');
+      finishOverwatchCheck(true);
+      return;
+    }
+    if (!f.queue.length) { finishOverwatchCheck(false); return; }
+
+    const next = f.queue.shift();
+    const parked = JSON.parse(JSON.stringify(f));
+    const u = Store.unit(next.unitId);
+    const t = u && (u.tokens || []).find(x => x.id === next.tokenId);
+    if (!t) { runOverwatchQueue(); return; }
+
+    chainEntry(u.name + ' fires [' + t.label + '] at ' + mover.name + '.', 'token');
+    if (t.kind === 'overwatch') {
+      const ranged = (u.weapons || []).filter(w => w.type === 'ranged');
+      g.flow = {
+        kind: 'attack', actionId: 'shoot', attackerId: next.unitId, targetId: f.moverId,
+        weaponId: ranged.length === 1 ? ranged[0].id : null,
+        source: 'overwatch', noReaction: true, free: true, paid: true,
+        hitMod: 0, woundMod: 0, sourceHitMod: -1, elevation: false,
+        notes: ['OVERWATCH interrupt: -1 to hit, and the shoot sequence skips steps 2 and 3, so ' +
+                'the defender gains no RP.'],
+        reaction: null, cancelled: false, apGrant: false, auras: {},
+        freeChoice: false, chainLivesOnDeath: false, endsChainOverride: null,
+        step: ranged.length === 1 ? 'hit' : 'weapon'
+      };
+    } else {
+      openFreeAttack(next.unitId, Object.assign({ label: t.label }, t.attackOpts));
+      if (S().flow) { S().flow.targetId = f.moverId; S().flow.step = S().flow.weaponId ? 'hit' : 'weapon'; }
+    }
+    if (S().flow) S().flow.resumeFlow = parked;
+    u.tokens = (u.tokens || []).filter(x => x.id !== next.tokenId);
+  }
+
+  /* Every trigger has fired. Either the moving unit is down and the action it
+     was part of produces nothing, or that action carries on. */
+  function finishOverwatchCheck(moverDown) {
+    const g = S();
+    const f = g.flow;
+    if (!f || f.kind !== 'owcheck') return;
+    const after = f.after;
+    g.flow = null;
+
+    if (moverDown) {
+      if (after.type === 'attack') {
+        closeChain('a unit was destroyed mid-action');
+        handOffToTurnPlayer();
+      } else {
+        afterAction({ actor: after.actor, endsChain: false, forcedUnitId: null });
+      }
+      checkVictory();
+      return;
+    }
+
+    if (after.type === 'attack') {
+      g.flow = after.flow;
+      checkVictory();
+      return;
+    }
+    afterAction({ actor: after.actor, endsChain: after.endsChain,
+                  forcedUnitId: null, reason: after.reason });
+    checkVictory();
   }
 
   function triggerToken(unitId, tokenId) {
@@ -1773,10 +1890,8 @@ const Engine = (function () {
     if (t.kind === 'overwatch') {
       Store.commit('overwatch shot', function () {
         const g2 = S();
-        const parked = parkCurrentFlow();
         const ranged = (u.weapons || []).filter(w => w.type === 'ranged');
-        chainEntry(u.name + ' triggers OVERWATCH' +
-          (parked ? ', interrupting ' + uname(parked.attackerId) + '\u2019s attack' : '') + '.', 'token');
+        chainEntry(u.name + ' triggers OVERWATCH.', 'token');
         g2.flow = {
           kind: 'attack', actionId: 'shoot', attackerId: unitId, targetId: null,
           weaponId: ranged.length === 1 ? ranged[0].id : null,
@@ -1787,7 +1902,6 @@ const Engine = (function () {
           freeChoice: false, chainLivesOnDeath: false, endsChainOverride: null,
           step: 'target'
         };
-        if (parked) g2.flow.resumeFlow = parked;
         // Overwatch fires, so the token comes off the table.
         u.tokens = (u.tokens || []).filter(x => x.id !== tokenId);
       });
@@ -1798,11 +1912,8 @@ const Engine = (function () {
     if (t.attackOpts) {
       Store.commit('trigger ' + t.label, function () {
         const u2 = Store.unit(unitId);
-        const parked = parkCurrentFlow();
-        chainEntry(u2.name + ' triggers [' + t.label + ']' +
-          (parked ? ', interrupting ' + uname(parked.attackerId) + '\u2019s attack' : '') + '.', 'token');
+        chainEntry(u2.name + ' triggers [' + t.label + '].', 'token');
         openFreeAttack(unitId, Object.assign({ label: t.label }, t.attackOpts));
-        if (parked && S().flow) S().flow.resumeFlow = parked;
         if (t.expiry === 'used') u2.tokens = (u2.tokens || []).filter(x => x.id !== tokenId);
       });
       return;
@@ -2034,7 +2145,7 @@ const Engine = (function () {
     applicableAuras, toggleAura, blockedReactions, flowRedirect, openFreeAttack,
     effectsNeedingTarget,
     triggerToken, confirmToken, tokenPickTarget, tokenEffects, removeToken,
-    interruptOptions,
+    overwatchCandidates, flowToggleOverwatch, flowFireOverwatch,
     adjustAP, adjustVP, adjustWounds, removeUnit, removeEffect,
     addManualEffect, addManualToken, forceControl, forceEndChain, forceEndTurn,
     setPendingVP, scoreVP, promptVP, resolveVP, log,

@@ -1027,11 +1027,11 @@ console.log('\n== each card carries its own win condition ==');
   check('and 10 VP wins it', G().winner, 0);
 })();
 
-console.log('\n== diving into an overwatch interrupts the attack ==');
+console.log('\n== a DIVE into overwatch: the move is what triggers it ==');
 (function () {
   const us = [
     mkUnit(0, 'Shooter', 3, 4, [{ name: 'Rifle', type: 'ranged', hit: 3, strength: 4, damage: 1 }], []),
-    mkUnit(0, 'Watcher', 3, 4, [{ name: 'Rifle', type: 'ranged', hit: 3, strength: 4, damage: 9 }], []),
+    mkUnit(0, 'Watcher', 3, 4, [{ name: 'Rifle', type: 'ranged', hit: 3, strength: 4, damage: 1 }], []),
     mkUnit(1, 'Diver', 3, 4, [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], [])
   ];
   Engine.startGame({ playerNames: ['One', 'Two'], firstPlayer: 0, vpTarget: 10,
@@ -1040,7 +1040,6 @@ console.log('\n== diving into an overwatch interrupts the attack ==');
   Engine.adjustAP(0, 6);
   Engine.adjustAP(1, 3);
 
-  // Watcher goes on overwatch, then Shooter opens fire.
   Engine.beginAction('overwatch');
   Engine.flowPickUnit(U('Watcher').id);
   Engine.confirmOverwatch();
@@ -1048,76 +1047,67 @@ console.log('\n== diving into an overwatch interrupts the attack ==');
   Engine.beginAction('shoot');
   Engine.flowPickUnit(U('Shooter').id);
   Engine.flowPickAttackTarget(U('Diver').id);
+  check('no overwatch check before anyone moves', G().flow.kind, 'attack');
   Engine.flowPickReaction('dive');
-  check('the shot is waiting on its Hit roll', G().flow.step, 'hit');
+  check('the DIVE opens the movement check', G().flow.kind, 'owcheck');
+  check('the mover is the one who dived', G().flow.moverId, U('Diver').id);
+  check('and the watcher is offered',
+    Engine.overwatchCandidates(U('Diver').id).map(o => o.unitName), ['Watcher']);
 
-  // The 3" dive carries them past the overwatch token.
-  const opts = Engine.interruptOptions();
-  check('the overwatch is offered as an interrupt', opts.length, 1);
-  Engine.triggerToken(opts[0].unitId, opts[0].tokenId);
-  check('the overwatch takes over', G().flow.attackerId, U('Watcher').id);
-  check('and the original attack is parked underneath', !!G().flow.resumeFlow, true);
-  check('parked with its own attacker', G().flow.resumeFlow.attackerId, U('Shooter').id);
-  Engine.flowPickAttackTarget(U('Diver').id);
-  Engine.flowHit(false);                       // the overwatch misses
-  check('so the original attack resumes', G().flow.attackerId, U('Shooter').id);
+  Engine.flowToggleOverwatch(U('Watcher').id, U('Watcher').tokens[0].id);
+  check('queued', G().flow.queue.length, 1);
+  Engine.flowFireOverwatch();
+  check('the overwatch shot takes over', G().flow.attackerId, U('Watcher').id);
+  check('aimed at the mover', G().flow.targetId, U('Diver').id);
+  check('at -1 to hit', G().flow.sourceHitMod, -1);
+  Engine.flowHit(false);
+  check('the original shot resumes', G().flow.attackerId, U('Shooter').id);
   check('at its Hit roll', G().flow.step, 'hit');
   Engine.flowHit(false);
-  check('and finishes normally', G().flow, null);
+  check('and finishes', G().flow, null);
 })();
 
-console.log('\n== an interrupt can itself be interrupted ==');
+console.log('\n== two overwatches fire in the order chosen ==');
 (function () {
   const us = [
     mkUnit(0, 'Shooter', 3, 4, [{ name: 'Rifle', type: 'ranged', hit: 3, strength: 4, damage: 1 }], []),
     mkUnit(0, 'Watcher A', 3, 4, [{ name: 'Rifle', type: 'ranged', hit: 3, strength: 4, damage: 1 }], []),
-    mkUnit(1, 'Watcher B', 3, 4, [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], []),
+    mkUnit(0, 'Watcher B', 3, 4, [{ name: 'Rifle', type: 'ranged', hit: 3, strength: 4, damage: 1 }], []),
     mkUnit(1, 'Diver', 3, 4, [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], [])
   ];
   Engine.startGame({ playerNames: ['One', 'Two'], firstPlayer: 0, vpTarget: 10,
                      mission: { id: null } }, us);
   Engine.confirmStartPhase();
-  Engine.adjustAP(0, 8);
-  Engine.adjustAP(1, 8);
-
-  Engine.beginAction('overwatch');
-  Engine.flowPickUnit(U('Watcher A').id);
-  Engine.confirmOverwatch();
-  Engine.forceControl(1, null);
-  Engine.beginAction('overwatch');
-  Engine.flowPickUnit(U('Watcher B').id);
-  Engine.confirmOverwatch();
-
+  Engine.adjustAP(0, 9);
+  Engine.adjustAP(1, 3);
+  ['Watcher A', 'Watcher B'].forEach(function (n) {
+    Engine.forceControl(0, null);
+    Engine.beginAction('overwatch');
+    Engine.flowPickUnit(U(n).id);
+    Engine.confirmOverwatch();
+  });
   Engine.forceControl(0, null);
   Engine.beginAction('shoot');
   Engine.flowPickUnit(U('Shooter').id);
   Engine.flowPickAttackTarget(U('Diver').id);
   Engine.flowPickReaction('dive');
-
-  // First interrupt: Watcher A fires into the dive.
-  const a = Engine.interruptOptions().find(o => o.unitName === 'Watcher A');
-  Engine.triggerToken(a.unitId, a.tokenId);
-  Engine.flowPickAttackTarget(U('Diver').id);
-  check('one attack is parked', !!G().flow.resumeFlow, true);
-
-  // Second interrupt, on top of the first: Watcher B answers.
-  const bTok = Engine.interruptOptions().find(o => o.unitName === 'Watcher B');
-  check('the other overwatch is still offered', !!bTok, true);
-  Engine.triggerToken(bTok.unitId, bTok.tokenId);
-  Engine.flowPickAttackTarget(U('Watcher A').id);
-  check('now two are parked', G().flow.resumeFlow.attackerId, U('Watcher A').id);
-  check('and the bottom one is the original shot',
-    G().flow.resumeFlow.resumeFlow.attackerId, U('Shooter').id);
-
-  Engine.flowHit(false);                       // B misses
-  check('A\u2019s overwatch resumes', G().flow.attackerId, U('Watcher A').id);
-  Engine.flowHit(false);                       // A misses
-  check('then the original shot resumes', G().flow.attackerId, U('Shooter').id);
+  check('both are offered', Engine.overwatchCandidates(U('Diver').id).length, 2);
+  // Deliberately pick B first.
+  Engine.flowToggleOverwatch(U('Watcher B').id, U('Watcher B').tokens[0].id);
+  Engine.flowToggleOverwatch(U('Watcher A').id, U('Watcher A').tokens[0].id);
+  check('queued in the order tapped',
+    G().flow.queue.map(q => Store.unit(q.unitId).name), ['Watcher B', 'Watcher A']);
+  Engine.flowFireOverwatch();
+  check('B fires first', G().flow.attackerId, U('Watcher B').id);
   Engine.flowHit(false);
-  check('and everything is unwound', G().flow, null);
+  check('then A', G().flow.attackerId, U('Watcher A').id);
+  Engine.flowHit(false);
+  check('then the original shot', G().flow.attackerId, U('Shooter').id);
+  Engine.flowHit(false);
+  check('all unwound', G().flow, null);
 })();
 
-console.log('\n== an interrupt that kills stops the parked attack dead ==');
+console.log('\n== a trigger that kills the mover stops what it was doing ==');
 (function () {
   const us = [
     mkUnit(0, 'Shooter', 3, 4, [{ name: 'Rifle', type: 'ranged', hit: 3, strength: 4, damage: 1 }], []),
@@ -1138,15 +1128,44 @@ console.log('\n== an interrupt that kills stops the parked attack dead ==');
   Engine.flowPickAttackTarget(U('Diver').id);
   Engine.flowPickReaction('dive');
   const apBefore = ap(1);
-  const o = Engine.interruptOptions()[0];
-  Engine.triggerToken(o.unitId, o.tokenId);
-  Engine.flowPickAttackTarget(U('Diver').id);
+  Engine.flowToggleOverwatch(U('Watcher').id, U('Watcher').tokens[0].id);
+  Engine.flowFireOverwatch();
   Engine.flowHit(true); Engine.flowWound(true); Engine.flowDamage(9);
   check('the diver is dead', U('Diver').alive, false);
-  check('the parked attack is gone', G().flow, null);
-  check('it produced nothing, not even the survivor AP', ap(1), apBefore);
-  check('and the chain ends on the kill', G().chain.active, false);
+  check('the parked shot is gone', G().flow, null);
+  check('and produced nothing, not even the survivor AP', ap(1), apBefore);
   Engine.resolveVP(G().vpPrompts[0].id, 1);
+})();
+
+console.log('\n== a MOVE walks into overwatch too ==');
+(function () {
+  const us = [
+    mkUnit(0, 'Watcher', 3, 4, [{ name: 'Rifle', type: 'ranged', hit: 3, strength: 4, damage: 1 }], []),
+    mkUnit(1, 'Runner', 3, 4, [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], [])
+  ];
+  Engine.startGame({ playerNames: ['One', 'Two'], firstPlayer: 0, vpTarget: 10,
+                     mission: { id: null } }, us);
+  Engine.confirmStartPhase();
+  Engine.adjustAP(0, 4);
+  Engine.beginAction('overwatch');
+  Engine.flowPickUnit(U('Watcher').id);
+  Engine.confirmOverwatch();
+  // Player two moves on their own turn.
+  Engine.forceEndChain();
+  Store.commit('hand over', function () {
+    const g = Store.get();
+    g.turn.player = 1;
+    g.players[1].ap = 2;
+    g.control = { player: 1, forcedUnitId: null, reason: 'test' };
+  });
+  Engine.beginAction('move');
+  Engine.flowPickUnit(U('Runner').id);
+  Engine.confirmSimple();
+  check('MOVE opens the check', G().flow.kind, 'owcheck');
+  check('with the mover named', G().flow.moverId, U('Runner').id);
+  Engine.flowFireOverwatch();               // nothing queued
+  check('declining lets the MOVE finish', G().flow, null);
+  check('and MOVE still ends the chain', G().chain.active, false);
 })();
 
 console.log('\n== summary ==');

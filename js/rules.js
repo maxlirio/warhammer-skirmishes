@@ -30,7 +30,7 @@ const RULES = (function () {
       text: 'Move a friendly unit up to its Move characteristic. The action chain ends.',
       prompt: 'Move the unit up to its Move characteristic on the tabletop.',
       endsChain: true, opponentGainsAP: 0, onlyOnYourTurn: true,
-      expiresOverwatch: true
+      movesUnit: true, expiresOverwatch: true
     },
     {
       id: 'shoot', name: 'SHOOT', cost: 1, kind: 'aggressive', flow: 'attack',
@@ -57,7 +57,7 @@ const RULES = (function () {
       prompt: 'Roll 1D6 and move that far toward the target. You must end in melee range or not move at all.',
       elevation: 'charge',
       endsChain: false, opponentGainsAP: 1,
-      expiresOverwatch: true
+      movesUnit: true, expiresOverwatch: true
     },
     {
       id: 'fight', name: 'FIGHT', cost: 1, kind: 'aggressive', flow: 'attack',
@@ -131,7 +131,7 @@ const RULES = (function () {
      endsChain         : force the chain to end after this attack
      -------------------------------------------------------------------- */
   const rangedReactions = [
-    { id: 'dodge', name: 'DODGE', cost: 1, hitMod: -1,
+    { id: 'dodge', name: 'DODGE', cost: 1, hitMod: -1, moves: true,
       flavour: '“Thought you had me, didn’t ya?”',
       text: 'Subtract 1 from the attacker\'s Hit roll. Move 1".',
       tabletop: 'Move the defender 1".' },
@@ -142,7 +142,7 @@ const RULES = (function () {
       selfEffect: { label: 'Cannot move', duration: 'nextAP',
                     detail: 'This unit cannot move for your next AP (DUCK).' } },
 
-    { id: 'dive', name: 'DIVE', cost: 1,
+    { id: 'dive', name: 'DIVE', cost: 1, moves: true,
       flavour: '“Who cares if your knees get dirty?!”',
       text: 'Move 3".',
       tabletop: 'Move the defender 3". If that takes it out of sight, the attack cannot be ' +
@@ -173,7 +173,7 @@ const RULES = (function () {
       selfEffect: { label: '+1 to hit', duration: 'chain', hitBonus: 1,
                     detail: 'This unit has +1 to hit until the end of this action chain (EVADE).' } },
 
-    { id: 'withdraw', name: 'WITHDRAW', cost: 1, endsChain: true,
+    { id: 'withdraw', name: 'WITHDRAW', cost: 1, endsChain: true, moves: true,
       flavour: '“Courage isn’t always wise.”',
       text: 'If your unit survives this attack, it moves 3". End the action chain.',
       onSurviveTabletop: 'Move the defender 3".' },

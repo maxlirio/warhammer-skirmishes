@@ -191,6 +191,8 @@
       /* ---- flow navigation ---- */
       case 'flowback': UI.clearDamageDraft(); Engine.flowBack(); return;
       case 'abort': UI.clearDamageDraft(); Engine.abortAction(); return;
+      case 'owpick': Engine.flowToggleOverwatch(p[1], p[2]); return;
+      case 'owgo': UI.clearDamageDraft(); Engine.flowFireOverwatch(); return;
 
       case 'pickunit': Engine.flowPickUnit(p[1]); return;
       case 'pickcp': Engine.flowPickControlPoint(p[1]); return;

@@ -511,8 +511,44 @@ const UI = (function () {
 
   /* =============================================================== FLOWS */
 
+  /* Something moved: which waiting triggers fire, and in what order? */
+  function overwatchCheckFlow(g, f) {
+    const mover = Store.unit(f.moverId);
+    const opts = Engine.overwatchCandidates(f.moverId);
+    const order = {};
+    f.queue.forEach((q, i) => { order[q.tokenId] = i + 1; });
+    return head('MOVEMENT', 'DOES ANYTHING FIRE?') +
+      '<div class="crumbs"><b>' + esc(mover ? mover.name : '?') + '</b> moved</div>' +
+      '<div class="mbody">' +
+        '<div class="noteline">You can see the table — did that movement bring ' +
+          esc(mover ? mover.name : 'them') + ' into range of any of these? Tap them in the order ' +
+          'you want them resolved.</div>' +
+        opts.map(function (o) {
+          const n = order[o.tokenId];
+          return '<button class="choice p' + o.owner + (n ? ' sel' : '') +
+            '" data-act="owpick:' + o.unitId + ':' + o.tokenId + '">' +
+            '<div class="cmain"><div class="cname">⌖ ' + esc(o.label) + '</div>' +
+            '<div class="cdesc">' + esc(o.unitName) + ' · ' + esc(g.players[o.owner].name) +
+            '</div></div>' +
+            '<div class="ccost' + (n ? '' : ' free') + '">' + (n ? '#' + n : '—') + '</div>' +
+          '</button>';
+        }).join('') +
+        (f.queue.length
+          ? '<div class="noteline warn">They resolve in that order. If ' +
+            esc(mover ? mover.name : 'the moving unit') + ' is destroyed, whatever it was doing ' +
+            'produces nothing.</div>'
+          : '') +
+      '</div>' +
+      '<div class="mfoot">' +
+        '<button class="btn primary" data-act="owgo">' +
+          (f.queue.length ? 'FIRE ' + f.queue.length + ' — IN ORDER' : 'NOTHING FIRES') +
+        '</button>' +
+      '</div>';
+  }
+
   function flowModal(g) {
     const f = g.flow;
+    if (f.kind === 'owcheck') return overwatchCheckFlow(g, f);
     if (f.kind === 'attack')    return attackFlow(g, f);
     if (f.kind === 'ability')   return abilityFlow(g, f);
     if (f.kind === 'overwatch') return overwatchFlow(g, f);
@@ -537,23 +573,6 @@ const UI = (function () {
   function abortRow() {
     return '<button class="abortbtn" data-act="abort">COULD NOT BE PERFORMED — ' +
       'nothing comes of it</button>';
-  }
-
-  /* An attack can be interrupted mid-resolution — a DIVE into an overwatch, say
-     — and the interrupt can itself be interrupted. */
-  function interruptRow(g, f) {
-    const opts = Engine.interruptOptions();
-    if (!opts.length) return '';
-    return '<div style="font-size:10px;letter-spacing:.14em;color:var(--p2);font-weight:800;' +
-        'margin:12px 0 5px">INTERRUPT THIS' + (f && f.resumeFlow ? ' INTERRUPT' : ' ATTACK') +
-        '?</div>' +
-      '<div class="noteline">Did that movement bring someone into a waiting trigger? Fire it now ' +
-        'and this attack waits for it.</div>' +
-      opts.map(o => '<button class="tokfire ow" style="width:100%;margin-bottom:6px" ' +
-        'data-act="tok:' + o.unitId + ':' + o.tokenId + '">' +
-        '<span class="tf1">⌖ ' + esc(o.label) + '</span>' +
-        '<span class="tf2">' + esc(o.unitName) + ' · ' + esc(g.players[o.owner].name) +
-        '</span></button>').join('');
   }
 
   function footBack(confirmAct, confirmLabel, cls) {
@@ -1010,7 +1029,6 @@ const UI = (function () {
           elevToggle(f, action) +
           auraToggles(f, 'hit') +
           '<div class="noteline">Roll it on the table, then tell the app what happened.</div>' +
-          interruptRow(g, f) +
           abortRow() +
         '</div>' +
         '<div class="mfoot">' +
@@ -1037,7 +1055,6 @@ const UI = (function () {
           '</div>' +
           elevToggle(f, action) +
           auraToggles(f, ['wound', 'strength']) +
-          interruptRow(g, f) +
           abortRow() +
         '</div>' +
         '<div class="mfoot">' +

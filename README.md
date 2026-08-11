@@ -93,18 +93,21 @@ Every unit is saved to this browser's library when a game starts, and
 **SAVE** button for saving mid-edit, whole-roster save/load for a full team at
 once, and JSON export/import to move everything to another device.
 
-## Interrupts, and interrupts of interrupts
+## Overwatch fires on movement
 
-An attack being resolved can be interrupted — a DIVE that carries the target past
-an overwatch token, say. **INTERRUPT THIS ATTACK?** appears mid-flow listing every
-waiting trigger with its unit and owner; firing one parks the attack underneath
-and resolves the interrupt on top. The crumb line shows the stack (`↑ waiting:
-Alfred → Ork Nob`), and when the interrupt finishes the parked attack picks up
-exactly where it left off.
+Overwatch triggers on a unit *moving*, so the app asks at exactly the moments a
+unit moves: a **MOVE**, a **CHARGE**'s 1D6", and the reactions that shift the
+defender — **DODGE**, **DIVE**, **WITHDRAW**.
 
-That nests to any depth: an overwatch fired into a dive can itself be answered by
-a second overwatch, and they unwind in order. If any interrupt kills either party
-to a parked attack, that attack never resolves and — per the rule below —
+At those points a **MOVEMENT — DOES ANYTHING FIRE?** screen lists every waiting
+trigger belonging to the moving unit's opponent, with its unit and owner. There
+may be several, so you tap them **in the order you want them resolved** — they
+number `#1`, `#2` as you go — then fire. Each resolves in turn as a full shoot
+sequence at -1 to hit with no RP for the target.
+
+When the queue is empty, whatever the unit was doing carries on: the interrupted
+attack resumes at its Hit roll, or the MOVE completes. **If the moving unit is
+destroyed on the way, it does not** — per the rule below, the interrupted action
 produces nothing at all.
 
 ## Interrupted actions
