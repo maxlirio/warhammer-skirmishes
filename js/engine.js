@@ -365,17 +365,7 @@ const Engine = (function () {
       return;
     }
 
-    /* Who is owed the response? For an Aggressive Action it is the owner of the
-       target — never ambiguous. For anything else the caller says, because with
-       three or four players the app asks rather than picking for you. */
-    const opp = (opts.responder === null || opts.responder === undefined)
-      ? Store.opponentOf(actor) : opts.responder;
-    if (opp === null || opp === undefined || opp === actor) {
-      closeChain('no one is owed a response');
-      handOffToTurnPlayer();
-      checkVictory();
-      return;
-    }
+    const opp = Store.opponentOf(actor);
     g.chain.active = true;
     const forced = opts.forcedUnitId || null;
     const broke = g.players[opp].ap <= 0;
@@ -403,11 +393,10 @@ const Engine = (function () {
       chainEntry(pname(tp) + ' still has ' + g.players[tp].ap +
         ' AP — the turn continues with a new chain.', 'control');
     } else {
-      Store.opponentsOf(tp).forEach(function (o) {
-        if (g.players[o].ap > 0) {
-          log(pname(o) + ' keeps ' + g.players[o].ap + ' AP — it carries into their turn.', 'muted');
-        }
-      });
+      const other = Store.opponentOf(tp);
+      if (g.players[other].ap > 0) {
+        log(pname(other) + ' keeps ' + g.players[other].ap + ' AP — it carries into their turn.', 'muted');
+      }
       beginEndPhase('the current player has no AP left');
     }
   }
@@ -660,14 +649,6 @@ const Engine = (function () {
       const n = Math.max(0, Number(amount) || 0);
       if (n > 0) scoreVP(p.player, n, p.reason);
       else log(pname(p.player) + ' scores no VP for ' + p.reason + '.', 'muted');
-    });
-  }
-
-  /* The prompt guessed the wrong player (three- and four-player games). */
-  function reassignVP(promptId, playerId) {
-    Store.quiet(function () {
-      const p = (S().vpPrompts || []).find(x => x.id === promptId);
-      if (p) p.player = Number(playerId);
     });
   }
 
@@ -985,7 +966,6 @@ const Engine = (function () {
         unitId: pool.length === 1 ? pool[0].id : null,
         step: pool.length === 1 ? nextStepAfterUnit(action) : 'unit'
       };
-      const askOpp = needsResponderChoice(action.id);
       if (action.flow === 'attack') {
         g.flow = Object.assign({
           kind: 'attack', attackerId: base.unitId, targetId: null, weaponId: null,
@@ -997,24 +977,19 @@ const Engine = (function () {
         }, { actionId: action.id });
       } else if (action.flow === 'ability') {
         g.flow = { kind: 'ability', actionId: 'ability', unitId: base.unitId, abilityId: null,
-                   targets: {}, pickIndex: 0, askOpponent: askOpp, responder: null,
-                   step: base.unitId ? 'ability' : 'unit' };
+                   targets: {}, pickIndex: 0,                   step: base.unitId ? 'ability' : 'unit' };
       } else if (action.flow === 'secure') {
         g.flow = { kind: 'secure', actionId: 'secure', unitId: base.unitId, cpId: null,
-                   askOpponent: askOpp, responder: null,
                    step: base.unitId ? 'point' : 'unit' };
       } else if (action.flow === 'relic') {
         g.flow = { kind: 'relic', actionId: 'relic', unitId: base.unitId,
-                   askOpponent: askOpp, responder: null,
-                   step: base.unitId ? (askOpp ? 'opponent' : 'confirm') : 'unit' };
+                   step: base.unitId ? 'confirm' : 'unit' };
       } else if (action.flow === 'overwatch') {
         g.flow = { kind: 'overwatch', actionId: 'overwatch', unitId: base.unitId,
-                   askOpponent: askOpp, responder: null,
-                   step: base.unitId ? (askOpp ? 'opponent' : 'confirm') : 'unit' };
+                   step: base.unitId ? 'confirm' : 'unit' };
       } else {
         g.flow = { kind: 'simple', actionId: action.id, unitId: base.unitId,
-                   askOpponent: askOpp, responder: null,
-                   step: base.unitId ? (askOpp ? 'opponent' : 'confirm') : 'unit' };
+                   step: base.unitId ? 'confirm' : 'unit' };
       }
     });
   }
@@ -1032,18 +1007,7 @@ const Engine = (function () {
       if (f.kind === 'attack') { f.attackerId = unitId; f.step = 'target'; }
       else if (f.kind === 'ability') { f.unitId = unitId; f.step = 'ability'; }
       else if (f.kind === 'secure') { f.unitId = unitId; f.step = 'point'; }
-      else { f.unitId = unitId; f.step = f.askOpponent ? 'opponent' : 'confirm'; }
-    });
-  }
-
-  /* Three- and four-player games: the acting player names which opponent the
-     rules' "your opponent" means this time. */
-  function flowPickResponder(playerId) {
-    Store.commit('select opponent', function () {
-      const f = S().flow;
-      if (!f) return;
-      f.responder = (playerId === null || playerId === 'none') ? null : Number(playerId);
-      f.step = 'confirm';
+      else { f.unitId = unitId; f.step = 'confirm'; }
     });
   }
 
@@ -1053,11 +1017,11 @@ const Engine = (function () {
       if (!f) return;
       const order = {
         attack: ['attacker', 'target', 'weapon', 'reaction', 'redirect', 'eligible', 'hit', 'wound', 'damage'],
-        ability: ['unit', 'ability', 'pick', 'opponent', 'confirm'],
-        overwatch: ['unit', 'opponent', 'confirm'],
-        secure: ['unit', 'point', 'opponent', 'confirm'],
-        relic: ['unit', 'opponent', 'confirm'],
-        simple: ['unit', 'opponent', 'confirm']
+        ability: ['unit', 'ability', 'pick', 'confirm'],
+        overwatch: ['unit', 'confirm'],
+        secure: ['unit', 'point', 'confirm'],
+        relic: ['unit', 'confirm'],
+        simple: ['unit', 'confirm']
       }[f.kind] || [];
       const i = order.indexOf(f.step);
       if (i > 0) f.step = order[i - 1];
@@ -1075,36 +1039,18 @@ const Engine = (function () {
       const action = actionDef(f.actionId);
       if (!action) return;
       const actor = g.control.player;
-      const responder = pickResponder(f, actor);
+      const responder = Store.opponentOf(actor);
       openChain(actor);
       spendAP(actor, action.cost || 0);
       if (action.expiresOverwatch) expireOnOwnerAction(f.unitId);
       chainEntry(pname(actor) + ': ' + uname(f.unitId) + ' → ' + action.name + '.', 'action');
-      if (action.opponentGainsAP && responder !== null) {
+      if (action.opponentGainsAP) {
         grantAP(responder, action.opponentGainsAP, action.name);
       }
       g.flow = null;
       afterAction({ actor: actor, endsChain: action.endsChain, forcedUnitId: null,
-                    responder: responder, reason: action.name });
+                    reason: action.name });
     });
-  }
-
-  /* With two players "your opponent" is obvious. With three or four the flow
-     has already asked, and the answer is on the flow object. */
-  function pickResponder(f, actor) {
-    if (f && f.responder !== null && f.responder !== undefined) return f.responder;
-    return Store.playerCount() === 2 ? Store.opponentOf(actor) : null;
-  }
-
-  /* Does this flow need to ask who the opponent is before it can resolve? */
-  function needsResponderChoice(actionId) {
-    if (Store.playerCount() === 2) return false;
-    const a = actionDef(actionId);
-    if (!a) return false;
-    if (a.kind === 'aggressive') return false;      // the target's owner answers it
-    if (a.id === 'ability') return true;            // narrowed once the ability is chosen
-    if (a.endsChain) return false;
-    return true;
   }
 
   function flowPickControlPoint(cpId) {
@@ -1112,7 +1058,7 @@ const Engine = (function () {
       const f = S().flow;
       if (!f) return;
       f.cpId = cpId;
-      f.step = f.askOpponent ? 'opponent' : 'confirm';
+      f.step = 'confirm';
     });
   }
 
@@ -1122,14 +1068,13 @@ const Engine = (function () {
       const f = g.flow;
       if (!f || !f.unitId) return;
       const actor = g.control.player;
-      const responder = pickResponder(f, actor);
       const action = actionDef('secure');
       openChain(actor);
       spendAP(actor, action.cost);
       chainEntry(pname(actor) + ': ' + uname(f.unitId) + ' → SECURE.', 'action');
       secureControlPoint(f.cpId, actor, f.unitId);
       g.flow = null;
-      afterAction({ actor: actor, endsChain: false, forcedUnitId: null, responder: responder });
+      afterAction({ actor: actor, endsChain: false, forcedUnitId: null });
     });
   }
 
@@ -1139,7 +1084,6 @@ const Engine = (function () {
       const f = g.flow;
       if (!f || !f.unitId) return;
       const actor = g.control.player;
-      const responder = pickResponder(f, actor);
       const action = actionDef('relic');
       openChain(actor);
       spendAP(actor, action.cost);
@@ -1148,7 +1092,7 @@ const Engine = (function () {
       // Carrying it puts out any overwatch this unit had set.
       expireOnOwnerAction(f.unitId);
       g.flow = null;
-      afterAction({ actor: actor, endsChain: false, forcedUnitId: null, responder: responder });
+      afterAction({ actor: actor, endsChain: false, forcedUnitId: null });
     });
   }
 
@@ -1188,7 +1132,6 @@ const Engine = (function () {
       const f = g.flow;
       if (!f || !f.unitId) return;
       const actor = g.control.player;
-      const responder = pickResponder(f, actor);
       const action = actionDef('overwatch');
       openChain(actor);
       spendAP(actor, action.cost);
@@ -1201,7 +1144,7 @@ const Engine = (function () {
       });
       chainEntry(pname(actor) + ': ' + u.name + ' → OVERWATCH. Token placed.', 'action');
       g.flow = null;
-      afterAction({ actor: actor, endsChain: false, forcedUnitId: null, responder: responder });
+      afterAction({ actor: actor, endsChain: false, forcedUnitId: null });
     });
   }
 
@@ -1217,9 +1160,8 @@ const Engine = (function () {
       f.abilityId = abilityId;
       f.targets = {};
       f.pickIndex = 0;
-      f.askOpponent = Store.playerCount() > 2 && abilityLetsThemReact(ab);
       const needs = effectsNeedingTarget(ab, { sourceUnitId: f.unitId });
-      f.step = needs.length ? 'pick' : (f.askOpponent ? 'opponent' : 'confirm');
+      f.step = needs.length ? 'pick' : 'confirm';
     });
   }
 
@@ -1233,7 +1175,7 @@ const Engine = (function () {
       if (e && e.pick === 'multi') { toggleMulti(f, effectId, unitId); return; }
       f.targets[effectId] = unitId;
       const done = needs.every(x => filled(f.targets[x.id]));
-      if (done) f.step = f.askOpponent ? 'opponent' : 'confirm';
+      if (done) f.step = 'confirm';
       else f.pickIndex = needs.findIndex(x => !filled(f.targets[x.id]));
     });
   }
@@ -1257,7 +1199,7 @@ const Engine = (function () {
         : effectsNeedingTarget(findAbility(f.unitId, f.abilityId), { sourceUnitId: f.unitId });
       const next = list.findIndex(x => !filled(f.targets[x.id]));
       if (next >= 0) { f.pickIndex = next; return; }
-      f.step = (f.kind !== 'token' && f.askOpponent) ? 'opponent' : 'confirm';
+      f.step = 'confirm';
     });
   }
 
@@ -1292,7 +1234,7 @@ const Engine = (function () {
       const ab = findAbility(f.unitId, f.abilityId);
       if (!ab) { g.flow = null; return; }
       const action = actionDef('ability');
-      const responder = pickResponder(f, actor);
+      const responder = Store.opponentOf(actor);
       openChain(actor);
       spendAP(actor, Number(ab.cost) || 0);
       ab.used = (ab.used || 0) + 1;
@@ -1313,14 +1255,12 @@ const Engine = (function () {
         openFreeAttack(unitId, ctx.freeAttack);
         if (S().flow) {
           S().flow.pendingAfter = {
-            actor: actor, endsChain: ends || ctx.freeAttack.endsChain,
-            responder: responder, reason: ab.name
+            actor: actor, endsChain: ends || ctx.freeAttack.endsChain, reason: ab.name
           };
         }
         return;
       }
-      afterAction({ actor: actor, endsChain: ends, forcedUnitId: null,
-                    responder: responder, reason: ab.name });
+      afterAction({ actor: actor, endsChain: ends, forcedUnitId: null, reason: ab.name });
     });
   }
 
@@ -1334,8 +1274,7 @@ const Engine = (function () {
       const needs = effectsNeedingTarget(ab, { sourceUnitId: unitId });
       if (needs.length) {
         g.flow = { kind: 'ability', freeUse: true, actionId: 'ability', unitId: unitId,
-                   abilityId: abilityId, targets: {}, pickIndex: 0,
-                   askOpponent: false, responder: null, step: 'pick' };
+                   abilityId: abilityId, targets: {}, pickIndex: 0, step: 'pick' };
         return;
       }
       resolveFreeAbility(unitId, abilityId, {});
@@ -1710,7 +1649,6 @@ const Engine = (function () {
         actor: after.actor,
         endsChain: after.endsChain || !!f.endsChainOverride || killed,
         forcedUnitId: killed ? null : forcedUnitId,
-        responder: killed ? after.responder : Store.owner(f.targetId),
         reason: after.reason
       });
       return;
@@ -1734,7 +1672,6 @@ const Engine = (function () {
       actor: attackerPlayer,
       endsChain: endsChain,
       forcedUnitId: forcedUnitId,
-      responder: defenderPlayer,     // an Aggressive Action always names its opponent
       reason: killed ? 'target destroyed' : (f.endsChainOverride ? 'WITHDRAW' : null)
     });
   }
@@ -2023,7 +1960,7 @@ const Engine = (function () {
     actionDef, actionList, setActionOverride, apConsequence, controlMode, mustPass,
     actionAvailability, eligibleUnits, usableAPAbilities, usableFreeAbilities,
     weaponsFor, findAbility,
-    beginAction, cancelFlow, flowBack, flowPickUnit, flowPickResponder,
+    beginAction, cancelFlow, flowBack, flowPickUnit,
     flowPickControlPoint, confirmSecure, confirmRelic,
     missionCard, missionEndTurnItems, toggleUnitFlag, controlledCount,
     relicCarrier, setRelicCarrier, killValue, endGameNow,
@@ -2037,8 +1974,7 @@ const Engine = (function () {
     triggerToken, confirmToken, tokenPickTarget, tokenEffects, removeToken,
     adjustAP, adjustVP, adjustWounds, removeUnit, removeEffect,
     addManualEffect, addManualToken, forceControl, forceEndChain, forceEndTurn,
-    setPendingVP, scoreVP, promptVP, resolveVP, reassignVP, log,
-    needsResponderChoice,
+    setPendingVP, scoreVP, promptVP, resolveVP, log,
     scoreMissionObjective, objectiveScoredBy
   };
 })();

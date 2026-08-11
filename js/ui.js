@@ -28,7 +28,7 @@ const UI = (function () {
     return '<div class="screen">' +
       topbar(g) +
       controlbar(g) +
-      '<div class="board"><div class="rosters cols' + Math.min(g.players.length, 2) + '">' +
+      '<div class="board"><div class="rosters">' +
         g.players.map((p, i) => rosterCol(g, i)).join('') +
       '</div></div>' +
       tokenTray(g) +
@@ -38,7 +38,6 @@ const UI = (function () {
   }
 
   function topbar(g) {
-    const n = g.players.length;
     return '<div class="turnstrip">' +
         '<span class="tt">TURN ' + g.turn.number + '</span>' +
         '<span class="tn">' + esc(g.players[g.turn.player].name) + '</span>' +
@@ -46,7 +45,7 @@ const UI = (function () {
                              : g.turn.phase === 'end' ? 'END PHASE' : 'ACTION PHASE') + '</span>' +
         '<span class="tv">FIRST TO ' + g.settings.vpTarget + ' VP</span>' +
       '</div>' +
-      '<div class="topbar cols' + n + '">' +
+      '<div class="topbar">' +
         g.players.map((p, i) => plate(g, i)).join('') +
       '</div>';
   }
@@ -491,15 +490,6 @@ const UI = (function () {
           '<button class="btn sm" style="flex:1" data-act="vpadd:-1">− 1</button>' +
           '<button class="btn sm" style="flex:1" data-act="vpadd:1">+ 1</button>' +
         '</div>' +
-        (g.players.length > 2
-          ? '<div style="font-size:10px;letter-spacing:.14em;color:var(--ink-mute);font-weight:800;margin:12px 0 5px">' +
-              'SCORING FOR — tap to change</div>' +
-            '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
-              g.players.map(pl => '<button class="btn sm p' + pl.id +
-                (pl.id === p.player ? ' primary' : '') + '" style="flex:1" ' +
-                'data-act="vpwho:' + pl.id + '">' + esc(pl.name) + '</button>').join('') +
-            '</div>'
-          : '') +
       '</div>' +
       '<div class="mfoot">' +
         '<button class="btn ghost sm" data-act="vpok:0">NONE</button>' +
@@ -540,31 +530,6 @@ const UI = (function () {
 
   /* ------------------------------------------------------------- simple */
 
-  /* Three- and four-player games: the rules say "your opponent", so the app
-     asks which one rather than picking for you. */
-  function responderStep(g, f) {
-    const a = RULES.actionById(f.actionId);
-    const me = g.control.player;
-    const gains = a.opponentGainsAP > 0;
-    return head(a.name, gains ? 'WHICH OPPONENT GAINS ' + a.opponentGainsAP + ' AP?'
-                              : 'WHO MAY RESPOND?') +
-      '<div class="mbody">' +
-        '<div class="noteline">' + (gains
-          ? 'This is a Passive Action, so the opponent who gains the AP may answer with any of their units.'
-          : 'The chain passes to one opponent. Anyone else keeps their AP for their own turn.') +
-        '</div>' +
-        Store.opponentsOf(me).map(o =>
-          '<button class="choice p' + o + '" data-act="pickresponder:' + o + '">' +
-            '<div class="cmain"><div class="cname">' + esc(g.players[o].name) + '</div>' +
-            '<div class="cdesc">' + g.players[o].ap + ' AP · ' + g.players[o].vp + ' VP · ' +
-              Store.unitsOf(o, true).length + ' units standing</div></div></button>').join('') +
-        (gains ? '' :
-          '<button class="choice" data-act="pickresponder:none">' +
-            '<div class="cmain"><div class="cname">NO ONE</div>' +
-            '<div class="cdesc">End the action chain here.</div></div></button>') +
-      '</div>' + footBack();
-  }
-
   function simpleFlow(g, f) {
     const a = RULES.actionById(f.actionId);
     if (f.step === 'unit') {
@@ -573,7 +538,6 @@ const UI = (function () {
           unitChoice(u, 'pickunit:' + u.id)).join('') + '</div>' +
         footBack();
     }
-    if (f.step === 'opponent') return responderStep(g, f);
     const u = Store.unit(f.unitId);
     return head(a.name, 'CONFIRM') +
       '<div class="mbody">' +
@@ -622,7 +586,6 @@ const UI = (function () {
         '<div class="mbody">' + Engine.eligibleUnits().map(u =>
           unitChoice(u, 'pickunit:' + u.id)).join('') + '</div>' + footBack();
     }
-    if (f.step === 'opponent') return responderStep(g, f);
     const cps = (g.mission && g.mission.controlPoints) || [];
     if (f.step === 'point') {
       return head('SECURE', 'WHICH OBJECTIVE?') +
@@ -653,7 +616,6 @@ const UI = (function () {
         '<div class="mbody">' + Engine.eligibleUnits().map(u =>
           unitChoice(u, 'pickunit:' + u.id)).join('') + '</div>' + footBack();
     }
-    if (f.step === 'opponent') return responderStep(g, f);
     return head('THE RELIC', 'CONFIRM') +
       '<div class="mbody">' +
         '<div class="rollbox"><div class="lbl">PICK UP THE RELIC</div>' +
@@ -673,7 +635,6 @@ const UI = (function () {
         '<div class="mbody">' + Engine.eligibleUnits().map(u =>
           unitChoice(u, 'pickunit:' + u.id)).join('') + '</div>' + footBack();
     }
-    if (f.step === 'opponent') return responderStep(g, f);
     const u = Store.unit(f.unitId);
     const ranged = (u.weapons || []).filter(w => w.type === 'ranged');
     return head('OVERWATCH', 'CONFIRM') +
@@ -718,7 +679,6 @@ const UI = (function () {
         '</div>' + footBack();
     }
     const ab = Engine.findAbility(f.unitId, f.abilityId);
-    if (f.step === 'opponent') return responderStep(g, f);
     if (f.step === 'pick') {
       const needs = Engine.effectsNeedingTarget(ab, { sourceUnitId: f.unitId });
       const e = needs[f.pickIndex] || needs.find(x => !f.targets[x.id]) || needs[0];
@@ -907,8 +867,7 @@ const UI = (function () {
         '<div class="mbody">' +
           '<div class="noteline">You have already checked range and line of sight on the table. ' +
             'The app just needs to know who is being attacked.</div>' +
-          enemies.map(u => unitChoice(u, 'picktargetunit:' + u.id,
-            g.players.length > 2 ? esc(g.players[u.owner].name) : null)).join('') +
+          enemies.map(u => unitChoice(u, 'picktargetunit:' + u.id)).join('') +
         '</div>' + footBack();
     }
 
@@ -1101,10 +1060,11 @@ const UI = (function () {
         '<button class="choice" data-act="forceendturn"><div class="cmain">' +
           '<div class="cname">END THIS TURN</div>' +
           '<div class="cdesc">Override: jump straight to the End Phase.</div></div></button>' +
-        Store.opponentsOf(g.control.player).map(o =>
-          '<button class="choice p' + o + '" data-act="swapcontrol:' + o + '"><div class="cmain">' +
-            '<div class="cname">GIVE CONTROL TO ' + esc(g.players[o].name).toUpperCase() + '</div>' +
-            '<div class="cdesc">Override: they act next, with a free choice of unit.</div></div></button>').join('') +
+        '<button class="choice p' + Store.opponentOf(g.control.player) + '" data-act="swapcontrol:' +
+          Store.opponentOf(g.control.player) + '"><div class="cmain">' +
+          '<div class="cname">GIVE CONTROL TO ' +
+            esc(g.players[Store.opponentOf(g.control.player)].name).toUpperCase() + '</div>' +
+          '<div class="cdesc">Override: they act next, with a free choice of unit.</div></div></button>' +
         '<button class="choice" data-act="newgame"><div class="cmain">' +
           '<div class="cname" style="color:var(--bad)">END GAME &amp; EDIT ROSTERS</div>' +
           '<div class="cdesc">Returns to setup. The current game state is discarded.</div></div></button>' +

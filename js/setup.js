@@ -4,19 +4,18 @@
 
 const Setup = (function () {
 
-  const MAX_PLAYERS = 4;
+  const PLAYERS = 2;
   let S = null;
 
   function blankState() {
     return {
       step: 0,
-      playerCount: 2,
-      playerNames: ['Player 1', 'Player 2', 'Player 3', 'Player 4'],
+      playerNames: ['Player 1', 'Player 2'],
       vpTarget: RULES.defaultVPTarget,
       firstPlayer: 0,
       missionId: null,
       roles: { attacker: null, defender: null },
-      flagged: [null, null, null, null],
+      flagged: [null, null],
       units: [],
       open: {},
       picker: null,
@@ -31,13 +30,17 @@ const Setup = (function () {
     /* Anything missing from an older saved setup gets filled in. */
     Object.keys(b).forEach(k => { if (S[k] === undefined || S[k] === null) S[k] = b[k]; });
 
-    /* Migrate the old two-player shape. */
+    /* Older saved setups may carry more seats or the original p1/p2 shape. */
     if (S.p1 || S.p2) {
-      S.playerNames = [S.p1 || 'Player 1', S.p2 || 'Player 2', 'Player 3', 'Player 4'];
+      S.playerNames = [S.p1 || 'Player 1', S.p2 || 'Player 2'];
       delete S.p1; delete S.p2;
     }
-    while (S.playerNames.length < MAX_PLAYERS) S.playerNames.push('Player ' + (S.playerNames.length + 1));
-    S.playerCount = Math.max(2, Math.min(MAX_PLAYERS, Number(S.playerCount) || 2));
+    delete S.playerCount;
+    S.playerNames = S.playerNames.slice(0, PLAYERS);
+    while (S.playerNames.length < PLAYERS) S.playerNames.push('Player ' + (S.playerNames.length + 1));
+    S.flagged = S.flagged.slice(0, PLAYERS);
+    S.units = S.units.filter(u => u.owner < PLAYERS);
+    if (S.firstPlayer >= PLAYERS) S.firstPlayer = 0;
     S.step = Math.max(0, Math.min(lastStep(), Number(S.step) || 0));
     S.picker = null;
     return S;
@@ -63,7 +66,7 @@ const Setup = (function () {
      whether a briefing slide is needed at all. */
   function steps() {
     const list = [{ kind: 'players' }, { kind: 'mission' }];
-    for (let i = 0; i < S.playerCount; i++) list.push({ kind: 'army', owner: i });
+    for (let i = 0; i < PLAYERS; i++) list.push({ kind: 'army', owner: i });
     if (missionNeedsBriefing()) list.push({ kind: 'briefing' });
     list.push({ kind: 'review' });
     return list;
@@ -92,14 +95,10 @@ const Setup = (function () {
   function blockedReason(n) {
     const s = stepAt(n);
     if (s.kind === 'players') {
-      const names = S.playerNames.slice(0, S.playerCount).map(x => String(x).trim());
+      const names = S.playerNames.map(x => String(x).trim());
       if (names.some(x => !x)) return 'Every player needs a name.';
     }
     if (s.kind === 'mission') {
-      const m = card();
-      if (m && m.players && m.players !== S.playerCount) {
-        return m.name + ' is a ' + m.players + '-player mission.';
-      }
     }
     if (s.kind === 'army' && !unitsOf(s.owner).length) {
       return 'Add at least one unit for ' + S.playerNames[s.owner] + '.';
@@ -111,8 +110,8 @@ const Setup = (function () {
         return 'Choose who is attacking and who is defending.';
       }
       if (m && m.unitFlag && m.unitFlag.pickAtSetup) {
-        for (let i = 0; i < S.playerCount; i++) {
-          if (!S.flagged[i]) return 'Every player must name their ' + m.unitFlag.label + '.';
+        for (let i = 0; i < PLAYERS; i++) {
+          if (!S.flagged[i]) return 'Both players must name their ' + m.unitFlag.label + '.';
         }
       }
     }
@@ -162,14 +161,8 @@ const Setup = (function () {
   /* --------------------------------------------------------- step: players */
 
   function playersStep() {
-    return '<div class="lead">How many of you are playing?</div>' +
-      '<div class="pickrow">' +
-        [2, 3, 4].map(n => '<button class="pickbtn' + (S.playerCount === n ? ' on' : '') +
-          '" data-act="count:' + n + '">' + n + '<span>PLAYERS</span></button>').join('') +
-      '</div>' +
-
-      '<h2>NAMES</h2>' +
-      S.playerNames.slice(0, S.playerCount).map((nm, i) =>
+    return '<div class="lead">Who is playing?</div>' +
+      S.playerNames.map((nm, i) =>
         '<div class="field"><label class="p' + i + '">PLAYER ' + (i + 1) + '</label>' +
           '<input type="text" data-bind="pname:' + i + '" data-rerender="1" value="' + esc(nm) + '">' +
         '</div>').join('') +
@@ -180,33 +173,25 @@ const Setup = (function () {
           '<input type="number" min="1" data-bind="cfg:vpTarget" value="' + esc(S.vpTarget) + '">') +
         field('WHO TAKES THE FIRST TURN',
           '<select data-bind="cfg:firstPlayer" data-rerender="1">' +
-            S.playerNames.slice(0, S.playerCount).map((nm, i) =>
+            S.playerNames.map((nm, i) =>
               '<option value="' + i + '"' + (S.firstPlayer === i ? ' selected' : '') + '>' +
                 esc(nm) + '</option>').join('') +
           '</select>') +
       '</div>' +
-      '<div class="hint">Play passes around the table in this order. Each turn the active player ' +
-        'gains 1 AP in their Start Phase.</div>' +
-      (S.playerCount > 2
-        ? '<div class="noteline warn" style="margin-top:10px">With more than two players the rules\' ' +
-          '“your opponent” is ambiguous, so the app will ask you which opponent it means whenever ' +
-          'it matters. An attack never needs asking — the target\'s owner is the opponent.</div>'
-        : '');
+      '<div class="hint">Turns alternate. Each turn the active player gains 1 AP in their ' +
+        'Start Phase.</div>';
   }
 
   /* --------------------------------------------------------- step: mission */
 
   function missionCardFace(m, chosen) {
-    const bad = m.players && m.players !== S.playerCount;
-    return '<button class="misscard' + (chosen ? ' on' : '') + (bad ? ' bad' : '') + '" ' +
+    return '<button class="misscard' + (chosen ? ' on' : '') + '" ' +
       'data-act="mission:' + m.id + '">' +
-      '<div class="mcname">' + m.name +
-        (m.players ? ' <span class="mcp">' + m.players + ' PLAYERS</span>' : '') + '</div>' +
+      '<div class="mcname">' + m.name + '</div>' +
       '<div class="mcflav">' + esc(m.flavour) + '</div>' +
       '<div class="mcsec"><b>BATTLEFIELD</b> ' + esc(m.battlefield) + '</div>' +
       '<div class="mcsec"><b>OBJECTIVE</b> ' + esc(m.objective) + '</div>' +
       '<div class="mcsec"><b>SPECIAL RULES</b> ' + esc(m.special) + '</div>' +
-      (bad ? '<div class="mcbad">Needs exactly ' + m.players + ' players.</div>' : '') +
       (chosen ? '<div class="mcon">SELECTED</div>' : '') +
     '</button>';
   }
@@ -242,7 +227,7 @@ const Setup = (function () {
         Object.keys(m.roles).map(function (role) {
           return '<div class="field"><label>' + role.toUpperCase() + '</label>' +
             '<div class="pickrow">' +
-              S.playerNames.slice(0, S.playerCount).map((nm, i) =>
+              S.playerNames.map((nm, i) =>
                 '<button class="pickbtn small' + (S.roles[role] === i ? ' on' : '') +
                   '" data-act="role:' + role + ':' + i + '">' + esc(nm) + '</button>').join('') +
             '</div>' +
@@ -253,7 +238,7 @@ const Setup = (function () {
     if (m.unitFlag && m.unitFlag.pickAtSetup) {
       html += '<h2>' + m.unitFlag.label + '</h2>' +
         '<div class="hint">' + esc(m.unitFlag.hint) + '</div>' +
-        S.playerNames.slice(0, S.playerCount).map(function (nm, i) {
+        S.playerNames.map(function (nm, i) {
           const list = unitsOf(i);
           return '<div class="card"><div class="chd"><div class="t p' + i + '">' + esc(nm) + '</div></div>' +
             (list.length
@@ -312,7 +297,7 @@ const Setup = (function () {
     return '<div class="lead">Ready to play</div>' +
       '<div class="card">' +
         '<div class="shd" style="margin-bottom:8px">THE TABLE</div>' +
-        S.playerNames.slice(0, S.playerCount).map((nm, i) =>
+        S.playerNames.map((nm, i) =>
           '<div class="revrow p' + i + '">' +
             '<span class="rn">' + esc(nm) + (S.firstPlayer === i ? ' · first turn' : '') + '</span>' +
             '<span class="rv">' + unitsOf(i).length + ' units</span>' +
@@ -330,7 +315,7 @@ const Setup = (function () {
                 '</b> · Defender: <b>' + esc(S.playerNames[S.roles.defender]) + '</b></div>' : '') +
             (card().unitFlag && card().unitFlag.pickAtSetup
               ? '<div class="revsub">' + card().unitFlag.label + 's: ' +
-                S.flagged.slice(0, S.playerCount).map(function (id) {
+                S.flagged.map(function (id) {
                   const u = findUnit(id);
                   return u ? esc(u.name) : '—';
                 }).join(', ') + '</div>' : '')
@@ -782,14 +767,6 @@ const Setup = (function () {
         S.picker = null;
         return true;
       }
-      case 'count': {
-        S.playerCount = Number(p[1]);
-        if (S.firstPlayer >= S.playerCount) S.firstPlayer = 0;
-        // Units belonging to seats that no longer exist go away with them.
-        S.units = S.units.filter(u => u.owner < S.playerCount);
-        S.step = Math.min(S.step, lastStep());
-        return true;
-      }
 
       case 'open': S.open[p[1]] = !S.open[p[1]]; return true;
       case 'togAura': {
@@ -975,8 +952,7 @@ const Setup = (function () {
       /* ---- data ---- */
       case 'export': {
         const data = JSON.stringify({
-          config: { playerNames: S.playerNames.slice(0, S.playerCount), vpTarget: S.vpTarget,
-                    missionId: S.missionId },
+          config: { playerNames: S.playerNames, vpTarget: S.vpTarget, missionId: S.missionId },
           units: S.units
         }, null, 2);
         const blob = new Blob([data], { type: 'application/json' });
@@ -997,14 +973,13 @@ const Setup = (function () {
             try {
               const data = JSON.parse(rd.result);
               if (data.config && data.config.playerNames) {
-                data.config.playerNames.forEach((nm, i) => { if (i < MAX_PLAYERS) S.playerNames[i] = nm; });
-                S.playerCount = Math.max(2, Math.min(MAX_PLAYERS, data.config.playerNames.length));
+                data.config.playerNames.forEach((nm, i) => { if (i < PLAYERS) S.playerNames[i] = nm; });
                 S.vpTarget = data.config.vpTarget || S.vpTarget;
               }
               if (data.config && data.config.missionId !== undefined) S.missionId = data.config.missionId;
               if (data.units) {
                 S.units = [];
-                for (let i = 0; i < S.playerCount; i++) {
+                for (let i = 0; i < PLAYERS; i++) {
                   S.units = S.units.concat(Store.rekey(data.units.filter(u => u.owner === i), i));
                 }
               }
@@ -1018,7 +993,7 @@ const Setup = (function () {
       }
 
       case 'start': {
-        for (let i = 0; i < S.playerCount; i++) if (!unitsOf(i).length) { S.step = armyStep(i); return true; }
+        for (let i = 0; i < PLAYERS; i++) if (!unitsOf(i).length) { S.step = armyStep(i); return true; }
         stashEverything();
         const units = JSON.parse(JSON.stringify(S.units));
         units.forEach(u => { u.wounds = u.maxWounds; u.alive = true; u.effects = []; u.tokens = []; });
@@ -1034,7 +1009,7 @@ const Setup = (function () {
           });
         }
         Engine.startGame({
-          playerNames: S.playerNames.slice(0, S.playerCount),
+          playerNames: S.playerNames,
           vpTarget: Number(S.vpTarget) || 10,
           firstPlayer: Number(S.firstPlayer) || 0,
           mission: m ? { id: m.id, roles: m.roles ? { attacker: S.roles.attacker,

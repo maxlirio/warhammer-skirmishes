@@ -32,9 +32,9 @@ the app the outcome. It never asks "is the target in range?".
 
 ## Playing
 
-1. **Setup** is a wizard, one slide at a time: how many players (2–4) and their
-   names → which of the six Mission Cards → one slide per player's army → a
-   briefing slide if the mission needs one → review.
+1. **Setup** is a wizard, one slide at a time: both players' names → which of the
+   six Mission Cards → one slide per army → a briefing slide if the mission needs
+   one → review.
 2. **ACTION LIST** — pick a Standard Action; the app walks the bookkeeping:
    attacker → defender → weapon → reaction → hit → wound → damage.
 3. The app shows the **target number** for every roll (weapon Hit value and the
@@ -65,20 +65,13 @@ honestly can:
 |---|---|
 | **Sabotage** | Places an OBJECTIVE (5W, T4, no RP) per player as a real, shootable unit; destroying one suggests 3 VP and ends the game |
 | **King of the Hill** | Mark a unit as being on the HIGH GROUND and killing it suggests 2 VP; asks the end-of-turn VP question |
-| **Ambush** | Roles chosen at setup, a BAIT marker (3W, T4, no RP) for the defender worth 4 VP to the attacker, -1 Wound across every roster, and the game ends when a player is wiped out |
+| **Ambush** | Attacker and defender chosen at setup, a BAIT marker (3W, T4, no RP) for the defender worth 4 VP to the attacker, -1 Wound across every roster, and the game ends when a player is wiped out |
 | **Assassination** | Each player names a TARGET at setup; it gains +1 Wound and killing an enemy TARGET suggests 3 VP |
 | **Secure the Area** | Three markers whose controller it remembers, a SECURE action, and an end-of-turn VP total it counts itself |
 | **The Relic** | Who is carrying it, blocks OVERWATCH for the carrier, and drops it where the carrier died |
 
 Everything above still asks before it scores — the app suggests the card's
 number and you confirm or change it.
-
-## Two to four players
-
-Seats 3 and 4 get their own colours and their own slide in the wizard. Where the
-rules say "your opponent" and there is more than one, the app **asks which one
-you mean** rather than inventing an answer — except for an attack, where the
-target's owner is the opponent and no question is needed.
 
 ## Datasheets
 

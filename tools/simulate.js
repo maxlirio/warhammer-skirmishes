@@ -356,20 +356,15 @@ check('undo reverts it', ap(0), apPreUndo);
 
 /* ------------------------------------------------- mission cards, 2 players */
 
-function freshGame(missionCfg, playerNames) {
+function freshGame(missionCfg) {
   const us = [
     mkUnit(0, 'Alpha', 3, 4, [{ name: 'Rifle', type: 'ranged', hit: 3, strength: 4, damage: 1 },
                               { name: 'Blade', type: 'melee', hit: 3, strength: 5, damage: 2 }], []),
     mkUnit(1, 'Bravo', 2, 4, [{ name: 'Gun', type: 'ranged', hit: 4, strength: 4, damage: 1 },
                               { name: 'Axe', type: 'melee', hit: 3, strength: 4, damage: 1 }], [])
   ];
-  if (playerNames && playerNames.length > 2) {
-    us.push(mkUnit(2, 'Charlie', 2, 4, [{ name: 'Gun', type: 'ranged', hit: 4, strength: 4, damage: 1 }], []));
-  }
-  Engine.startGame({
-    playerNames: playerNames || ['One', 'Two'], vpTarget: 10, firstPlayer: 0,
-    mission: missionCfg
-  }, us);
+  Engine.startGame({ playerNames: ['One', 'Two'], vpTarget: 10, firstPlayer: 0,
+                     mission: missionCfg }, us);
   Engine.confirmStartPhase();
   return us;
 }
@@ -468,25 +463,6 @@ console.log('\n== MISSION: ASSASSINATION ==');
   check('a normal kill is worth 1', Engine.killValue(U('Alpha')), 1);
   check('killing the TARGET suggests 3', Engine.killValue(U('Bravo')), 3);
 })();
-
-console.log('\n== three players ==');
-freshGame({ id: null }, ['One', 'Two', 'Three']);
-check('three seats', G().players.length, 3);
-check('turn order wraps', Store.nextPlayer(2), 0);
-check('SPECIAL ABILITY must ask who the opponent is',
-  Engine.needsResponderChoice('ability'), true);
-check('an attack never needs asking', Engine.needsResponderChoice('shoot'), false);
-Engine.adjustAP(0, 2);
-Engine.beginAction('shoot');
-Engine.flowPickUnit(U('Alpha').id);
-Engine.flowPickAttackTarget(U('Charlie').id);        // the third player, not the next in order
-Engine.flowPickReaction('none');
-Engine.flowHit(true); Engine.flowWound(true); Engine.flowDamage(1);
-check('the target’s owner is the one who responds', G().control.player, 2);
-check('and their unit is the forced one', G().control.forcedUnitId, U('Charlie').id);
-check('they gained the survivor AP', ap(2), 1);
-
-/* ------------------------------------------ auras and the Astra Militarum */
 
 console.log('\n== the Astra Militarum preset ==');
 const astra = sandbox.PRESETS.find(f => f.id === 'astra');
@@ -835,6 +811,8 @@ console.log('\n== which actions hand over AP ==');
     Object.keys(flat).filter(k => flat[k] > 0), []);
   check('an ability says so for itself', Engine.apConsequence(Engine.actionDef('ability')),
     'Your opponent gains no AP.');
+  check('two players, always', Store.get().players.length, 2);
+  check('and your opponent is never in doubt', Store.opponentOf(0), 1);
   check('and HOLD is gone', Engine.actionDef('hold'), null);
   check('MOVE gives nothing', Engine.apConsequence(Engine.actionDef('move')),
     'Your opponent gains no AP.');

@@ -62,7 +62,8 @@ const Store = (function () {
         /* Per-action house rules: { move: { cost: 1, opponentGainsAP: 0 }, ... } */
         actionOverrides: {}
       },
-      players: ((config && config.playerNames) || ['Player 1', 'Player 2']).map(function (nm, i) {
+      players: [0, 1].map(function (i) {
+        const nm = (config && config.playerNames && config.playerNames[i]);
         return { id: i, name: nm || ('Player ' + (i + 1)), ap: 0, vp: 0, rp: 0 };
       }),
       /* { id, roles?, controlPoints?, relic? } — the engine fills the rest in. */
@@ -246,17 +247,12 @@ const Store = (function () {
   const unit  = id => state && state.units.find(u => u.id === id) || null;
   const owner = id => { const u = unit(id); return u ? u.owner : null; };
   const player = i => state.players[i];
-  const playerCount = () => state.players.length;
   const unitsOf = (i, aliveOnly) =>
     state.units.filter(u => u.owner === i && (!aliveOnly || u.alive));
 
-  /* Seating order — the turn passes around the table. */
-  const nextPlayer = i => (i + 1) % state.players.length;
-  const opponentsOf = i => state.players.map(p => p.id).filter(id => id !== i);
-
-  /* Only meaningful in a two-player game; anywhere it could be ambiguous the
-     engine asks instead of guessing. */
-  const opponentOf = i => (state.players.length === 2 ? 1 - i : nextPlayer(i));
+  /* Two players: your opponent and the next turn are the same person. */
+  const opponentOf = i => 1 - i;
+  const nextPlayer = i => 1 - i;
   const allTokens = () =>
     state.units.reduce((acc, u) => acc.concat((u.tokens || []).map(t =>
       Object.assign({}, t, { unitId: u.id, unitName: u.name, owner: u.owner }))), []);
@@ -273,7 +269,7 @@ const Store = (function () {
     rosters, saveRoster, deleteRoster, rekey,
     library, libSave, libDelete, libGet,
     // lookups
-    unit, owner, player, playerCount, nextPlayer, opponentsOf, opponentOf,
+    unit, owner, player, nextPlayer, opponentOf,
     unitsOf, allTokens
   };
 })();

@@ -165,7 +165,6 @@
         const cur = Store.get();
         const st = {
           playerNames: cur.players.map(pl => pl.name),
-          playerCount: cur.players.length,
           vpTarget: cur.settings.vpTarget, firstPlayer: 0, step: 0,
           // Mission markers belong to the mission, not the roster.
           units: JSON.parse(JSON.stringify(cur.units.filter(u => !u.marker))), open: {},
@@ -193,17 +192,11 @@
       case 'flowback': UI.clearDamageDraft(); Engine.flowBack(); return;
 
       case 'pickunit': Engine.flowPickUnit(p[1]); return;
-      case 'pickresponder': Engine.flowPickResponder(p[1] === 'none' ? null : Number(p[1])); return;
       case 'pickcp': Engine.flowPickControlPoint(p[1]); return;
       case 'confirmsecure': Engine.confirmSecure(); return;
       case 'confirmrelic': Engine.confirmRelic(); return;
       case 'flag': Engine.toggleUnitFlag(p[1], p[2]); UI.setModal(null); return;
       case 'newbutton': UI.setModal('newbutton'); return;
-      case 'vpwho': {
-        const q = g.vpPrompts[0];
-        if (q) Engine.reassignVP(q.id, Number(p[1]));
-        return;
-      }
       case 'picktargetunit': Engine.flowPickAttackTarget(p[1]); return;
       case 'pickweapon': Engine.flowPickWeapon(p[1]); return;
       case 'reaction': Engine.flowPickReaction(p[1], null); return;

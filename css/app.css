@@ -18,10 +18,6 @@
   --p1-dim:    #1e3f61;
   --p2:        #e05c4a;
   --p2-dim:    #5c2620;
-  --p3:        #4fb477;
-  --p3-dim:    #23503a;
-  --p4:        #a98ae6;
-  --p4-dim:    #402f63;
   --good:      #4fb477;
   --bad:       #e05c4a;
   --warn:      #e0a44a;
@@ -78,33 +74,10 @@ h1, h2, h3, h4 { margin: 0; font-weight: 700; letter-spacing: .02em; }
   background: linear-gradient(180deg, #131a22, #0f151b);
   border-bottom: 1px solid var(--line);
 }
-.topbar.cols2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.topbar.cols3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.topbar.cols4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-@media (min-width: 720px) { .topbar.cols4 { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.topbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .topbar > .pplate { min-width: 0; width: 100%; }
-
-/* Three- and four-player games get their own seats at the table. */
-.pplate.p2 { border-color: var(--p3-dim); }
-.pplate.p3 { border-color: var(--p4-dim); }
-.pplate.p2 .pname { color: var(--p3); }
-.pplate.p3 .pname { color: var(--p4); }
-.pplate.p2.active { color: var(--p3); background: linear-gradient(180deg, #163220, #141f19); }
-.pplate.p3.active { color: var(--p4); background: linear-gradient(180deg, #2b1f3d, #1c1826); }
-.controlbar.p2 { box-shadow: inset 3px 0 0 var(--p3); }
-.controlbar.p3 { box-shadow: inset 3px 0 0 var(--p4); }
-.rostercol.p2 > .colhead { color: var(--p3); }
-.rostercol.p3 > .colhead { color: var(--p4); }
-.unit.p2 { border-left-color: var(--p3-dim); }
-.unit.p3 { border-left-color: var(--p4-dim); }
-.unit.canact.p2 { border-left-color: var(--p3); }
-.unit.canact.p3 { border-left-color: var(--p4); }
-.choice.p2 { border-left: 3px solid var(--p3-dim); }
-.choice.p3 { border-left: 3px solid var(--p4-dim); }
 .btn.p0 { border-color: var(--p1-dim); }
 .btn.p1 { border-color: var(--p2-dim); }
-.btn.p2 { border-color: var(--p3-dim); }
-.btn.p3 { border-color: var(--p4-dim); }
 
 .pplate {
   background: var(--panel); border: 1px solid var(--line);
@@ -515,7 +488,6 @@ h1, h2, h3, h4 { margin: 0; font-weight: 700; letter-spacing: .02em; }
 
 .lead { font-size: 19px; font-weight: 800; letter-spacing: .01em; margin: 4px 0 10px; }
 .lead.p0 { color: var(--p1); } .lead.p1 { color: var(--p2); }
-.lead.p2 { color: var(--p3); } .lead.p3 { color: var(--p4); }
 
 .pickrow { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
 .pickbtn {
@@ -531,9 +503,7 @@ h1, h2, h3, h4 { margin: 0; font-weight: 700; letter-spacing: .02em; }
 .pickbtn.small { min-height: 46px; font-size: 13px; font-weight: 800; }
 
 .field label.p0 { color: var(--p1); } .field label.p1 { color: var(--p2); }
-.field label.p2 { color: var(--p3); } .field label.p3 { color: var(--p4); }
 .card .t.p0 { color: var(--p1); } .card .t.p1 { color: var(--p2); }
-.card .t.p2 { color: var(--p3); } .card .t.p3 { color: var(--p4); }
 
 /* --------------------------------------------------------- mission cards */
 
@@ -560,7 +530,6 @@ h1, h2, h3, h4 { margin: 0; font-weight: 700; letter-spacing: .02em; }
 .revrow .rn { font-weight: 700; font-size: 14px; }
 .revrow .rv { margin-left: auto; font-size: 11px; color: var(--ink-mute); }
 .revrow.p0 .rn { color: var(--p1); } .revrow.p1 .rn { color: var(--p2); }
-.revrow.p2 .rn { color: var(--p3); } .revrow.p3 .rn { color: var(--p4); }
 .revsub { font-size: 11.5px; color: var(--ink-dim); line-height: 1.45; margin-top: 2px; }
 
 /* ------------------------------------------------------ mission furniture */
@@ -581,10 +550,6 @@ h1, h2, h3, h4 { margin: 0; font-weight: 700; letter-spacing: .02em; }
 .cpchip.held.p0 b { color: var(--p1); }
 .cpchip.held.p1 { border-color: var(--p2); color: var(--p2); }
 .cpchip.held.p1 b { color: var(--p2); }
-.cpchip.held.p2 { border-color: var(--p3); color: var(--p3); }
-.cpchip.held.p2 b { color: var(--p3); }
-.cpchip.held.p3 { border-color: var(--p4); color: var(--p4); }
-.cpchip.held.p3 b { color: var(--p4); }
 
 .chip-s.mission { border-color: var(--gold-dim); color: var(--gold); background: #1e1a10; }
 
