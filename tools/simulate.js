@@ -1505,30 +1505,31 @@ const gk = sandbox.PRESETS.find(f => f.id === 'greyknights');
   Engine.startGame({ playerNames: ['Knights', 'Chaos'], vpTarget: 10, firstPlayer: 0,
                      mission: { id: null }, cards: { 0: gk.card } }, knights.concat(foes));
   check('the card is on its player', G().players[0].card.name, 'GREY KNIGHTS PSYCHIC');
-  check('and it starts with 4 PSY', G().players[0].card.resource.value, 4);
+  check('it starts on 4 PSY', G().players[0].card.resource.start, 4);
+  check('and gains one for the turn straight away, so turn one opens on 5',
+    G().players[0].card.resource.value, 5);
   check('the opponent has no card', G().players[1].card, null);
   check('Drusius does not start on the battlefield', U('Brother Drusius').reserve, true);
   check('the others do', U('Brother Lucius').reserve, false);
 
-  check('powers are live in the Start Phase',
+  check('everything on the card is affordable on 5 PSY',
     Engine.cardAbilities(0).map(a => a.available.ok), [true, true, true]);
   check('the opponent cannot buy in someone else’s phase',
     Engine.cardAbilities(1).length, 0);
 
-  /* 1 PSY — Warpstride: +3" MOV on a friendly unit until the chain ends. */
-  Engine.useCardAbility(0, 'gk_warpstride');
-  check('it asks which friendly unit', G().flow.kind, 'card');
-  const strideEff = Engine.cardAbility(0, 'gk_warpstride').effects[0];
-  Engine.flowPickTarget(strideEff.id, U('Brother Lucius').id);
-  Engine.confirmCard();
-  check('PSY is spent', G().players[0].card.resource.value, 3);
-  check('and the unit moves further', Engine.unitMoveMod(U('Brother Lucius').id), 3);
+  /* 3 PSY — Warp Charge: 2 AP, no target to choose. */
+  const apBeforeCharge = ap(0);
+  Engine.useCardAbility(0, 'gk_warpcharge');
+  check('a power with no target resolves at once', G().flow, null);
+  check('Warp Charge pays out 2 AP', ap(0) - apBeforeCharge, 2);
+  check('PSY is spent', G().players[0].card.resource.value, 2);
 
   /* 1 PSY — Sanctifying Barrage: the next Storm Bolter attack rolls 2 dice. */
   Engine.useCardAbility(0, 'gk_barrage');
-  check('a power with no target resolves at once', G().flow, null);
   check('it is waiting as a buff', G().players[0].buffs.length, 1);
-  check('PSY down to 2', G().players[0].card.resource.value, 2);
+  check('PSY down to 1', G().players[0].card.resource.value, 1);
+  check('so the 2 PSY power is now out of reach',
+    Engine.cardAbilities(0).find(a => a.id === 'gk_gate').available.why, 'not enough PSY');
 
   Engine.confirmStartPhase();
   check('powers are dead outside the Start Phase',
@@ -1693,6 +1694,29 @@ console.log('\n== GREY KNIGHTS: Gate of Infinity off the card ==');
     Engine.unitActions(U('Brother Lucius').id).some(a => a.id === 'shoot'), true);
 })();
 
+
+
+console.log('\n== a home-made "+3 MOV" ability ==');
+(function () {
+  /* Warpstride left the Grey Knights card, but the effect it needed is still in
+     the builder for anyone house-ruling one of their own. */
+  const runner = mkUnit(0, 'Runner', 2, 4,
+    [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 }],
+    [{ name: 'Sprint', trigger: 'ap', cost: 1, text: '+3" MOV until the chain ends',
+       effects: [{ kind: 'mod_move', value: 3, pick: 'self', duration: 'chain' }] }]);
+  const foe = mkUnit(1, 'Target', 2, 4,
+    [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], []);
+  Engine.startGame({ playerNames: ['A', 'B'], vpTarget: 10, firstPlayer: 0,
+                     mission: { id: null } }, [runner, foe]);
+  Engine.confirmStartPhase();
+  check('MOV starts unmodified', Engine.unitMoveMod(U('Runner').id), 0);
+  Engine.beginAction('ability', U('Runner').id);
+  Engine.flowPickAbility(U('Runner').abilities[0].id);
+  Engine.confirmAbility();
+  check('and the ability adds to it', Engine.unitMoveMod(U('Runner').id), 3);
+  Engine.forceEndChain();
+  check('it goes when the chain does', Engine.unitMoveMod(U('Runner').id), 0);
+})();
 
 console.log('\n== summary ==');
 console.log((checks - fails) + '/' + checks + ' checks passed');

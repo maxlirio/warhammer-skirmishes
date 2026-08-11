@@ -419,22 +419,21 @@ const PRESETS = [
     resource: { name: 'PSY', start: 4, perTurn: 1 },
     lines: [
       'The Grey Knights begin the game with 4 PSY points.',
-      'START: You may spend PSY points on an ability on this card.'
+      'START: Gain 1 PSY. You may spend PSY points on an ability on this card.'
     ],
     abilities: [
       { id: 'gk_barrage', name: 'Sanctifying Barrage', cost: 1,
         text: 'Your next attack with a Storm Bolter rolls 2 dice rather than 1.',
         effects: [{ kind: 'dice', value: 2, weaponName: 'Storm Bolter', scope: 'player',
                     text: 'Your next attack with a Storm Bolter rolls 2 dice rather than 1.' }] },
-      { id: 'gk_warpstride', name: 'Warpstride', cost: 1,
-        text: 'Add 3" to a friendly unit\'s move characteristic until the end of this action chain.',
-        effects: [{ kind: 'mod_move', value: 3, pick: 'prompt', side: 'friendly', duration: 'chain',
-                    text: '+3" MOV until the end of this action chain.' }] },
       { id: 'gk_gate', name: 'Gate of Infinity', cost: 2, moves: true,
         text: 'Choose a friendly unit. Place that unit anywhere on the battlefield. This ' +
               'triggers overwatch. That unit may not MOVE this turn.',
         effects: [{ kind: 'place', pick: 'prompt', side: 'friendly', noMoveThisTurn: true,
-                    text: 'Place that unit anywhere on the battlefield.' }] }
+                    text: 'Place that unit anywhere on the battlefield.' }] },
+      { id: 'gk_warpcharge', name: 'Warp Charge', cost: 3,
+        text: 'Gain 2 AP.',
+        effects: [{ kind: 'ap_self', value: 2 }] }
     ]
   },
   units: [
@@ -444,9 +443,7 @@ const PRESETS = [
       notes: '"The fires of purity thirst for your blood!"',
       weapons: [
         { name: 'Storm Bolter', type: 'ranged', range: 12, hit: 2, strength: 3, damage: 1 },
-        { name: 'Purifying Flame', type: 'ranged', range: 18, hit: null, strength: null, damage: null,
-          notes: 'The card gives this weapon a range of 18" and no Hit, Strength or Damage — ' +
-                 'fill them in before you use it.' },
+        { name: 'Purifying Flame', type: 'ranged', range: 18, hit: 3, strength: 4, damage: 1 },
         { name: 'Nemesis Halberd', type: 'melee', range: 2, hit: 3, strength: 4, damage: 1 }
       ],
       abilities: [

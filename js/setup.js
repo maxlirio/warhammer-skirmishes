@@ -320,8 +320,9 @@ const Setup = (function () {
       '<div class="shd">FACTION CARD</div>' +
       '<div class="lead" style="font-size:15px;margin:0 0 4px">' + esc(c.name) + '</div>' +
       (c.tagline ? '<div class="hint">' + esc(c.tagline) + '</div>' : '') +
-      (c.resource ? '<div class="hint">Starts with ' + c.resource.start + ' ' +
-        esc(c.resource.name) + ', and gains ' + c.resource.perTurn + ' every turn.</div>' : '') +
+      (c.resource ? '<div class="hint">Begins the game with ' + c.resource.start + ' ' +
+        esc(c.resource.name) + ' and gains ' + c.resource.perTurn +
+        ' at the start of every turn, including the first.</div>' : '') +
       (c.abilities || []).map(a => '<div class="hint" style="margin-top:4px">' +
         '<b>' + a.cost + (c.resource ? ' ' + esc(c.resource.name) : '') + '</b> — ' +
         esc(a.name) + ': ' + esc(a.text) + '</div>').join('') +

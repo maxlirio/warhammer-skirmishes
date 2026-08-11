@@ -333,8 +333,10 @@ const Engine = (function () {
       (u.abilities || []).forEach(function (a) { a.usedTurn = 0; });
     });
     log('— TURN ' + g.turn.number + ': ' + pname(playerId) + ' —', 'big');
+    /* "GAIN 1 PSY EVERY TURN" — including your first, so the Grey Knights
+       start their opening turn on 5. */
     const card = g.players[playerId].card;
-    if (card && card.resource && card.resource.perTurn && !firstTurn) {
+    if (card && card.resource && card.resource.perTurn) {
       card.resource.value += Number(card.resource.perTurn) || 0;
       log(pname(playerId) + ' gains ' + card.resource.perTurn + ' ' + card.resource.name +
         ' (now ' + card.resource.value + ').', 'ap');

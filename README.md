@@ -204,10 +204,11 @@ belongs to the **player**, not to any one unit: it sits under the score plates
 with its pool, its powers are listed inside it, and the pool has ± buttons like
 every other number in the app.
 
-The Grey Knights' **PSY** is the built-in example — 4 to start, 1 more every
-turn, spent in their Start Phase on *Sanctifying Barrage*, *Warpstride* or
-*Gate of Infinity*. Outside that phase the powers are shown but struck out with
-the reason, so nobody has to remember when they were allowed.
+The Grey Knights' **PSY** is the built-in example — 4 to begin with, 1 more at
+the start of every turn including the first, spent on *Sanctifying Barrage*
+(1), *Gate of Infinity* (2) or *Warp Charge* (3). Outside that phase the powers
+are shown but struck out with the reason, so nobody has to remember when they
+were allowed, and anything you cannot currently afford says so.
 
 ## Weapons that roll more than one dice
 
