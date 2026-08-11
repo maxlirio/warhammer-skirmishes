@@ -93,9 +93,27 @@ const Engine = (function () {
   function startGame(config, units) {
     const g = Store.newGame(config);
     g.units = units;
+    /* A faction card rides on the player, not on a unit — it has its own pool
+       (the Grey Knights' PSY) that the player spends in their Start Phase. */
+    [0, 1].forEach(function (i) {
+      const c = config && config.cards && config.cards[i];
+      if (!c) return;
+      g.players[i].card = JSON.parse(JSON.stringify(c));
+      const r = g.players[i].card.resource;
+      if (r) r.value = Number(r.start) || 0;
+    });
     Store.setState(g);
     Store.commit('start game', function () {
       log('— GAME START —', 'big');
+      g.players.forEach(function (p) {
+        if (!p.card) return;
+        log(p.name + ' brings ' + p.card.name +
+          (p.card.resource ? ' — ' + p.card.resource.value + ' ' + p.card.resource.name +
+                             ' to start' : '') + '.', 'action');
+      });
+      g.units.filter(u => u.reserve).forEach(function (u) {
+        log(u.name + ' does not start on the battlefield — it is in RESERVE.', 'note');
+      });
       applyMission();
       g.setupQueue = [];
       g.units.forEach(function (u) {
@@ -307,7 +325,20 @@ const Engine = (function () {
     g.chain = { active: false, id: g.chain.id, initiator: null, entries: [], weaponsUsed: [] };
     expireEffects('round', playerId);
     expireTokens('round', playerId);
+    /* "…if this unit has not moved this turn" and "may not MOVE this turn" both
+       reset here, as do once-per-turn abilities. */
+    g.units.forEach(function (u) {
+      u.movedThisTurn = false;
+      u.noMoveTurn = false;
+      (u.abilities || []).forEach(function (a) { a.usedTurn = 0; });
+    });
     log('— TURN ' + g.turn.number + ': ' + pname(playerId) + ' —', 'big');
+    const card = g.players[playerId].card;
+    if (card && card.resource && card.resource.perTurn && !firstTurn) {
+      card.resource.value += Number(card.resource.perTurn) || 0;
+      log(pname(playerId) + ' gains ' + card.resource.perTurn + ' ' + card.resource.name +
+        ' (now ' + card.resource.value + ').', 'ap');
+    }
     g.pending = {
       type: 'start',
       player: playerId,
@@ -483,6 +514,22 @@ const Engine = (function () {
     if (t) log('Token removed by hand: [' + t.label + '] (' + u.name + ').', 'muted');
   }
 
+  /* A unit in RESERVE is not on the table: it cannot be shot at, chosen as a
+     target, counted or fired from until something places it. */
+  const onTable = u => !!u && u.alive && !u.reserve;
+
+  /* Remembered so "if this unit has not moved this turn" can answer itself. */
+  function noteMoved(unitId) {
+    const u = Store.unit(unitId);
+    if (u) u.movedThisTurn = true;
+  }
+
+  function unitMoveMod(unitId) {
+    const u = Store.unit(unitId);
+    if (!u) return 0;
+    return (u.effects || []).reduce((n, e) => n + (Number(e.moveMod) || 0), 0);
+  }
+
   /* "+1 damage against a MARKED unit": a passive on the attacker that only
      pays off when the target is carrying the named chip. */
   function markDamageBonus(attackerId, targetId, weapon) {
@@ -586,21 +633,31 @@ const Engine = (function () {
     return { hit: hit, wound: wound, strength: strength };
   }
 
-  /* Reactions a friendly aura forbids — shown struck through, with the source. */
-  function blockedReactions(defenderId) {
+  /* Reactions something forbids — shown struck through, with the source.
+     Two directions: a friendly passive that bans a reaction for its own squad
+     (the Commissar's WITHDRAW ban), and an attacker's passive that bans one for
+     whoever it is attacking, optionally only with one named weapon
+     ("Enemy units cannot DIVE when this unit uses its Purifying Flame"). */
+  function blockedReactions(defenderId, attackerId, weapon) {
     const g = S();
     const def = Store.unit(defenderId);
     if (!def) return {};
     const out = {};
-    g.units.filter(u => u.alive && u.owner === def.owner).forEach(function (u) {
+    const scan = (u, wantScope, why) =>
       (u.abilities || []).filter(a => a.trigger === 'passive').forEach(function (a) {
         (a.effects || []).forEach(function (e) {
-          if (e.kind === 'blockreact' && e.reaction) {
-            out[e.reaction] = u.name + ': ' + a.name;
-          }
+          if (e.kind !== 'blockreact' || !e.reaction) return;
+          if ((e.scope || 'friendly') !== wantScope) return;
+          if (e.weaponName && (!weapon ||
+              String(e.weaponName).toLowerCase() !== String(weapon.name).toLowerCase())) return;
+          out[e.reaction] = why(u) + ': ' + a.name;
         });
       });
-    });
+
+    g.units.filter(u => u.alive && u.owner === def.owner)
+      .forEach(u => scan(u, 'friendly', x => x.name));
+    const atk = Store.unit(attackerId);
+    if (atk && atk.alive) scan(atk, 'enemy', x => x.name);
     return out;
   }
 
@@ -741,7 +798,8 @@ const Engine = (function () {
   /* Which effect rows need the player to pick a unit before they resolve. */
   function effectsNeedingTarget(ability, ctx) {
     return (ability.effects || []).filter(function (e) {
-      if (['damage', 'heal', 'mod_hit', 'mod_wound', 'mod_strength', 'mark'].indexOf(e.kind) < 0) return false;
+      if (['damage', 'heal', 'mod_hit', 'mod_wound', 'mod_strength', 'mark',
+           'place', 'mod_move'].indexOf(e.kind) < 0) return false;
       const pick = e.pick || 'prompt';
       if (pick === 'self') return false;
       if ((pick === 'attacker' || pick === 'defender') && ctx && ctx.attack) return false;
@@ -770,7 +828,18 @@ const Engine = (function () {
       const v = Number(e.value) || 0;
       switch (e.kind) {
         case 'ap_self':     grantAP(me, v, ctx.label); break;
-        case 'ap_opponent': grantAP(opp, v, ctx.label); break;
+        case 'ap_opponent': {
+          /* "…gains 1 AP for each unit damaged in this way, to a maximum of 2." */
+          if (e.perDamaged) {
+            const n = Math.min(ctx.damaged || 0, Number(e.max) || Infinity) * (v || 1);
+            if (n > 0) grantAP(opp, n, ctx.label);
+            else chainEntry(ctx.label + ': nothing was damaged, so ' + pname(opp) +
+              ' gains no AP.', 'note');
+            break;
+          }
+          grantAP(opp, v, ctx.label);
+          break;
+        }
         case 'ap_drain':
           g.players[opp].ap = Math.max(0, g.players[opp].ap - v);
           chainEntry(pname(opp) + ' loses ' + v + ' AP (' + ctx.label + ') — now ' + g.players[opp].ap + '.', 'ap');
@@ -782,9 +851,12 @@ const Engine = (function () {
           break;
         case 'vp_self':     scoreVP(me, v, ctx.label); break;
         case 'vp_opponent': scoreVP(opp, v, ctx.label); break;
-        case 'damage':
-          asList(resolveEffectTarget(e, ctx)).forEach(tid => dealDamage(tid, v, me, ctx.label + ': '));
+        case 'damage': {
+          const hit = asList(resolveEffectTarget(e, ctx));
+          hit.forEach(tid => dealDamage(tid, v, me, ctx.label + ': '));
+          ctx.damaged = (ctx.damaged || 0) + hit.length;
           break;
+        }
         case 'heal':
           asList(resolveEffectTarget(e, ctx)).forEach(tid => heal(tid, v));
           break;
@@ -924,6 +996,56 @@ const Engine = (function () {
             : 'no ' + want + ' tokens to remove.'), 'effect');
           break;
         }
+        /* Teleports. WHERE it lands is the players' business — the app only
+           records that it is on the table now, prints the card's restriction,
+           and remembers that it counts as having moved. */
+        case 'place': {
+          const ids = (e.pick === 'self')
+            ? [ctx.sourceUnitId]
+            : asList(resolveEffectTarget(e, ctx));
+          ids.filter(Boolean).forEach(function (tid) {
+            const tu = Store.unit(tid);
+            if (!tu) return;
+            const arrived = tu.reserve;
+            tu.reserve = false;
+            noteMoved(tid);
+            if (e.noMoveThisTurn) tu.noMoveTurn = true;
+            chainEntry(tu.name + (arrived ? ' arrives from RESERVE' : ' is placed') +
+              ' (' + ctx.label + ').', 'action');
+            if (e.noMoveThisTurn) {
+              chainEntry(tu.name + ' may not MOVE for the rest of this turn.', 'effect');
+            }
+          });
+          if (e.text) chainEntry('Tabletop: ' + e.text, 'note');
+          ctx.placed = (ctx.placed || []).concat(ids.filter(Boolean));
+          break;
+        }
+        case 'mod_move': {
+          const tid = resolveEffectTarget(e, ctx) || ctx.sourceUnitId;
+          if (!tid) break;
+          addEffect(tid, {
+            label: ctx.label + ' (' + (v > 0 ? '+' : '') + v + '" MOV)',
+            detail: e.text || '', moveMod: v, duration: e.duration || 'chain',
+            ownerPlayer: Store.owner(tid)
+          });
+          chainEntry(uname(tid) + ': MOV is ' + ((Store.unit(tid).move || 0) + unitMoveMod(tid)) +
+            '" ' + (e.duration === 'chain' ? 'until this action chain ends' : '') +
+            ' (' + ctx.label + ').', 'effect');
+          break;
+        }
+        /* "Your next attack with a Storm Bolter rolls 2 dice rather than 1" —
+           bought now, spent by whichever attack uses that weapon next. */
+        case 'dice': {
+          if ((e.scope || 'player') !== 'player') break;
+          g.players[me].buffs = (g.players[me].buffs || []).concat([{
+            id: Store.nextId('bf'), kind: 'dice', value: Number(e.value) || 2,
+            weaponName: e.weaponName || '', label: ctx.label, text: e.text || ''
+          }]);
+          chainEntry(pname(me) + ': ' + ctx.label + ' is ready — ' +
+            (e.weaponName ? 'the next ' + e.weaponName + ' attack' : 'the next attack') +
+            ' rolls ' + (Number(e.value) || 2) + ' dice.', 'effect');
+          break;
+        }
         case 'note':
           chainEntry(ctx.label + ': ' + (e.text || 'see ability text'), 'note');
           break;
@@ -986,6 +1108,10 @@ const Engine = (function () {
     if (!eligibleUnits().some(x => x.id === unitId)) return [];
     return actionList().filter(function (a) {
       if (a.noUnit) return false;                       // PASS has its own button
+      /* Off the battlefield: the only thing it can do is arrive. */
+      if (u.reserve) return a.flow === 'ability' && usableAPAbilities(u).length > 0;
+      // "That unit may not MOVE this turn."
+      if (a.id === 'move' && u.noMoveTurn) return false;
       const av = actionAvailability(a);
       if (av.hide) return false;
       if (a.flow === 'attack') {
@@ -1001,16 +1127,23 @@ const Engine = (function () {
   }
 
   function usableFreeAbilities(u) {
+    if (u.reserve) return [];
     return (u.abilities || []).filter(a => a.trigger === 'free' &&
       (!a.usesPerGame || (a.used || 0) < a.usesPerGame));
   }
+
+  /* Whatever brings a unit in from RESERVE — the only thing it may do there. */
+  const isArrival = a =>
+    (a.effects || []).some(e => e.kind === 'place' && e.fromReserve);
 
   function usableAPAbilities(u) {
     const g = S();
     return (u.abilities || []).filter(a =>
       a.trigger === 'ap' &&
+      (!u.reserve || isArrival(a)) &&
       (Number(a.cost) || 0) <= g.players[u.owner].ap &&
-      (!a.usesPerGame || (a.used || 0) < a.usesPerGame));
+      (!a.usesPerGame || (a.used || 0) < a.usesPerGame) &&
+      (!a.usesPerTurn || (a.usedTurn || 0) < a.usesPerTurn));
   }
 
   function weaponsFor(unitId, range) {
@@ -1132,6 +1265,7 @@ const Engine = (function () {
         grantAP(responder, action.opponentGainsAP, action.name);
       }
       const movedUnit = f.unitId;
+      if (action.movesUnit) noteMoved(movedUnit);
       g.flow = null;
       if (action.movesUnit && openOverwatchCheck(movedUnit, {
             type: 'simple', actor: actor, endsChain: action.endsChain, reason: action.name })) {
@@ -1283,14 +1417,31 @@ const Engine = (function () {
     });
   }
 
+  /* Abilities, tokens and faction-card powers all pick targets the same way. */
+  function flowSource(f) {
+    if (!f) return { effects: [], sourceUnitId: null };
+    if (f.kind === 'token') {
+      return { effects: tokenEffects(f.unitId, f.tokenId), sourceUnitId: f.unitId };
+    }
+    if (f.kind === 'card') {
+      const ab = cardAbility(f.playerId, f.abilityId);
+      return { effects: ab ? ab.effects : [], sourceUnitId: null };
+    }
+    const ab = findAbility(f.unitId, f.abilityId);
+    return { effects: ab ? ab.effects : [], sourceUnitId: f.unitId };
+  }
+
+  function flowNeeds(f) {
+    const src = flowSource(f);
+    return effectsNeedingTarget({ effects: src.effects }, { sourceUnitId: src.sourceUnitId });
+  }
+
   function flowPickTarget(effectId, unitId) {
     Store.commit('select target', function () {
-      const g = S();
-      const f = g.flow;
-      const ab = findAbility(f.unitId, f.abilityId);
-      const needs = effectsNeedingTarget(ab, { sourceUnitId: f.unitId });
+      const f = S().flow;
+      const needs = flowNeeds(f);
       const e = needs.find(x => x.id === effectId);
-      if (e && e.pick === 'multi') { toggleMulti(f, effectId, unitId); return; }
+      if (e && e.pick === 'multi') { toggleMulti(f, e, unitId); return; }
       f.targets[effectId] = unitId;
       const done = needs.every(x => filled(f.targets[x.id]));
       if (done) f.step = 'confirm';
@@ -1300,24 +1451,100 @@ const Engine = (function () {
 
   const filled = t => Array.isArray(t) ? t.length > 0 : !!t;
 
-  function toggleMulti(f, effectId, unitId) {
-    const cur = Array.isArray(f.targets[effectId]) ? f.targets[effectId] : [];
-    f.targets[effectId] = cur.indexOf(unitId) >= 0
-      ? cur.filter(x => x !== unitId) : cur.concat([unitId]);
+  function toggleMulti(f, e, unitId) {
+    const cur = Array.isArray(f.targets[e.id]) ? f.targets[e.id] : [];
+    const on = cur.indexOf(unitId) >= 0;
+    // "…up to two friendly units": the app holds you to the number on the card.
+    if (!on && e.max && cur.length >= Number(e.max)) return;
+    f.targets[e.id] = on ? cur.filter(x => x !== unitId) : cur.concat([unitId]);
   }
 
   /* "That's everyone" on a multi-unit pick. */
   function flowDoneTargets() {
     Store.commit('targets chosen', function () {
-      const g = S();
-      const f = g.flow;
+      const f = S().flow;
       if (!f) return;
-      const list = f.kind === 'token'
-        ? effectsNeedingTarget({ effects: tokenEffects(f.unitId, f.tokenId) }, { sourceUnitId: f.unitId })
-        : effectsNeedingTarget(findAbility(f.unitId, f.abilityId), { sourceUnitId: f.unitId });
-      const next = list.findIndex(x => !filled(f.targets[x.id]));
+      const next = flowNeeds(f).findIndex(x => !filled(f.targets[x.id]));
       if (next >= 0) { f.pickIndex = next; return; }
       f.step = 'confirm';
+    });
+  }
+
+  /* ------------------------------------------------------- faction cards */
+
+  const cardOf = playerId => (S().players[playerId] || {}).card || null;
+
+  function cardAbility(playerId, abilityId) {
+    const c = cardOf(playerId);
+    return (c && (c.abilities || []).find(a => a.id === abilityId)) || null;
+  }
+
+  /* The card says START:, so the powers are only buyable in that phase. */
+  function cardAbilities(playerId) {
+    const g = S();
+    const c = cardOf(playerId);
+    if (!c) return [];
+    const res = c.resource ? Number(c.resource.value) || 0 : 0;
+    const inStart = !!(g.pending && g.pending.type === 'start' && g.pending.player === playerId);
+    return (c.abilities || []).map(function (a) {
+      const cost = Number(a.cost) || 0;
+      let why = '';
+      if (!inStart) why = 'only in ' + pname(playerId) + '’s Start Phase';
+      else if (c.resource && cost > res) why = 'not enough ' + c.resource.name;
+      return Object.assign({}, a, { available: { ok: !why, why: why } });
+    });
+  }
+
+  function useCardAbility(playerId, abilityId) {
+    Store.commit('card power', function () {
+      const g = S();
+      const av = cardAbilities(playerId).find(a => a.id === abilityId);
+      if (!av || !av.available.ok) return;
+      const ab = cardAbility(playerId, abilityId);
+      if (effectsNeedingTarget(ab, { sourceUnitId: null }).length) {
+        g.flow = { kind: 'card', playerId: playerId, abilityId: abilityId,
+                   targets: {}, pickIndex: 0, step: 'pick' };
+        return;
+      }
+      resolveCardAbility(playerId, abilityId, {});
+    });
+  }
+
+  function confirmCard() {
+    Store.commit('card power', function () {
+      const g = S();
+      const f = g.flow;
+      if (!f || f.kind !== 'card') return;
+      const pid = f.playerId, aid = f.abilityId, tg = f.targets;
+      g.flow = null;
+      resolveCardAbility(pid, aid, tg);
+    });
+  }
+
+  function resolveCardAbility(playerId, abilityId, targets) {
+    const c = cardOf(playerId);
+    const ab = cardAbility(playerId, abilityId);
+    if (!c || !ab) return;
+    const cost = Number(ab.cost) || 0;
+    if (c.resource) {
+      c.resource.value = Math.max(0, (Number(c.resource.value) || 0) - cost);
+      log(pname(playerId) + ' spends ' + cost + ' ' + c.resource.name + ' on “' + ab.name +
+        '” — ' + c.resource.value + ' left.', 'action');
+    } else {
+      log(pname(playerId) + ' uses “' + ab.name + '”.', 'action');
+    }
+    const ctx = { sourceUnitId: null, sourcePlayer: playerId,
+                  targets: targets || {}, label: ab.name };
+    applyEffects(ab.effects, ctx);
+    checkVictory();
+    openOverwatchFor(ctx.placed || [], { type: 'none' });
+  }
+
+  function adjustCardResource(playerId, delta) {
+    Store.commit('adjust resource', function () {
+      const c = cardOf(playerId);
+      if (!c || !c.resource) return;
+      c.resource.value = Math.max(0, (Number(c.resource.value) || 0) + delta);
     });
   }
 
@@ -1343,9 +1570,11 @@ const Engine = (function () {
       if (!f) return;
       /* A card button, not a Standard Action: no AP, no effect on the chain. */
       if (f.freeUse) {
-        const uid = f.unitId, aid = f.abilityId, tg = f.targets, setup = f.setupStep;
+        const uid = f.unitId, aid = f.abilityId, tg = f.targets;
+        const setup = f.setupStep, phase = f.phaseStep;
         g.flow = null;
-        resolveFreeAbility(uid, aid, tg);
+        if (phase) resolvePhaseAbility(uid, aid, tg);
+        else resolveFreeAbility(uid, aid, tg);
         if (setup) advanceSetupQueue();
         return;
       }
@@ -1357,6 +1586,7 @@ const Engine = (function () {
       openChain(actor);
       spendAP(actor, Number(ab.cost) || 0);
       ab.used = (ab.used || 0) + 1;
+      ab.usedTurn = (ab.usedTurn || 0) + 1;
       chainEntry(pname(actor) + ': ' + uname(f.unitId) + ' → SPECIAL ABILITY “' + ab.name + '”.', 'action');
       const ctx = {
         sourceUnitId: f.unitId, sourcePlayer: actor, targets: f.targets,
@@ -1366,7 +1596,9 @@ const Engine = (function () {
       const ends = !abilityLetsThemReact(ab);
       if (ends) chainEntry('“' + ab.name + '” does not let the opponent react — the chain ends.', 'note');
       const unitId = f.unitId;
-      const abilityMoves = !!ab.moves;
+      /* Whatever the ability moved: the unit itself, or the units it placed. */
+      const movers = (ctx.placed && ctx.placed.length)
+        ? ctx.placed : (ab.moves ? [unitId] : []);
       g.flow = null;
 
       /* The ability says "make an attack" — hand straight over to the attack
@@ -1380,8 +1612,9 @@ const Engine = (function () {
         }
         return;
       }
-      if (abilityMoves && openOverwatchCheck(unitId, {
-            type: 'simple', actor: actor, endsChain: ends, reason: ab.name })) {
+      if (openOverwatchFor(movers, {
+            type: 'simple', actor: actor, endsChain: ends, reason: ab.name,
+            ignoreDown: movers.length > 1 })) {
         return;
       }
       afterAction({ actor: actor, endsChain: ends, forcedUnitId: null, reason: ab.name });
@@ -1427,30 +1660,52 @@ const Engine = (function () {
     const ab = findAbility(unitId, abilityId);
     if (!ab || !u) return;
     ab.used = (ab.used || 0) + 1;
+    ab.usedTurn = (ab.usedTurn || 0) + 1;
     chainEntry(u.name + ' uses “' + ab.name + '”.', 'action');
     const ctx = { sourceUnitId: unitId, sourcePlayer: u.owner, targets: targets || {}, label: ab.name };
     applyEffects(ab.effects, ctx);
     checkVictory();
     if (ctx.freeAttack) { openFreeAttack(unitId, ctx.freeAttack); return; }
-    if (ab.moves) openOverwatchCheck(unitId, { type: 'none' });
+    const movers = (ctx.placed && ctx.placed.length) ? ctx.placed : (ab.moves ? [unitId] : []);
+    openOverwatchFor(movers, { type: 'none' });
   }
 
-  /* START:/END: abilities fired from the phase modal. */
+  /* START:/END: abilities fired from the phase modal. Some of them need a unit
+     chosen first ("place up to two friendly units"), so they open a picker over
+     the phase modal and come back to it. */
   function usePhaseAbility(unitId, abilityId) {
     Store.commit('phase ability', function () {
-      const u = Store.unit(unitId);
+      const g = S();
       const ab = findAbility(unitId, abilityId);
       if (!ab) return;
-      ab.used = (ab.used || 0) + 1;
-      log(u.name + ' — ' + ab.trigger.toUpperCase() + ': “' + ab.name + '”.', 'action');
-      applyEffects(ab.effects, {
-        sourceUnitId: unitId, sourcePlayer: u.owner, targets: {}, label: ab.name
-      });
-      const g = S();
+      if (effectsNeedingTarget(ab, { sourceUnitId: unitId }).length) {
+        g.flow = { kind: 'ability', freeUse: true, phaseStep: true, actionId: 'ability',
+                   unitId: unitId, abilityId: abilityId,
+                   targets: {}, pickIndex: 0, step: 'pick' };
+        return;
+      }
+      resolvePhaseAbility(unitId, abilityId, {});
+    });
+  }
+
+  function resolvePhaseAbility(unitId, abilityId, targets) {
+    const g = S();
+    const u = Store.unit(unitId);
+    const ab = findAbility(unitId, abilityId);
+    if (!u || !ab) return;
+    ab.used = (ab.used || 0) + 1;
+    ab.usedTurn = (ab.usedTurn || 0) + 1;
+    log(u.name + ' — ' + ab.trigger.toUpperCase() + ': “' + ab.name + '”.', 'action');
+    const ctx = { sourceUnitId: unitId, sourcePlayer: u.owner,
+                  targets: targets || {}, label: ab.name };
+    applyEffects(ab.effects, ctx);
+    if (g.pending) {
       if (!g.pending.fired) g.pending.fired = [];
       g.pending.fired.push(abilityId);
-      if (ab.moves) openOverwatchCheck(unitId, { type: 'none' });
-    });
+    }
+    checkVictory();
+    const movers = (ctx.placed && ctx.placed.length) ? ctx.placed : (ab.moves ? [unitId] : []);
+    openOverwatchFor(movers, { type: 'none' });
   }
 
   /* ================================================================ ATTACK */
@@ -1511,6 +1766,7 @@ const Engine = (function () {
     /* A charge moves the attacker first, which may walk into a waiting trigger. */
     const action2 = actionDef(f.actionId);
     if (action2 && action2.movesUnit) {
+      noteMoved(f.attackerId);
       const parked = JSON.parse(JSON.stringify(f));
       if (openOverwatchCheck(f.attackerId, { type: 'attack', flow: parked })) return;
     }
@@ -1525,6 +1781,83 @@ const Engine = (function () {
     const aw = unitWoundMod(f.attackerId);
     if (ah) { f.hitMod += ah; f.notes.push('Attacker\'s standing effects: ' + (ah > 0 ? '+' : '') + ah + ' to hit.'); }
     if (aw) { f.woundMod += aw; f.notes.push('Attacker\'s standing effects: ' + (aw > 0 ? '+' : '') + aw + ' to wound.'); }
+    f.diceOn = {};
+    diceOptions(f).forEach(function (o) {
+      if (o.auto || o.suggested) f.diceOn[o.key] = true;
+    });
+  }
+
+  /* "Rolls 4 dice instead of one." A weapon can throw more than one shot, from
+     a passive on the attacker (which may carry a condition the app can answer
+     for itself) or from a one-shot power bought off a faction card. */
+  function diceOptions(f) {
+    if (!f || f.kind !== 'attack' || !f.weaponId) return [];
+    const g = S();
+    const atk = Store.unit(f.attackerId);
+    const weapon = atk && (atk.weapons || []).find(w => w.id === f.weaponId);
+    if (!atk || !weapon) return [];
+    const same = n => String(n || '').toLowerCase() === String(weapon.name).toLowerCase();
+    const out = [];
+    (atk.abilities || []).filter(a => a.trigger === 'passive').forEach(function (a) {
+      (a.effects || []).forEach(function (e, i) {
+        if (e.kind !== 'dice') return;
+        if (e.weaponName && !same(e.weaponName)) return;
+        const notMoved = e.condition === 'notmoved';
+        out.push({
+          key: 'ab:' + a.id + ':' + (e.id || i),
+          value: Number(e.value) || 2,
+          label: a.name,
+          text: e.text || a.text || '',
+          condition: notMoved ? 'this unit has not moved this turn' : (e.condition || ''),
+          suggested: notMoved ? !atk.movedThisTurn : true,
+          auto: false
+        });
+      });
+    });
+    (g.players[atk.owner].buffs || []).forEach(function (b) {
+      if (b.kind !== 'dice') return;
+      if (b.weaponName && !same(b.weaponName)) return;
+      out.push({ key: 'buff:' + b.id, value: Number(b.value) || 2, label: b.label,
+                 text: b.text || '', condition: '', suggested: true, auto: true });
+    });
+    return out;
+  }
+
+  function attackDice(f) {
+    let n = 1;
+    const applied = [];
+    diceOptions(f).forEach(function (o) {
+      if (!o.auto && !((f.diceOn || {})[o.key])) return;
+      applied.push(o);
+      n = Math.max(n, o.value);          // "rolls N dice rather than 1" — a set, not a sum
+    });
+    return { count: n, applied: applied };
+  }
+
+  function toggleDice(key) {
+    Store.commit('dice', function () {
+      const f = S().flow;
+      if (!f) return;
+      f.diceOn = f.diceOn || {};
+      f.diceOn[key] = !f.diceOn[key];
+    });
+  }
+
+  /* A card power that buffed "your next attack with a Storm Bolter" is spent by
+     the attack that used it, hit or miss. */
+  function spendDiceBuffs(f) {
+    const g = S();
+    const atk = Store.unit(f.attackerId);
+    if (!atk) return;
+    const used = attackDice(f).applied.filter(o => o.key.indexOf('buff:') === 0)
+      .map(o => o.key.slice(5));
+    if (!used.length) return;
+    const p = g.players[atk.owner];
+    p.buffs = (p.buffs || []).filter(function (b) {
+      if (used.indexOf(b.id) < 0) return true;
+      chainEntry(b.label + ' is spent.', 'note');
+      return false;
+    });
   }
 
   function setElevation(on) {
@@ -1585,6 +1918,7 @@ const Engine = (function () {
         /* A reaction that moves this unit gets its overwatch look now. One that
            moves whoever it redirects to waits until that unit is chosen. */
         if (ab.moves && !f.redirect) {
+          noteMoved(f.targetId);
           const parkedA = JSON.parse(JSON.stringify(f));
           if (openOverwatchCheck(f.targetId, { type: 'attack', flow: parkedA })) return;
         }
@@ -1624,6 +1958,7 @@ const Engine = (function () {
       /* A reaction that moves the defender can walk them into a waiting
          trigger — DODGE 1", DIVE 3", WITHDRAW 3". */
       if (r.moves) {
+        noteMoved(f.targetId);
         const parkedR = JSON.parse(JSON.stringify(f));
         if (openOverwatchCheck(f.targetId, { type: 'attack', flow: parkedR })) return;
       }
@@ -1665,6 +2000,7 @@ const Engine = (function () {
     const elevDamage = (high && elevKind === 'charge') ? 1 : 0;
 
     const au = auraMods(f);
+    const dice = attackDice(f);
     const markBonus = markDamageBonus(f.attackerId, f.targetId, weapon);
     const hitMod = f.hitMod + elevHit + (f.sourceHitMod || 0) + au.hit;
     const woundMod = f.woundMod + elevWound + au.wound;
@@ -1687,7 +2023,11 @@ const Engine = (function () {
       variableDamage: !isFinite(Number(weapon.damage)),
       markDamage: markBonus,
       baseDamage: Number(weapon.damage) || 0,
-      damage: (Number(weapon.damage) || 0) + elevDamage + markBonus
+      /* Damage per wound. With several dice the app multiplies by how many
+         actually wounded and lets you correct the total. */
+      damage: (Number(weapon.damage) || 0) + elevDamage + markBonus,
+      dice: dice.count, diceSources: dice.applied,
+      hits: f.hits || 0, wounds: f.woundCount || 0
     };
   }
 
@@ -1707,6 +2047,44 @@ const Engine = (function () {
         chainEntry(uname(f.attackerId) + ' HITS ' + uname(f.targetId) + '.', 'hitline');
         f.step = 'wound';
       }
+    });
+  }
+
+  /* Several dice at once: you tell the app how many of them landed. */
+  function flowHits(count) {
+    Store.commit('hits', function () {
+      const f = S().flow;
+      const total = attackDice(f).count;
+      const n = Math.max(0, Math.min(total, Number(count) || 0));
+      markWeaponUsed(f);
+      f.hits = n;
+      if (!n) {
+        chainEntry(uname(f.attackerId) + ' rolls ' + total + ' dice at ' + uname(f.targetId) +
+          ' — none of them hit.', 'miss');
+        finishAttack({ hit: false });
+        return;
+      }
+      chainEntry(uname(f.attackerId) + ': ' + n + ' of ' + total + ' shots hit ' +
+        uname(f.targetId) + '.', 'hitline');
+      if (f.skipWound) { finishAttack({ hit: true, wound: false }); return; }
+      f.step = 'wound';
+    });
+  }
+
+  function flowWounds(count) {
+    Store.commit('wounds', function () {
+      const f = S().flow;
+      const n = Math.max(0, Math.min(f.hits || 1, Number(count) || 0));
+      f.woundCount = n;
+      if (!n) {
+        chainEntry('None of the hits wound ' + uname(f.targetId) + '.', 'miss');
+        finishAttack({ hit: true, wound: false });
+        return;
+      }
+      const a = attackNumbers();
+      f.damage = (a ? a.damage : 1) * n;
+      chainEntry(n + ' of ' + (f.hits || 1) + ' hits WOUND ' + uname(f.targetId) + '.', 'hitline');
+      f.step = 'damage';
     });
   }
 
@@ -1745,6 +2123,7 @@ const Engine = (function () {
   function finishAttack(result) {
     const g = S();
     const f = g.flow;
+    spendDiceBuffs(f);
     const attackerPlayer = Store.owner(f.attackerId);
     const defenderPlayer = Store.owner(f.targetId);
     let killed = false;
@@ -1922,7 +2301,7 @@ const Engine = (function () {
     const mover = Store.unit(moverId);
     if (!g || !mover) return [];
     const out = [];
-    g.units.filter(u => u.alive && u.owner !== mover.owner).forEach(function (u) {
+    g.units.filter(u => onTable(u) && u.owner !== mover.owner).forEach(function (u) {
       (u.tokens || []).forEach(function (t) {
         if (t.kind === 'overwatch' || t.attackOpts) {
           out.push({ unitId: u.id, tokenId: t.id, label: t.label,
@@ -1940,6 +2319,17 @@ const Engine = (function () {
     g.flow = { kind: 'owcheck', moverId: moverId, queue: [], after: after };
     chainEntry(uname(moverId) + ' moved — checking for waiting triggers.', 'note');
     return true;
+  }
+
+  /* Several units moved at once ("place up to two friendly units"): check them
+     one after another, skipping any nobody is watching. */
+  function openOverwatchFor(movers, after) {
+    const rest = (movers || []).slice();
+    while (rest.length) {
+      const m = rest.shift();
+      if (openOverwatchCheck(m, Object.assign({}, after, { more: rest.slice() }))) return true;
+    }
+    return false;
   }
 
   function flowToggleOverwatch(unitId, tokenId) {
@@ -2019,7 +2409,14 @@ const Engine = (function () {
     const after = f.after;
     g.flow = null;
 
-    if (moverDown) {
+    /* More units were placed by the same ability — each gets its own check, and
+       one of them being shot down does not undo the others. */
+    if ((after.more || []).length) {
+      if (openOverwatchFor(after.more, Object.assign({}, after, { more: [] }))) return;
+      moverDown = false;
+    }
+
+    if (moverDown && !after.ignoreDown) {
       if (after.type === 'none') { checkVictory(); return; }
       if (after.type === 'attack') {
         closeChain('a unit was destroyed mid-action');
@@ -2304,6 +2701,8 @@ const Engine = (function () {
     useFreeAbility, usePhaseAbility,
     flowPickAttackTarget, flowPickWeapon, flowPickReaction,
     flowHit, flowWound, flowDamage, attackNumbers, setElevation,
+    flowHits, flowWounds, diceOptions, toggleDice, unitMoveMod,
+    cardAbilities, cardAbility, useCardAbility, confirmCard, adjustCardResource,
     applicableAuras, toggleAura, blockedReactions, flowRedirect, openFreeAttack,
     effectsNeedingTarget,
     triggerToken, confirmToken, tokenPickTarget, tokenEffects, removeToken,

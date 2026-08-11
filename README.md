@@ -197,9 +197,49 @@ A free attack used *as an RP reaction* interrupts: the counter resolves first an
 the original attack is parked, then either resumes or is dropped if its attacker
 was killed.
 
+## Faction cards, and the pools they spend
+
+Some factions bring a card of their own with a resource that is not AP. The card
+belongs to the **player**, not to any one unit: it sits under the score plates
+with its pool, its powers are listed inside it, and the pool has ± buttons like
+every other number in the app.
+
+The Grey Knights' **PSY** is the built-in example — 4 to start, 1 more every
+turn, spent in their Start Phase on *Sanctifying Barrage*, *Warpstride* or
+*Gate of Infinity*. Outside that phase the powers are shown but struck out with
+the reason, so nobody has to remember when they were allowed.
+
+## Weapons that roll more than one dice
+
+A weapon can throw several shots — the Psilencer's four, or a Storm Bolter's two
+once *Sanctifying Barrage* has been paid for. When it does, the app changes the
+question rather than making you resolve one shot at a time: **ROLL 4 DICE — EACH
+NEEDS 4+**, then a keypad from 0 to 4 for how many hit, then the same again for
+how many of *those* wounded, then damage already multiplied out and still
+editable.
+
+A condition attached to the extra dice — *"if this unit has not moved this
+turn"* — appears as a tick-box that the app has **already answered for you**
+from what it watched happen, and that you can overrule.
+
+## Reserves and teleports
+
+A unit can start the game **off the battlefield**. It shows as
+*IN RESERVE — OFF THE BATTLEFIELD*, cannot be shot at, cannot be picked as a
+target, and the only thing it can do is the ability that brings it in.
+
+Anything that puts a unit somewhere — *Deep Strike*, *Warp Shift*, either *Gate
+of Infinity* — is a **place** effect. The app never decides where it lands; it
+prints the card's restriction ("more than 6\" away from an enemy unit"), records
+that the unit is now on the table, counts it as having moved, and runs the
+overwatch check. Place two units at once and each gets its own check, one after
+the other — and one of them being shot down does not undo the other. If the card
+says the unit may not MOVE afterwards, MOVE simply is not on its list until the
+turn ends.
+
 ## Preset factions
 
-Both official line-ups ship with every ability wired up, not just written out.
+The official line-ups ship with every ability wired up, not just written out.
 
 **Astra Militarum** — Guardsmen "Alfred", "Al", "Fred" and "Nick", and Commissar
 Briant. The Commissar's 6" aura and his WITHDRAW ban, Nick's Cloaked and Grenade,
@@ -215,6 +255,15 @@ his Shoota then does +1 damage to it automatically, while *Don't ya Dare* wipes
 every enemy mark and pins it on whoever just shot him; *Kwik Dakka* genuinely
 interrupts — the counter-attack resolves first, and if it kills the attacker
 their attack never happens.
+
+**Grey Knights** — Brother Drusius, Brother Lucius and Justicar Aurelius, plus
+the GREY KNIGHTS PSYCHIC card. Drusius starts in reserve and *Deep Strikes* in;
+his *Unescapable Wrath* strikes DIVE off the enemy's reaction list **only** when
+he is firing the Purifying Flame. Lucius's *Heavy Gatling* offers four dice when
+the app agrees he has not moved. Aurelius's *Into the Warp* takes the ticks for
+who failed their D6, deals the damage, and hands the opponent 1 AP per unit
+damaged **capped at 2**; his *Gate of Infinity* is a once-per-game END: ability
+that places up to two friendlies and will not let you pick a third.
 
 Space Marines are included as a clearly-labelled example.
 

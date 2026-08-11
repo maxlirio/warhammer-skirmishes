@@ -30,6 +30,7 @@ const UI = (function () {
   function playScreen(g) {
     return '<div class="screen' + (g.settings.verbose === false ? ' lean' : '') + '">' +
       topbar(g) +
+      cardStrip(g) +
       controlbar(g) +
       (g.settings.layout === 'table'
         ? '<div class="board table">' +
@@ -76,6 +77,87 @@ const UI = (function () {
                              '<button data-act="vp:' + i + ':1">+</button></div></div>' +
       '</div>' +
     '</div>';
+  }
+
+  /* A faction card sits with its player: a named pool and the powers it buys.
+     The powers are only live in that player's Start Phase, but the card is
+     always readable and the pool is always correctable by hand. */
+  function cardStrip(g) {
+    const cards = g.players.map((p, i) => p.card ? cardChip(g, p, i) : '').join('');
+    return cards ? '<div class="cardstrip">' + cards + '</div>' : '';
+  }
+
+  function cardChip(g, p, i) {
+    const c = p.card;
+    const r = c.resource;
+    const list = Engine.cardAbilities(i);
+    const live = list.filter(a => a.available.ok).length;
+    return '<div class="fcard p' + i + (live ? ' live' : '') + '">' +
+      '<button class="fcmain" data-act="cardinfo:' + i + '">' +
+        '<span class="fcname">' + esc(c.name) + '</span>' +
+        '<span class="fcwho">' + esc(p.name) + (live ? ' · ' + live + ' READY' : '') + '</span>' +
+      '</button>' +
+      (r ? '<div class="fcres"><div class="v">' + r.value + '</div>' +
+             '<div class="k">' + esc(r.name) + '</div>' +
+             '<div class="nudge"><button data-act="res:' + i + ':-1">−</button>' +
+                                '<button data-act="res:' + i + ':1">+</button></div></div>' : '') +
+    '</div>';
+  }
+
+  function cardModal(g, i) {
+    const p = g.players[i];
+    const c = p.card;
+    if (!c) return '';
+    const r = c.resource;
+    return head(esc(c.name), esc(p.name) +
+        (r ? ' · ' + r.value + ' ' + r.name : '')) +
+      '<div class="mbody">' +
+        (c.tagline ? '<div class="cardline big">' + esc(c.tagline) + '</div>' : '') +
+        (c.lines || []).map(l => '<div class="cardline">' + esc(l) + '</div>').join('') +
+        Engine.cardAbilities(i).map(function (a) {
+          const cost = (Number(a.cost) || 0) + (r ? ' ' + r.name : '');
+          return '<button class="choice' + (a.available.ok ? '' : ' disabled') +
+            '" data-act="cardab:' + i + ':' + a.id + '">' +
+            '<div class="cmain"><div class="cname">' + esc(a.name) + '</div>' +
+              '<div class="cdesc">' + esc(a.text) + '</div>' +
+              (a.available.ok ? ''
+                : '<div class="cflav" style="color:var(--bad)">' + esc(a.available.why) + '</div>') +
+            '</div><div class="ccost">' + cost + '</div></button>';
+        }).join('') +
+      '</div>' +
+      '<div class="mfoot"><button class="btn ghost" data-act="close">CLOSE</button></div>';
+  }
+
+  /* Buying a card power that needs a unit chosen. */
+  function cardFlow(g, f) {
+    const ab = Engine.cardAbility(f.playerId, f.abilityId);
+    if (!ab) return '';
+    const c = g.players[f.playerId].card;
+    if (f.step === 'pick') {
+      const needs = Engine.effectsNeedingTarget(ab, { sourceUnitId: null });
+      const e = needs[f.pickIndex] || needs.find(x => !f.targets[x.id]) || needs[0];
+      if (e.pick === 'multi') {
+        return multiPick(g, f, e, 'picktarget', esc(ab.name), esc(e.text || ab.text));
+      }
+      return head(esc(ab.name), 'SELECT A UNIT') +
+        '<div class="mbody">' +
+          '<div class="noteline">' + esc(e.text || ab.text) + '</div>' +
+          pickableUnits(g, e, f.playerId)
+            .map(x => unitChoice(x, 'picktarget:' + e.id + ':' + x.id,
+              x.owner === f.playerId ? 'friendly' : 'enemy')).join('') +
+        '</div>' + footBack();
+    }
+    return head(esc(ab.name), 'CONFIRM') +
+      '<div class="mbody">' +
+        '<div class="rollbox"><div class="lbl">' + esc(c.name) + '</div>' +
+          '<div class="big" style="font-size:20px">' + esc(ab.name) + '</div>' +
+          '<div class="sub">' + esc(ab.text) + '</div></div>' +
+        (ab.effects || []).map(e => '<div class="noteline">' + effectSummary(e) +
+          targetNames(f.targets[e.id]) + '</div>').join('') +
+        (c.resource ? '<div class="noteline warn">Costs ' + ab.cost + ' ' + esc(c.resource.name) +
+          ' — ' + (c.resource.value - (Number(ab.cost) || 0)) + ' would be left.</div>' : '') +
+      '</div>' +
+      footBack('confirmcard', 'SPEND IT');
   }
 
   function controlbar(g) {
@@ -153,11 +235,17 @@ const UI = (function () {
 
     const weapons = (u.weapons || []).map(function (w) {
       const used = g.chain.weaponsUsed.indexOf(u.id + '|' + w.id) >= 0;
+      /* A card may leave a weapon's line blank — show the gap rather than
+         inventing a number for it. */
+      const has = v => !(v === null || v === undefined || v === '');
+      const stats = has(w.hit) || has(w.strength) || has(w.damage)
+        ? (has(w.hit) ? w.hit + '+' : '—') + ' · S' + (has(w.strength) ? w.strength : '—') +
+          ' · D' + (has(w.damage) ? esc(String(w.damage)) : '—')
+        : '<span style="color:var(--warn)">no stats on the card</span>';
       return '<div class="row' + (used ? ' used' : '') + '">' +
         '<span class="tag">' + (w.type === 'melee' ? 'M' : 'R') + '</span>' +
         '<span class="nm">' + esc(w.name) + '</span>' +
-        '<span>' + (w.range ? w.range + '" · ' : '') +
-          w.hit + '+ · S' + w.strength + ' · D' + esc(w.damage) + '</span>' +
+        '<span>' + (w.range ? w.range + '" · ' : '') + stats + '</span>' +
       '</div>';
     }).join('');
 
@@ -172,6 +260,8 @@ const UI = (function () {
       .map(a => '<button class="chip-s pass" data-act="abilinfo:' + u.id + ':' + a.id + '" ' +
         'title="' + esc(a.text) + '">' + esc(a.name) + '</button>').join('') +
       (onwatch ? '<span class="chip-s watch">⌖ OVERWATCHING</span>' : '') +
+      (u.reserve ? '<span class="chip-s reserve">IN RESERVE — OFF THE BATTLEFIELD</span>' : '') +
+      (u.noMoveTurn ? '<span class="chip-s warnchip">MAY NOT MOVE THIS TURN</span>' : '') +
       (flagOn ? '<span class="chip-s mission">' + flag.label + '</span>' : '') +
       (carrying ? '<span class="chip-s mission">CARRYING THE RELIC</span>' : '') +
       (u.marker ? '<span class="chip-s mission">MISSION MARKER · NO RP</span>' : '');
@@ -199,8 +289,10 @@ const UI = (function () {
         esc(a.name) + '</button>').join('');
 
     const ready = (mustAct || canAct) && Engine.unitActions(u.id).length > 0;
+    const moveMod = Engine.unitMoveMod(u.id);
     return '<div class="unit p' + u.owner +
       (u.alive ? (mustAct ? ' acting' : (canAct ? ' canact' : '')) : ' dead') +
+      (u.reserve ? ' reserve' : '') +
       (ready ? ' ready' : '') + '"' +
       (ready ? ' data-act="acts:' + u.id + '"' : '') + '>' +
       '<div class="uhead">' +
@@ -209,7 +301,9 @@ const UI = (function () {
           '<span class="max"> / ' + u.maxWounds + ' W</span></div>' +
       '</div>' +
       '<div class="pips">' + pips + '</div>' +
-      '<div class="ustats"><span><b>MOV</b> ' + u.move + '"</span>' +
+      '<div class="ustats"><span><b>MOV</b> ' + (u.move + moveMod) + '"' +
+          (moveMod ? ' <span style="color:var(--gold)">(' + u.move + (moveMod > 0 ? '+' : '') +
+                     moveMod + ')</span>' : '') + '</span>' +
         '<span><b>T</b> ' + u.toughness + '</span>' +
         '<span><b>OC</b> ' + (u.oc || 0) + '</span>' +
         (u.alive ? '' : '<span style="color:var(--bad)"><b>DESTROYED</b></span>') + '</div>' +
@@ -299,6 +393,7 @@ const UI = (function () {
     // Anything that might score sits at the front of the queue: nothing else
     // matters until the player has said what it was worth.
     if ((g.vpPrompts || []).length) return wrap(vpModal(g));
+    if (modal && modal.card !== undefined) return wrap(cardModal(g, modal.card));
     if (modal && modal.acts) return wrap(unitActionsModal(g, modal.acts));
     if (modal && modal.abil) return wrap(abilityInfoModal(g, modal.abil[0], modal.abil[1]));
     if (modal === 'menu') return wrap(menuModal(g));
@@ -423,6 +518,27 @@ const UI = (function () {
 
   /* ------------------------------------------------------------- phase */
 
+  /* "START: You may spend PSY points on an ability on this card." */
+  function cardPowers(g, playerId) {
+    const c = g.players[playerId].card;
+    if (!c) return '';
+    const r = c.resource;
+    const list = Engine.cardAbilities(playerId);
+    return '<div style="font-size:10px;letter-spacing:.14em;color:var(--gold);font-weight:800;' +
+        'margin:12px 0 6px">' + esc(c.name) + (r ? ' — ' + r.value + ' ' + esc(r.name) : '') +
+        '</div>' +
+      list.map(function (a) {
+        return '<button class="choice' + (a.available.ok ? '' : ' disabled') +
+          '" data-act="cardab:' + playerId + ':' + a.id + '">' +
+          '<div class="cmain"><div class="cname">' + esc(a.name) + '</div>' +
+            '<div class="cdesc">' + esc(a.text) + '</div>' +
+            (a.available.ok ? ''
+              : '<div class="cflav" style="color:var(--bad)">' + esc(a.available.why) + '</div>') +
+          '</div><div class="ccost">' + (Number(a.cost) || 0) +
+            (r ? ' ' + esc(r.name) : '') + '</div></button>';
+      }).join('');
+  }
+
   function phaseModal(g) {
     const p = g.pending;
     const isStart = p.type === 'start';
@@ -447,6 +563,8 @@ const UI = (function () {
             '</button>').join('')
           : '<div class="noteline">No ' + (isStart ? 'START:' : 'END:') + ' abilities on ' +
              esc(g.players[p.player].name) + '\'s units.</div>') +
+
+        (isStart ? cardPowers(g, p.player) : '') +
 
         (isStart
           ? '<div class="noteline warn">' + esc(g.players[p.player].name) +
@@ -602,6 +720,7 @@ const UI = (function () {
     if (f.kind === 'simple')    return simpleFlow(g, f);
     if (f.kind === 'pass')      return passFlow(g, f);
     if (f.kind === 'token')     return tokenFlow(g, f);
+    if (f.kind === 'card')      return cardFlow(g, f);
     return '';
   }
 
@@ -841,20 +960,28 @@ const UI = (function () {
   /* An effect may say whose units it can pick — "choose one enemy unit". */
   function pickableUnits(g, e, mineOwner) {
     const side = e.side || 'any';
+    /* A unit in RESERVE is not on the battlefield, so it cannot be shot,
+       healed or marked. A teleport is the exception — that is what fetches it. */
+    const allowReserve = e.kind === 'place';
     return g.units.filter(function (x) {
       if (!x.alive) return false;
+      if (x.reserve && !allowReserve) return false;
       if (side === 'enemy') return x.owner !== mineOwner;
       if (side === 'friendly') return x.owner === mineOwner;
       return true;
     });
   }
 
+  /* Abilities belong to a unit, card powers belong to a player. */
+  const flowOwner = f => (f.playerId !== undefined && f.playerId !== null)
+    ? f.playerId : (Store.unit(f.unitId) || {}).owner;
+
   function multiPick(g, f, e, actPrefix, title, sub) {
     const chosen = Array.isArray(f.targets[e.id]) ? f.targets[e.id] : [];
     return head(title, 'WHICH UNITS? — ' + effectSummary(e).toUpperCase()) +
       '<div class="mbody">' +
         '<div class="noteline">' + sub + '</div>' +
-        pickableUnits(g, e, (Store.unit(f.unitId) || {}).owner).map(function (x) {
+        pickableUnits(g, e, flowOwner(f)).map(function (x) {
           const on = chosen.indexOf(x.id) >= 0;
           return '<button class="choice p' + x.owner + (on ? ' sel' : '') +
             '" data-act="' + actPrefix + ':' + e.id + ':' + x.id + '">' +
@@ -888,6 +1015,17 @@ const UI = (function () {
       case 'mod_hit': return sign + v + ' to Hit rolls (' + durLabel(e.duration) + ')';
       case 'mod_wound': return sign + v + ' to Wound rolls (' + durLabel(e.duration) + ')';
       case 'token': return 'Place [ ' + (e.label || 'TOKEN') + ' ]';
+      case 'place': return (e.pick === 'self' ? 'Place this unit' :
+        (e.max ? 'Place up to ' + e.max + ' units' : 'Place a unit')) + ' anywhere' +
+        (e.fromReserve ? ' (arrives from reserve)' : '') +
+        (e.noMoveThisTurn ? ' — it may not MOVE this turn' : '');
+      case 'dice': return 'Roll ' + (v || 2) + ' dice with ' + (e.weaponName || 'that weapon');
+      case 'mod_move': return sign + v + '" MOV (' + durLabel(e.duration) + ')';
+      case 'mark': return 'Mark a unit' + (e.label ? ' — ' + e.label : '');
+      case 'unmark': return 'Clear ' + (e.label || 'MARKED') + ' from enemy units';
+      case 'blockreact': return 'Blocks ' + String(e.reaction || '').toUpperCase() +
+        (e.weaponName ? ' when using its ' + e.weaponName : '');
+      case 'stat': return sign + v + ' ' + String(e.stat || 'OC').toUpperCase() + ' permanently';
       case 'note': return e.text || 'Reminder';
     }
     return e.kind;
@@ -979,6 +1117,31 @@ const UI = (function () {
       '<span class="box">' + (f.elevation ? '✓' : '') + '</span><span>' + label + '</span></button>';
   }
 
+  /* "Rolls 4 dice instead of one if this unit has not moved this turn." The app
+     knows whether it moved, so it answers for you — and you can overrule it. */
+  function diceToggles(f) {
+    return Engine.diceOptions(f).map(function (o) {
+      const on = o.auto || !!(f.diceOn || {})[o.key];
+      const label = o.label + ' — roll ' + o.value + ' dice' +
+        (o.condition ? ' (' + o.condition + ')' : '');
+      if (o.auto) {
+        return '<div class="toggle on locked"><span class="box">✓</span><span>' + esc(label) +
+          ' — bought and paid for</span></div>';
+      }
+      return '<button class="toggle' + (on ? ' on' : '') + '" data-act="dice:' + o.key + '">' +
+        '<span class="box">' + (on ? '✓' : '') + '</span><span>' + esc(label) + '</span></button>';
+    }).join('');
+  }
+
+  /* "How many of them landed?" — a keypad from 0 to N. */
+  function countPad(act, max) {
+    let out = '<div class="numpad wide">';
+    for (let i = 0; i <= max; i++) {
+      out += '<button data-act="' + act + ':' + i + '">' + i + '</button>';
+    }
+    return out + '</div>';
+  }
+
   function attackFlow(g, f) {
     const action = RULES.actionById(f.actionId);
     const isOW = f.source === 'overwatch';
@@ -1009,7 +1172,8 @@ const UI = (function () {
     }
 
     if (f.step === 'target') {
-      const enemies = g.units.filter(u => u.alive && u.owner !== attacker.owner);
+      // A unit in RESERVE is not on the table, so it cannot be shot at.
+      const enemies = g.units.filter(u => u.alive && !u.reserve && u.owner !== attacker.owner);
       return head(title, 'SELECT DEFENDING UNIT') + crumb +
         '<div class="mbody">' +
           '<div class="noteline tip">You have already checked range and line of sight on the table. ' +
@@ -1041,7 +1205,8 @@ const UI = (function () {
       const specials = (target.abilities || []).filter(a => a.trigger === 'rp' &&
         (Number(a.cost) || 0) <= rp);
 
-      const blocked = Engine.blockedReactions(target.id);
+      const wpn = attacker && (attacker.weapons || []).find(w => w.id === f.weaponId);
+      const blocked = Engine.blockedReactions(target.id, f.attackerId, wpn);
       return head(esc(g.players[defPlayer].name) + ' REACTS',
         (range === 'melee' ? 'MELEE' : 'RANGED') + ' REACTION · ' + rp + ' RP') + crumb +
         '<div class="mbody">' +
@@ -1072,7 +1237,8 @@ const UI = (function () {
     }
 
     if (f.step === 'redirect') {
-      const friends = g.units.filter(u => u.alive && u.owner === target.owner && u.id !== target.id);
+      const friends = g.units.filter(u => u.alive && !u.reserve &&
+        u.owner === target.owner && u.id !== target.id);
       return head('REDIRECT', 'WHICH UNIT IS HIT INSTEAD?') + crumb +
         '<div class="mbody">' +
           '<div class="noteline">Choose one of your units that would be an eligible target for ' +
@@ -1091,24 +1257,51 @@ const UI = (function () {
     if (f.step === 'hit') {
       const modTxt = n.hitMod === 0 ? 'no modifiers'
         : (n.hitMod > 0 ? '+' : '') + n.hitMod + ' to the roll';
+      const multi = n.dice > 1;
       return head(title, 'HIT ROLL') + crumb +
         '<div class="mbody">' +
           '<div class="rollbox">' +
-            '<div class="lbl">ROLL 1 DICE — YOU NEED</div>' +
+            '<div class="lbl">ROLL ' + n.dice + ' DICE — ' +
+              (multi ? 'EACH NEEDS' : 'YOU NEED') + '</div>' +
             '<div class="big">' + n.hitTarget + '+</div>' +
             '<div class="sub">' + esc(n.weapon.name) + ' hits on ' + n.baseHit + '+ · ' + modTxt +
               (n.hitCapped ? ' <span style="color:var(--warn)">(capped at the edge of the die)</span>' : '') +
             '</div>' +
             (f.notes.length ? '<div class="modline">' + f.notes.map(esc).join('<br>') + '</div>' : '') +
           '</div>' +
+          diceToggles(f) +
           elevToggle(f, action) +
           auraToggles(f, 'hit') +
-          '<div class="noteline tip">Roll it on the table, then tell the app what happened.</div>' +
+          (multi
+            ? '<div class="noteline">Roll all ' + n.dice + ', then tap how many hit.</div>' +
+              countPad('hits', n.dice)
+            : '<div class="noteline tip">Roll it on the table, then tell the app what happened.</div>') +
           abortRow() +
         '</div>' +
+        (multi ? '' :
         '<div class="mfoot">' +
           '<button class="btn bad" data-act="hit:0">MISS</button>' +
           '<button class="btn good" data-act="hit:1">HIT</button>' +
+        '</div>');
+    }
+
+    if (f.step === 'wound' && (f.hits || 0) > 1) {
+      const modTxt = n.woundMod === 0 ? 'no modifiers'
+        : (n.woundMod > 0 ? '+' : '') + n.woundMod + ' to the roll';
+      return head(title, 'WOUND ROLL') + crumb +
+        '<div class="mbody">' +
+          '<div class="rollbox">' +
+            '<div class="lbl">ROLL ' + f.hits + ' DICE — EACH NEEDS</div>' +
+            '<div class="big">' + n.woundTarget + '+</div>' +
+            '<div class="sub">S' + n.strength + ' vs T' + n.target.toughness + ' — ' +
+              n.woundReason + ' (' + n.baseWound + '+) · ' + modTxt +
+              (n.woundCapped ? ' <span style="color:var(--warn)">(capped)</span>' : '') + '</div>' +
+          '</div>' +
+          auraToggles(f, ['wound', 'strength']) +
+          '<div class="noteline">' + f.hits + ' shots hit. Tap how many of them wounded — ' +
+            'each one deals ' + n.damage + '.</div>' +
+          countPad('wounds', f.hits) +
+          abortRow() +
         '</div>';
     }
 
@@ -1139,7 +1332,9 @@ const UI = (function () {
     }
 
     if (f.step === 'damage') {
-      const dmg = damageDraft === null ? (n.variableDamage ? 0 : n.damage) : damageDraft;
+      const woundCount = Math.max(1, f.woundCount || 1);
+      const dflt = n.variableDamage ? 0 : n.damage * woundCount;
+      const dmg = damageDraft === null ? dflt : damageDraft;
       const lethal = dmg >= n.target.wounds;
       return head(title, 'DAMAGE DEALT') + crumb +
         '<div class="mbody">' +
@@ -1147,6 +1342,7 @@ const UI = (function () {
             '<div class="lbl">DAMAGE TO ' + esc(n.target.name).toUpperCase() + '</div>' +
             '<div class="big">' + dmg + '</div>' +
             '<div class="sub">' + esc(n.weapon.name) + ' deals ' + esc(n.damageText) +
+              (woundCount > 1 ? ' × ' + woundCount + ' wounds' : '') +
               (n.variableDamage ? ' — roll it and tap the result' : '') +
               (n.elevDamage ? ' +1 from the high-ground charge' : '') +
               (n.markDamage ? ' +' + n.markDamage + ' against a marked target' : '') + ' · ' +

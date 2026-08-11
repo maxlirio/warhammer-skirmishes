@@ -508,12 +508,14 @@ function buildPreset(faction, owner) {
   return faction.units.map(function (spec) {
     const u = Store.newUnit(owner, {
       name: spec.name, move: spec.move, maxWounds: spec.maxWounds, wounds: spec.maxWounds,
-      toughness: spec.toughness, oc: spec.oc || 0, notes: spec.notes || ''
+      toughness: spec.toughness, oc: spec.oc || 0, notes: spec.notes || '',
+      reserve: !!spec.reserve
     });
     u.weapons = spec.weapons.map(w => Store.newWeapon(w));
     u.abilities = (spec.abilities || []).map(function (a) {
       const ab = Store.newAbility({ name: a.name, trigger: a.trigger, cost: a.cost,
         text: a.text, usesPerGame: a.usesPerGame || 0, moves: !!a.moves,
+        usesPerTurn: a.usesPerTurn || 0, weaponName: a.weaponName || '',
         opponentReacts: a.opponentReacts !== false });
       ab.effects = (a.effects || []).map(function (e) {
         const row = Store.newEffectRow(e);
@@ -1489,6 +1491,208 @@ console.log('\n== Get In Front of Me moves whoever takes the hit ==');
   Engine.flowFireOverwatch();
   check('then the shot resolves against them', G().flow.targetId, U('Snitcherz').id);
 })();
+
+
+/* ===================================================================== */
+console.log('\n== GREY KNIGHTS: the faction card and its PSY pool ==');
+const gk = sandbox.PRESETS.find(f => f.id === 'greyknights');
+(function () {
+  const knights = buildPreset(gk, 0);
+  const foes = [
+    mkUnit(1, 'Cultist', 3, 4, [{ name: 'Autogun', type: 'ranged', hit: 4, strength: 3, damage: 1 }], []),
+    mkUnit(1, 'Champion', 4, 4, [{ name: 'Bolter', type: 'ranged', hit: 3, strength: 4, damage: 1 }], [])
+  ];
+  Engine.startGame({ playerNames: ['Knights', 'Chaos'], vpTarget: 10, firstPlayer: 0,
+                     mission: { id: null }, cards: { 0: gk.card } }, knights.concat(foes));
+  check('the card is on its player', G().players[0].card.name, 'GREY KNIGHTS PSYCHIC');
+  check('and it starts with 4 PSY', G().players[0].card.resource.value, 4);
+  check('the opponent has no card', G().players[1].card, null);
+  check('Drusius does not start on the battlefield', U('Brother Drusius').reserve, true);
+  check('the others do', U('Brother Lucius').reserve, false);
+
+  check('powers are live in the Start Phase',
+    Engine.cardAbilities(0).map(a => a.available.ok), [true, true, true]);
+  check('the opponent cannot buy in someone else’s phase',
+    Engine.cardAbilities(1).length, 0);
+
+  /* 1 PSY — Warpstride: +3" MOV on a friendly unit until the chain ends. */
+  Engine.useCardAbility(0, 'gk_warpstride');
+  check('it asks which friendly unit', G().flow.kind, 'card');
+  const strideEff = Engine.cardAbility(0, 'gk_warpstride').effects[0];
+  Engine.flowPickTarget(strideEff.id, U('Brother Lucius').id);
+  Engine.confirmCard();
+  check('PSY is spent', G().players[0].card.resource.value, 3);
+  check('and the unit moves further', Engine.unitMoveMod(U('Brother Lucius').id), 3);
+
+  /* 1 PSY — Sanctifying Barrage: the next Storm Bolter attack rolls 2 dice. */
+  Engine.useCardAbility(0, 'gk_barrage');
+  check('a power with no target resolves at once', G().flow, null);
+  check('it is waiting as a buff', G().players[0].buffs.length, 1);
+  check('PSY down to 2', G().players[0].card.resource.value, 2);
+
+  Engine.confirmStartPhase();
+  check('powers are dead outside the Start Phase',
+    Engine.cardAbilities(0).every(a => !a.available.ok), true);
+
+  Engine.adjustAP(0, 4);
+  /* The buff names a Storm Bolter, so the Psilencer must not pick it up. */
+  Engine.beginAction('shoot');
+  Engine.flowPickUnit(U('Brother Lucius').id);
+  Engine.flowPickAttackTarget(U('Cultist').id);
+  Engine.flowPickWeapon(U('Brother Lucius').weapons[0].id);
+  Engine.flowPickReaction('none');
+  check('Heavy Gatling offers 4 dice on the Psilencer',
+    Engine.attackNumbers().dice, 4);
+  check('and it is on by itself, because Lucius has not moved',
+    Engine.attackNumbers().diceSources.map(o => o.label), ['Heavy Gatling']);
+  check('the Storm Bolter buff did not leak onto it',
+    Engine.diceOptions(G().flow).some(o => o.label === 'Sanctifying Barrage'), false);
+
+  Engine.flowHits(3);
+  check('3 of 4 hit', G().flow.hits, 3);
+  check('the wound step knows it', G().flow.step, 'wound');
+  Engine.flowWounds(2);
+  check('2 of those wound', G().flow.woundCount, 2);
+  check('damage is 1 per wound', G().flow.damage, 2);
+  Engine.flowDamage(2);
+  check('the Cultist takes both', U('Cultist').wounds, 1);
+  check('the buff survived an attack that never used it', G().players[0].buffs.length, 1);
+})();
+
+console.log('\n== GREY KNIGHTS: dice buffs, reserves and teleports ==');
+(function () {
+  const knights = buildPreset(gk, 0);
+  const foes = [
+    mkUnit(1, 'Cultist', 3, 4, [{ name: 'Autogun', type: 'ranged', hit: 4, strength: 3, damage: 1 }], []),
+    mkUnit(1, 'Watcher', 3, 4, [{ name: 'Bolter', type: 'ranged', hit: 3, strength: 4, damage: 1 }], [])
+  ];
+  Engine.startGame({ playerNames: ['Knights', 'Chaos'], vpTarget: 10, firstPlayer: 0,
+                     mission: { id: null }, cards: { 0: gk.card } }, knights.concat(foes));
+  Engine.useCardAbility(0, 'gk_barrage');
+  Engine.confirmStartPhase();
+  Engine.adjustAP(0, 6);
+
+  /* A unit in reserve can only do the thing that brings it in. */
+  check('a reserved unit offers just one action',
+    Engine.unitActions(U('Brother Drusius').id).map(a => a.id), ['ability']);
+  check('and only the arriving ability',
+    Engine.usableAPAbilities(U('Brother Drusius')).map(a => a.name), ['Deep Strike']);
+  check('it cannot be shot at either',
+    Engine.eligibleUnits().length > 0 &&
+      G().units.filter(u => u.alive && !u.reserve).map(u => u.name).indexOf('Brother Drusius'), -1);
+
+  Engine.beginAction('ability', U('Brother Drusius').id);
+  Engine.flowPickAbility(Engine.usableAPAbilities(U('Brother Drusius'))[0].id);
+  Engine.confirmAbility();
+  check('Deep Strike puts it on the table', U('Brother Drusius').reserve, false);
+  check('and it counts as having moved', U('Brother Drusius').movedThisTurn, true);
+
+  /* Now the Storm Bolter buff applies — and is spent whatever happens. */
+  Engine.forceControl(0, null);
+  Engine.beginAction('shoot');
+  Engine.flowPickUnit(U('Brother Drusius').id);
+  Engine.flowPickAttackTarget(U('Cultist').id);
+  Engine.flowPickWeapon(U('Brother Drusius').weapons[0].id);
+  Engine.flowPickReaction('none');
+  check('Sanctifying Barrage doubles the Storm Bolter', Engine.attackNumbers().dice, 2);
+  Engine.flowHits(0);
+  check('a whiff still spends it', G().players[0].buffs.length, 0);
+})();
+
+console.log('\n== GREY KNIGHTS: Purifying Flame, Into the Warp, Gate of Infinity ==');
+(function () {
+  const knights = buildPreset(gk, 0);
+  const foes = [
+    mkUnit(1, 'Cultist', 3, 4, [{ name: 'Autogun', type: 'ranged', hit: 4, strength: 3, damage: 1 }], []),
+    mkUnit(1, 'Champion', 4, 4, [{ name: 'Bolter', type: 'ranged', hit: 3, strength: 4, damage: 1 }], [])
+  ];
+  Engine.startGame({ playerNames: ['Knights', 'Chaos'], vpTarget: 10, firstPlayer: 0,
+                     mission: { id: null }, cards: { 0: gk.card } }, knights.concat(foes));
+  Engine.confirmStartPhase();
+  Engine.adjustAP(0, 8);
+  const drusius = U('Brother Drusius');
+  const flame = drusius.weapons.find(w => w.name === 'Purifying Flame');
+  const bolter = drusius.weapons.find(w => w.name === 'Storm Bolter');
+  check('DIVE is open against the Storm Bolter',
+    Engine.blockedReactions(U('Cultist').id, drusius.id, bolter).dive, undefined);
+  check('but not against the Purifying Flame',
+    Engine.blockedReactions(U('Cultist').id, drusius.id, flame).dive,
+    'Brother Drusius: Unescapable Wrath');
+
+  /* Into the Warp: tick who failed, opponent gains 1 AP each, capped at 2. */
+  const aurelius = U('Justicar Aurelius');
+  const warp = aurelius.abilities.find(a => a.name === 'Into the Warp');
+  Engine.beginAction('ability', aurelius.id);
+  Engine.flowPickAbility(warp.id);
+  const dmgEff = warp.effects[0];
+  Engine.flowPickTarget(dmgEff.id, U('Cultist').id);
+  Engine.flowPickTarget(dmgEff.id, U('Champion').id);
+  Engine.flowDoneTargets();
+  const apBefore = G().players[1].ap;
+  Engine.confirmAbility();
+  check('both take a wound', [U('Cultist').wounds, U('Champion').wounds], [2, 3]);
+  check('the opponent gains 1 AP per unit damaged', G().players[1].ap - apBefore, 2);
+  check('it ends the action chain', G().chain.active, false);
+  check('and it is once per turn',
+    Engine.usableAPAbilities(U('Justicar Aurelius')).some(a => a.name === 'Into the Warp'), false);
+
+  /* END: Gate of Infinity places up to two friendlies — and no more. */
+  Engine.forceEndTurn();
+  const gate = U('Justicar Aurelius').abilities.find(a => a.name === 'Gate of Infinity');
+  Engine.usePhaseAbility(U('Justicar Aurelius').id, gate.id);
+  check('it asks which units', G().flow.kind, 'ability');
+  const placeEff = gate.effects[0];
+  Engine.flowPickTarget(placeEff.id, U('Brother Lucius').id);
+  Engine.flowPickTarget(placeEff.id, U('Justicar Aurelius').id);
+  Engine.flowPickTarget(placeEff.id, U('Brother Drusius').id);
+  check('it holds you to two', G().flow.targets[placeEff.id].length, 2);
+  Engine.flowDoneTargets();
+  Engine.confirmAbility();
+  check('both are marked as having moved',
+    [U('Brother Lucius').movedThisTurn, U('Justicar Aurelius').movedThisTurn], [true, true]);
+  check('once per game', U('Justicar Aurelius').abilities
+    .find(a => a.name === 'Gate of Infinity').used, 1);
+})();
+
+console.log('\n== GREY KNIGHTS: Gate of Infinity off the card ==');
+(function () {
+  const knights = buildPreset(gk, 0);
+  const foes = [mkUnit(1, 'Watcher', 3, 4,
+    [{ name: 'Bolter', type: 'ranged', hit: 3, strength: 4, damage: 1 }], [])];
+  Engine.startGame({ playerNames: ['Knights', 'Chaos'], vpTarget: 10, firstPlayer: 1,
+                     mission: { id: null }, cards: { 0: gk.card } }, knights.concat(foes));
+  Engine.confirmStartPhase();
+  Engine.adjustAP(1, 4);
+  Engine.beginAction('overwatch');
+  Engine.flowPickUnit(U('Watcher').id);
+  Engine.confirmOverwatch();
+  check('the watcher is waiting', U('Watcher').tokens.length, 1);
+
+  Engine.forceEndTurn();                      // hand the turn to the Knights
+  Engine.confirmEndPhase();
+  check('now it is the Knights’ Start Phase', G().pending.player, 0);
+  check('and they gained a PSY for the turn', G().players[0].card.resource.value, 5);
+  Engine.useCardAbility(0, 'gk_gate');
+  const gateEff = Engine.cardAbility(0, 'gk_gate').effects[0];
+  Engine.flowPickTarget(gateEff.id, U('Brother Lucius').id);
+  Engine.confirmCard();
+  check('teleporting into the open triggers the watcher', G().flow.kind, 'owcheck');
+  check('and it is Lucius who moved', G().flow.moverId, U('Brother Lucius').id);
+  const watching = Engine.overwatchCandidates(U('Brother Lucius').id);
+  check('the watcher is offered', watching.map(c => c.unitName), ['Watcher']);
+  Engine.flowToggleOverwatch(watching[0].unitId, watching[0].tokenId);
+  Engine.flowFireOverwatch();
+  check('the overwatch shot resolves', G().flow.kind, 'attack');
+  Engine.flowHit(false);
+  check('afterwards the Start Phase is still waiting', G().pending.type, 'start');
+  check('Lucius may not MOVE this turn', U('Brother Lucius').noMoveTurn, true);
+  Engine.confirmStartPhase();
+  check('so MOVE is not on its list',
+    Engine.unitActions(U('Brother Lucius').id).some(a => a.id === 'move'), false);
+  check('but shooting still is',
+    Engine.unitActions(U('Brother Lucius').id).some(a => a.id === 'shoot'), true);
+})();
+
 
 console.log('\n== summary ==');
 console.log((checks - fails) + '/' + checks + ' checks passed');

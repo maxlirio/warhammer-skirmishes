@@ -28,7 +28,7 @@ const Store = (function () {
     return Object.assign({
       id: nextId('ab'), name: 'Ability', trigger: 'ap', cost: 1,
       text: '', effects: [], opponentReacts: true, moves: false,
-      usesPerGame: 0, used: 0
+      usesPerGame: 0, used: 0, usesPerTurn: 0, usedTurn: 0
     }, patch || {});
   }
 
@@ -45,7 +45,10 @@ const Store = (function () {
       id: nextId('u'), owner: owner, name: 'Unit',
       move: 6, maxWounds: 1, wounds: 1, toughness: 4, oc: 0,
       weapons: [], abilities: [], notes: '',
-      alive: true, effects: [], tokens: []
+      alive: true, effects: [], tokens: [],
+      /* Deep Strike: the unit exists but is not on the battlefield yet, so it
+         cannot be shot at, cannot act, and cannot be picked as a target. */
+      reserve: false, movedThisTurn: false, noMoveTurn: false
     }, patch || {});
   }
 
@@ -73,7 +76,10 @@ const Store = (function () {
       },
       players: [0, 1].map(function (i) {
         const nm = (config && config.playerNames && config.playerNames[i]);
-        return { id: i, name: nm || ('Player ' + (i + 1)), ap: 0, vp: 0, rp: 0 };
+        /* card: a faction card with its own resource (the Grey Knights' PSY).
+           buffs: one-shot purchases waiting for the attack they modify. */
+        return { id: i, name: nm || ('Player ' + (i + 1)), ap: 0, vp: 0, rp: 0,
+                 card: null, buffs: [] };
       }),
       /* { id, roles?, controlPoints?, relic? } — the engine fills the rest in. */
       mission: (config && config.mission) || { id: null },
@@ -397,6 +403,110 @@ const PRESETS = [
                       text: 'At the end of this action chain, tick every unit within 3" of the ' +
                             'token — each takes 1 damage.',
                       tokenEffects: [{ kind: 'damage', value: 1, pick: 'multi' }] }] }
+      ]
+    }
+  ]
+},
+{
+  id: 'greyknights',
+  name: 'Grey Knights',
+  note: 'The official line-up. Carries a faction card with its own resource.',
+  /* A faction card: a pool the player spends in their Start Phase. */
+  card: {
+    id: 'gk_psychic',
+    name: 'GREY KNIGHTS PSYCHIC',
+    tagline: 'GAIN 1 PSY EVERY TURN',
+    resource: { name: 'PSY', start: 4, perTurn: 1 },
+    lines: [
+      'The Grey Knights begin the game with 4 PSY points.',
+      'START: You may spend PSY points on an ability on this card.'
+    ],
+    abilities: [
+      { id: 'gk_barrage', name: 'Sanctifying Barrage', cost: 1,
+        text: 'Your next attack with a Storm Bolter rolls 2 dice rather than 1.',
+        effects: [{ kind: 'dice', value: 2, weaponName: 'Storm Bolter', scope: 'player',
+                    text: 'Your next attack with a Storm Bolter rolls 2 dice rather than 1.' }] },
+      { id: 'gk_warpstride', name: 'Warpstride', cost: 1,
+        text: 'Add 3" to a friendly unit\'s move characteristic until the end of this action chain.',
+        effects: [{ kind: 'mod_move', value: 3, pick: 'prompt', side: 'friendly', duration: 'chain',
+                    text: '+3" MOV until the end of this action chain.' }] },
+      { id: 'gk_gate', name: 'Gate of Infinity', cost: 2, moves: true,
+        text: 'Choose a friendly unit. Place that unit anywhere on the battlefield. This ' +
+              'triggers overwatch. That unit may not MOVE this turn.',
+        effects: [{ kind: 'place', pick: 'prompt', side: 'friendly', noMoveThisTurn: true,
+                    text: 'Place that unit anywhere on the battlefield.' }] }
+    ]
+  },
+  units: [
+    {
+      name: 'Brother Drusius', move: 5, maxWounds: 2, toughness: 5, oc: 1,
+      reserve: true,
+      notes: '"The fires of purity thirst for your blood!"',
+      weapons: [
+        { name: 'Storm Bolter', type: 'ranged', range: 12, hit: 2, strength: 3, damage: 1 },
+        { name: 'Purifying Flame', type: 'ranged', range: 18, hit: null, strength: null, damage: null,
+          notes: 'The card gives this weapon a range of 18" and no Hit, Strength or Damage — ' +
+                 'fill them in before you use it.' },
+        { name: 'Nemesis Halberd', type: 'melee', range: 2, hit: 3, strength: 4, damage: 1 }
+      ],
+      abilities: [
+        { name: 'Deep Strike', trigger: 'ap', cost: 1, moves: true, opponentReacts: true,
+          text: 'This unit does not start on the battlefield. Instead, on one of your turns, ' +
+                'you may spend 1 AP to place this unit anywhere on the battlefield more than ' +
+                '6" away from an enemy unit. This ability triggers overwatch.',
+          effects: [{ kind: 'place', pick: 'self', fromReserve: true,
+                      text: 'Place this unit anywhere more than 6" away from an enemy unit.' }] },
+        { name: 'Unescapable Wrath', trigger: 'passive', cost: 0,
+          text: 'Enemy unit\'s cannot DIVE when this unit uses its Purifying Flame.',
+          effects: [{ kind: 'blockreact', reaction: 'dive', scope: 'enemy',
+                      weaponName: 'Purifying Flame' }] }
+      ]
+    },
+    {
+      name: 'Brother Lucius', move: 5, maxWounds: 2, toughness: 4, oc: 1,
+      notes: 'Death from above.',
+      weapons: [
+        { name: 'Psilencer', type: 'ranged', range: 18, hit: 4, strength: 3, damage: 1 },
+        { name: 'Gauntleted Fist', type: 'melee', range: 1, hit: 3, strength: 3, damage: 1 }
+      ],
+      abilities: [
+        { name: 'Heavy Gatling', trigger: 'passive', cost: 0,
+          text: 'This unit\'s Psilencer rolls 4 dice instead of one if this unit has not ' +
+                'moved this turn.',
+          effects: [{ kind: 'dice', value: 4, weaponName: 'Psilencer', condition: 'notmoved',
+                      text: 'Heavy Gatling: the Psilencer rolls 4 dice if this unit has not ' +
+                            'moved this turn.' }] },
+        { name: 'Warp Shift', trigger: 'ap', cost: 2, moves: true, opponentReacts: true,
+          text: 'Place this unit anywhere on any elevated part of the battlefield. This ' +
+                'ability triggers overwatch.',
+          effects: [{ kind: 'place', pick: 'self',
+                      text: 'Place this unit anywhere on any elevated part of the battlefield.' }] }
+      ]
+    },
+    {
+      name: 'Justicar Aurelius', move: 5, maxWounds: 3, toughness: 5, oc: 2,
+      notes: '"Your blasphemous acts shall reach no further."',
+      weapons: [
+        { name: 'Storm Bolter', type: 'ranged', range: 12, hit: 2, strength: 3, damage: 1 },
+        { name: 'Smite', type: 'ranged', range: 18, hit: 3, strength: 4, damage: 1 },
+        { name: 'Nemesis Sword', type: 'melee', range: 1, hit: 2, strength: 5, damage: 2 }
+      ],
+      abilities: [
+        { name: 'Gate of Infinity', trigger: 'end', cost: 0, usesPerGame: 1, moves: true,
+          text: 'Usable once per game. Place up to two friendly units anywhere on the ' +
+                'battlefield greater than 6" away from an enemy unit. This ability triggers ' +
+                'overwatch.',
+          effects: [{ kind: 'place', pick: 'multi', side: 'friendly', max: 2,
+                      text: 'Place up to two friendly units anywhere greater than 6" away ' +
+                            'from an enemy unit.' }] },
+        { name: 'Into the Warp', trigger: 'ap', cost: 1, usesPerTurn: 1, opponentReacts: false,
+          text: 'Usable once per turn. Roll 1 D6 for each enemy unit within 6". For each 5+, ' +
+                'deal 1 damage to that enemy unit. Your opponent gains 1 AP for each unit ' +
+                'damaged in this way, to a maximum of 2. End the action chain.',
+          effects: [{ kind: 'damage', value: 1, pick: 'multi', side: 'enemy',
+                      text: 'Roll 1 D6 for each enemy unit within 6" — tick each one that ' +
+                            'rolled 5+.' },
+                    { kind: 'ap_opponent', perDamaged: true, max: 2, value: 1 }] }
       ]
     }
   ]

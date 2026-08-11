@@ -101,6 +101,16 @@
       case 'hrcost': Engine.setActionOverride(p[1], 'cost', Number(p[2])); return;
       case 'hrap':   Engine.setActionOverride(p[1], 'opponentGainsAP', Number(p[2])); return;
       case 'acts':         UI.setModal({ acts: p[1] }); return;
+      case 'cardinfo':     UI.setModal({ card: Number(p[1]) }); return;
+      case 'cardab':
+        UI.setModal(null);
+        Engine.useCardAbility(Number(p[1]), p[2]);
+        return;
+      case 'confirmcard':  Engine.confirmCard(); return;
+      case 'res':          Engine.adjustCardResource(Number(p[1]), Number(p[2])); return;
+      case 'dice':         Engine.toggleDice(cmd.slice(5)); return;
+      case 'hits':         UI.clearDamageDraft(); Engine.flowHits(Number(p[1])); return;
+      case 'wounds':       UI.clearDamageDraft(); Engine.flowWounds(Number(p[1])); return;
       case 'abilinfo':     UI.setModal({ abil: [p[1], p[2]] }); return;
       case 'unitact':
         UI.setModal(null);

@@ -19,6 +19,7 @@ const Setup = (function () {
       roles: { attacker: null, defender: null },
       flagged: [null, null],
       units: [],
+      cards: {},               // faction cards, by player
       open: {},
       picker: null,
       showMission: false
@@ -310,11 +311,31 @@ const Setup = (function () {
 
   /* ------------------------------------------------------------ step: army */
 
+  /* A faction card belongs to the player, so it is shown above their units and
+     can be dropped without touching the roster. */
+  function factionCardView(owner) {
+    const c = (S.cards || {})[owner];
+    if (!c) return '';
+    return '<div class="sub">' +
+      '<div class="shd">FACTION CARD</div>' +
+      '<div class="lead" style="font-size:15px;margin:0 0 4px">' + esc(c.name) + '</div>' +
+      (c.tagline ? '<div class="hint">' + esc(c.tagline) + '</div>' : '') +
+      (c.resource ? '<div class="hint">Starts with ' + c.resource.start + ' ' +
+        esc(c.resource.name) + ', and gains ' + c.resource.perTurn + ' every turn.</div>' : '') +
+      (c.abilities || []).map(a => '<div class="hint" style="margin-top:4px">' +
+        '<b>' + a.cost + (c.resource ? ' ' + esc(c.resource.name) : '') + '</b> — ' +
+        esc(a.name) + ': ' + esc(a.text) + '</div>').join('') +
+      '<button class="btn sm" style="width:100%;margin-top:8px" data-act="dropcard:' + owner + '">' +
+        'REMOVE THIS CARD</button>' +
+    '</div>';
+  }
+
   function armyStepView(owner) {
     const list = unitsOf(owner);
     const rosterList = Store.rosters();
     return '<div class="lead p' + owner + '">' + esc(S.playerNames[owner]) + '’s army</div>' +
 
+      factionCardView(owner) +
       '<h2>UNITS · ' + list.length + '</h2>' +
       list.map(u => unitCard(u)).join('') +
       '<button class="addbtn" data-act="openPicker:unit:' + owner + '">+ ADD UNIT</button>' +
@@ -983,6 +1004,11 @@ const Setup = (function () {
         if (entry) Store.libDelete('units', entry.name);
         return true;
       }
+      case 'dropcard': {
+        S.cards = S.cards || {};
+        S.cards[Number(p[1])] = null;
+        return true;
+      }
       case 'libSaveUnit': {
         const u = findUnit(p[1]);
         if (u) Store.libSave('units', u);
@@ -998,13 +1024,15 @@ const Setup = (function () {
           const u = Store.newUnit(owner, {
             name: spec.name, move: spec.move, maxWounds: spec.maxWounds,
             wounds: spec.maxWounds, toughness: spec.toughness, oc: spec.oc || 0,
-            notes: spec.notes || ''
+            notes: spec.notes || '',
+            reserve: !!spec.reserve
           });
           u.weapons = spec.weapons.map(w => Store.newWeapon(w));
           u.abilities = (spec.abilities || []).map(function (a) {
             const ab = Store.newAbility({
               name: a.name, trigger: a.trigger, cost: a.cost, text: a.text,
               usesPerGame: a.usesPerGame || 0, moves: !!a.moves,
+              usesPerTurn: a.usesPerTurn || 0,
               weaponName: a.weaponName || '',
               opponentReacts: a.opponentReacts !== false
             });
@@ -1018,6 +1046,10 @@ const Setup = (function () {
           return u;
         });
         S.units = S.units.filter(x => x.owner !== owner).concat(built);
+        /* Some factions bring a card of their own — a pool and the powers it
+           buys. It belongs to the player, not to any one unit. */
+        S.cards = S.cards || {};
+        S.cards[owner] = faction.card ? JSON.parse(JSON.stringify(faction.card)) : null;
         S.open = {};
         return true;
       }
@@ -1107,6 +1139,7 @@ const Setup = (function () {
           endsWhen: m ? m.endsWhen : null,
           endsShort: m ? m.endsShort : null,
           firstPlayer: Number(S.firstPlayer) || 0,
+          cards: S.cards || {},
           verbose: guided(),
           layout: S.layout || 'normal',
           mission: m ? { id: m.id, roles: m.roles ? { attacker: S.roles.attacker,
