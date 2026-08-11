@@ -454,6 +454,26 @@ const Engine = (function () {
     if (t) log('Token removed by hand: [' + t.label + '] (' + u.name + ').', 'muted');
   }
 
+  /* "+1 damage against a MARKED unit": a passive on the attacker that only
+     pays off when the target is carrying the named chip. */
+  function markDamageBonus(attackerId, targetId, weapon) {
+    const atk = Store.unit(attackerId);
+    const tgt = Store.unit(targetId);
+    if (!atk || !tgt || !weapon) return 0;
+    let bonus = 0;
+    (atk.abilities || []).filter(a => a.trigger === 'passive').forEach(function (a) {
+      (a.effects || []).forEach(function (e) {
+        if (e.kind !== 'markbonus') return;
+        const want = (e.label || 'MARKED').toUpperCase();
+        const has = (tgt.effects || []).some(ue => String(ue.label).toUpperCase() === want);
+        if (!has) return;
+        if (e.weaponName && String(e.weaponName).toLowerCase() !== String(weapon.name).toLowerCase()) return;
+        bonus += Number(e.value) || 0;
+      });
+    });
+    return bonus;
+  }
+
   /* ---------------------------------------------------------------- auras
 
      The app cannot measure 6". So every aura that *could* apply to the attack
@@ -856,6 +876,23 @@ const Engine = (function () {
             duration: e.duration || 'manual', ownerPlayer: Store.owner(tid)
           });
           chainEntry(uname(tid) + ' is marked: ' + (e.label || ctx.label) + '.', 'effect');
+          break;
+        }
+        case 'unmark': {
+          const want = (e.label || 'MARKED').toUpperCase();
+          let cleared = 0;
+          g.units.forEach(function (x) {
+            if (x.owner === me) return;                 // only the enemy's marks
+            const keep = (x.effects || []).filter(function (ue) {
+              if (String(ue.label).toUpperCase() !== want) return true;
+              cleared++;
+              return false;
+            });
+            x.effects = keep;
+          });
+          chainEntry(ctx.label + ': ' + (cleared
+            ? cleared + ' ' + want + ' token' + (cleared === 1 ? '' : 's') + ' removed.'
+            : 'no ' + want + ' tokens to remove.'), 'effect');
           break;
         }
         case 'note':
@@ -1261,6 +1298,7 @@ const Engine = (function () {
       const ends = !abilityLetsThemReact(ab);
       if (ends) chainEntry('“' + ab.name + '” does not let the opponent react — the chain ends.', 'note');
       const unitId = f.unitId;
+      const abilityMoves = !!ab.moves;
       g.flow = null;
 
       /* The ability says "make an attack" — hand straight over to the attack
@@ -1272,6 +1310,10 @@ const Engine = (function () {
             actor: actor, endsChain: ends || ctx.freeAttack.endsChain, reason: ab.name
           };
         }
+        return;
+      }
+      if (abilityMoves && openOverwatchCheck(unitId, {
+            type: 'simple', actor: actor, endsChain: ends, reason: ab.name })) {
         return;
       }
       afterAction({ actor: actor, endsChain: ends, forcedUnitId: null, reason: ab.name });
@@ -1523,6 +1565,7 @@ const Engine = (function () {
     const elevDamage = (high && elevKind === 'charge') ? 1 : 0;
 
     const au = auraMods(f);
+    const markBonus = markDamageBonus(f.attackerId, f.targetId, weapon);
     const hitMod = f.hitMod + elevHit + (f.sourceHitMod || 0) + au.hit;
     const woundMod = f.woundMod + elevWound + au.wound;
     const strMod = au.strength + unitStrengthMod(f.attackerId) + (f.strengthMod || 0);
@@ -1542,8 +1585,9 @@ const Engine = (function () {
       /* Damage may be written as D3 or D6 — the app shows it and takes your roll. */
       damageText: String(weapon.damage),
       variableDamage: !isFinite(Number(weapon.damage)),
+      markDamage: markBonus,
       baseDamage: Number(weapon.damage) || 0,
-      damage: (Number(weapon.damage) || 0) + elevDamage
+      damage: (Number(weapon.damage) || 0) + elevDamage + markBonus
     };
   }
 

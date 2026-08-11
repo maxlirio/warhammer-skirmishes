@@ -27,7 +27,7 @@ const Store = (function () {
   function newAbility(patch) {
     return Object.assign({
       id: nextId('ab'), name: 'Ability', trigger: 'ap', cost: 1,
-      text: '', effects: [], opponentReacts: true,
+      text: '', effects: [], opponentReacts: true, moves: false,
       usesPerGame: 0, used: 0
     }, patch || {});
   }
@@ -342,7 +342,7 @@ const PRESETS = [
           effects: [{ kind: 'aura', stat: 'hit', value: -1, side: 'enemy', onlyVsOwner: true,
                       weapon: 'any', range: 6, mode: 'beyond',
                       text: 'Cloaked: enemy units further than 6" away have -1 to hit this unit.' }] },
-        { name: 'Grappling Hook', trigger: 'ap', cost: 1,
+        { name: 'Grappling Hook', trigger: 'ap', cost: 1, moves: true,
           text: 'Use only if terrain is within 3". Move this unit up to 5" in the direction of ' +
                 'the terrain, ignoring height. Your opponent gains 1 AP.',
           effects: [{ kind: 'ap_opponent', value: 1 },
@@ -444,21 +444,40 @@ const PRESETS = [
   note: 'The official line-up.',
   units: [
     {
+      name: 'Snitcherz', move: 2, maxWounds: 1, toughness: 3, oc: 1,
+      notes: '"GIMME DAT!"',
+      weapons: [
+        { name: 'Blasta', type: 'ranged', range: 12, hit: 5, strength: 3, damage: 1 },
+        { name: 'Klaw', type: 'melee', range: 1, hit: 4, strength: 4, damage: 'D3' }
+      ],
+      abilities: [
+        { name: 'Small', trigger: 'passive', cost: 0,
+          text: 'Enemy units have -1 to hit this unit.',
+          effects: [{ kind: 'aura', stat: 'hit', value: -1, side: 'enemy', onlyVsOwner: true,
+                      weapon: 'any', mode: 'always',
+                      text: 'Small: enemy units have -1 to hit this unit.' }] },
+        { name: 'Unpredictable', trigger: 'ap', cost: 1, opponentReacts: false, moves: true,
+          text: 'Use only on your turn. Move this unit D6". End the action chain.',
+          effects: [{ kind: 'note', text: 'Roll a D6 and move this unit that far.' }] }
+      ]
+    },
+    {
       name: 'Boss Nob Blikker', move: 4, maxWounds: 3, toughness: 5, oc: 2,
       notes: '"You think dat is imprezzive? You ain\'t seen ME go dakka."',
       weapons: [
-        { name: 'Slugga', type: 'ranged', range: 12, hit: 4, strength: 4, damage: 1 },
+        { name: 'Slugga', type: 'ranged', range: 12, hit: 4, strength: 3, damage: 1 },
         { name: 'Power Klaw', type: 'melee', range: 1, hit: 3, strength: 5, damage: 2 }
       ],
       abilities: [
-        { name: 'Boss Presence', trigger: 'passive', cost: 0,
-          text: 'Friendly units within 6" of this unit have +1 Strength.',
-          effects: [{ kind: 'aura', stat: 'strength', value: 1, side: 'friendly',
+        { name: 'Intimidating Presence', trigger: 'passive', cost: 0,
+          text: 'Each friendly unit within 6" has +1 to wound.',
+          effects: [{ kind: 'aura', stat: 'wound', value: 1, side: 'friendly',
                       onlyVsOwner: false, weapon: 'any', range: 6, mode: 'within',
-                      text: 'Friendly units within 6" of Boss Nob Blikker have +1 Strength.' }] },
-        { name: 'WAAAAAGH', trigger: 'ap', cost: 1, usesPerGame: 1, opponentReacts: false,
+                      text: 'Intimidating Presence: friendly units within 6" of Boss Nob Blikker ' +
+                            'have +1 to wound.' }] },
+        { name: 'WAAAAAGH', trigger: 'ap', cost: 1, usesPerGame: 1, opponentReacts: false, moves: true,
           text: 'Usable only once per game. Move each of your units up to D6". End the action chain.',
-          effects: [{ kind: 'note', text: 'Roll D6 and move each of your units up to that many inches.' }] }
+          effects: [{ kind: 'note', text: 'Roll a D6 and move each of your units up to that far.' }] }
       ]
     },
     {
@@ -470,56 +489,18 @@ const PRESETS = [
       ],
       abilities: [
         { name: 'Da Hunta', trigger: 'free', cost: 0, usesPerGame: 1,
-          text: 'At the beginning of the game choose one enemy unit. This unit\'s Shoota gains ' +
-                '+1 damage against that unit.',
-          effects: [{ kind: 'mark', label: 'DA HUNTA\'S QUARRY', pick: 'prompt', duration: 'manual',
-                      text: 'Da Hunta\'s Shoota does +1 damage against this unit.' }] },
-        { name: 'Rage', trigger: 'rp', cost: 1,
-          text: 'During its next attack this unit\'s Shoota gains +1 on the hit roll and ' +
-                '+1 Strength. Your next AP must be spent on a SHOOT action targeting the enemy ' +
-                'unit that shot this unit, if possible.',
-          effects: [
-            { kind: 'mod_hit', value: 1, pick: 'self', duration: 'nextAP' },
-            { kind: 'mod_strength', value: 1, pick: 'self', duration: 'nextAP' },
-            { kind: 'note', text: 'Your next AP must be a SHOOT action against the unit that shot this one, if possible.' }
-          ] }
-      ]
-    },
-    {
-      name: 'Mikaaaaghhh', move: 4, maxWounds: 2, toughness: 4, oc: 1,
-      notes: '"MIKAAAAGHHH wut did you do dat for?!"',
-      weapons: [
-        { name: 'Slugga', type: 'ranged', range: 12, hit: 5, strength: 3, damage: 1 },
-        { name: 'Choppa', type: 'melee', range: 1, hit: 3, strength: 5, damage: 1 }
-      ],
-      abilities: [
-        { name: 'Get In Front of Me', trigger: 'rp', cost: 1,
-          text: 'Move a friendly unit within 3" up to 3". If that unit is now in the line of ' +
-                'fire, that unit is targeted by the attack instead.',
-          effects: [{ kind: 'redirect' }] },
-        { name: 'Kwik Dakka', trigger: 'rp', cost: 1,
-          text: 'This unit makes an attack against the attacking enemy unit before their attack ' +
-                'resolves. The enemy unit gets no RP. If the enemy unit is defeated, they do not ' +
-                'get to resolve their attack.',
-          effects: [{ kind: 'attack', weapon: 'ranged', noRP: true, hitMod: 0, skipWound: false }] }
-      ]
-    },
-    {
-      name: 'Snitcherz', move: 2, maxWounds: 1, toughness: 3, oc: 1,
-      notes: '"GIMME DAT!"',
-      weapons: [
-        { name: 'Blasta', type: 'ranged', range: 12, hit: 5, strength: 3, damage: 1 },
-        { name: 'Klaw', type: 'melee', range: 1, hit: 5, strength: 4, damage: 'D3' }
-      ],
-      abilities: [
-        { name: 'Small', trigger: 'passive', cost: 0,
-          text: 'Enemy units have -1 to hit this unit.',
-          effects: [{ kind: 'aura', stat: 'hit', value: -1, side: 'enemy', onlyVsOwner: true,
-                      weapon: 'any', mode: 'always',
-                      text: 'Small: enemy units have -1 to hit this unit.' }] },
-        { name: 'Unpredictable', trigger: 'passive', cost: 0,
-          text: 'Instead of moving this unit may roll a D6 and move that many inches.',
-          effects: [] }
+          text: 'At the beginning of the game choose one enemy unit. That unit becomes MARKED.',
+          effects: [{ kind: 'mark', label: 'MARKED', pick: 'prompt', duration: 'manual',
+                      text: 'MARKED by Da Hunta.' }] },
+        { name: 'Gud at His Job', trigger: 'passive', cost: 0,
+          text: 'This unit\'s Shoota has +1 damage against a MARKED unit.',
+          effects: [{ kind: 'markbonus', label: 'MARKED', value: 1, weaponName: 'Shoota' }] },
+        { name: "Don't ya Dare", trigger: 'rp', cost: 1,
+          text: 'Remove any MARKED tokens on enemy units. The enemy unit that targeted this unit ' +
+                'becomes MARKED.',
+          effects: [{ kind: 'unmark', label: 'MARKED' },
+                    { kind: 'mark', label: 'MARKED', pick: 'attacker', duration: 'manual',
+                      text: 'MARKED by Da Hunta.' }] }
       ]
     },
     {
@@ -543,6 +524,25 @@ const PRESETS = [
                     { kind: 'note',
                       text: 'Every unit within 6" — Riksnik included — rolls a D6. On 1-2 it ' +
                             'takes 1 damage. If Riksnik dies to this, nobody scores VP.' }] }
+      ]
+    },
+    {
+      name: 'Mikaaaaghhh', move: 4, maxWounds: 2, toughness: 4, oc: 1,
+      notes: '"MIKAAAAGHHH wut did you do dat for?!"',
+      weapons: [
+        { name: 'Slugga', type: 'ranged', range: 12, hit: 5, strength: 3, damage: 1 },
+        { name: 'Choppa', type: 'melee', range: 1, hit: 3, strength: 5, damage: 1 }
+      ],
+      abilities: [
+        { name: 'Get In Front of Me', trigger: 'rp', cost: 1,
+          text: 'Move a friendly unit within 3" up to 3". If that unit now is in the line of ' +
+                'fire, that unit is targeted by the attack instead.',
+          effects: [{ kind: 'redirect' }] },
+        { name: 'Kwik Dakka', trigger: 'rp', cost: 1,
+          text: 'This unit makes an attack against the attacking enemy unit before their attack ' +
+                'resolves. The enemy unit gets no RP. If the enemy unit is defeated, they do not ' +
+                'get to resolve their attack.',
+          effects: [{ kind: 'attack', weapon: 'ranged', noRP: true, hitMod: 0, skipWound: false }] }
       ]
     }
   ]

@@ -161,6 +161,8 @@ const Setup = (function () {
     return '<div class="field"><label>' + label + '</label>' + inner + '</div>';
   }
 
+  const hintBlock = html => '<div class="hint">' + html + '</div>';
+
   /* Explanations are for people learning the game. Once you know it the prose is
      noise, so lean mode drops every .hint in one go. */
   const guided = () => S.mode !== 'lean';
@@ -495,7 +497,11 @@ const Setup = (function () {
       '</div>' +
 
       (a.trigger === 'ap'
-        ? field('DOES YOUR OPPONENT GET TO REACT?',
+        ? '<button class="toggle' + (a.moves ? ' on' : '') + '" data-act="togMoves:' +
+            u.id + ':' + a.id + '">' +
+            '<span class="box">' + (a.moves ? '✓' : '') + '</span>' +
+            '<span>This ability moves the unit — check for overwatch afterwards</span></button>' +
+          field('DOES YOUR OPPONENT GET TO REACT?',
             '<select data-bind="ability:' + u.id + ':' + a.id + ':opponentReacts">' +
               '<option value="true"' + (a.opponentReacts !== false ? ' selected' : '') + '>' +
                 'Yes — the action chain continues</option>' +
@@ -644,6 +650,25 @@ const Setup = (function () {
         '</select>');
       inner += field('REMINDER TEXT',
         '<input type="text" data-bind="' + base + ':text" value="' + esc(e.text) + '">');
+    }
+    if (kind.unmark) {
+      inner += field('CHIP TO CLEAR',
+        '<input type="text" data-bind="' + base + ':label" value="' + esc(e.label || 'MARKED') +
+        '" placeholder="MARKED">');
+      inner += hintBlock('Removes that chip from every enemy unit carrying it.');
+    }
+    if (kind.markbonus) {
+      inner += '<div class="grid2">' +
+        field('EXTRA DAMAGE', '<input type="number" data-bind="' + base + ':value" value="' +
+          esc(e.value) + '">') +
+        field('AGAINST THE CHIP', '<input type="text" data-bind="' + base + ':label" value="' +
+          esc(e.label || 'MARKED') + '" placeholder="MARKED">') +
+      '</div>' +
+      field('WITH THIS WEAPON ONLY (blank = any)',
+        '<input type="text" data-bind="' + base + ':weaponName" value="' + esc(e.weaponName || '') +
+        '" placeholder="Shoota">');
+      inner += hintBlock('A passive on the attacker. The app adds it to the damage automatically ' +
+        'when the target is carrying that chip.');
     }
     if (kind.redirect) {
       inner += '<div class="hint">On an RP reaction: the app will ask the defender which of their ' +
@@ -810,6 +835,11 @@ const Setup = (function () {
         if (e) e.onlyVsOwner = !e.onlyVsOwner;
         return true;
       }
+      case 'togMoves': {
+        const a = findAbility(p[1], p[2]);
+        if (a) a.moves = !a.moves;
+        return true;
+      }
       case 'togUnlimited': {
         const w = findWeapon(p[1], p[2]);
         if (w) w.unlimited = !w.unlimited;
@@ -949,7 +979,7 @@ const Setup = (function () {
           u.abilities = (spec.abilities || []).map(function (a) {
             const ab = Store.newAbility({
               name: a.name, trigger: a.trigger, cost: a.cost, text: a.text,
-              usesPerGame: a.usesPerGame || 0,
+              usesPerGame: a.usesPerGame || 0, moves: !!a.moves,
               opponentReacts: a.opponentReacts !== false
             });
             ab.effects = (a.effects || []).map(function (e) {

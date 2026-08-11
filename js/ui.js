@@ -1078,7 +1078,8 @@ const UI = (function () {
             '<div class="big">' + dmg + '</div>' +
             '<div class="sub">' + esc(n.weapon.name) + ' deals ' + esc(n.damageText) +
               (n.variableDamage ? ' — roll it and tap the result' : '') +
-              (n.elevDamage ? ' +1 from the high-ground charge' : '') + ' · ' +
+              (n.elevDamage ? ' +1 from the high-ground charge' : '') +
+              (n.markDamage ? ' +' + n.markDamage + ' against a marked target' : '') + ' · ' +
               n.target.name + ' has ' + n.target.wounds + ' W left' +
               (lethal ? ' — <b style="color:var(--bad)">this destroys it</b>' : '') + '</div>' +
           '</div>' +

@@ -156,7 +156,12 @@ optionally no RP and no wound roll, for "make an attack with this unit's …"
 abilities), **change a stat permanently**, **redirect the attack to another
 unit** on an RP reaction, **stop friends using a Reaction** — struck through with
 the reason, but still tappable if you both agree it doesn't apply — **mark a
-unit** with a reminder chip for the rest of the game, and **modify Strength**.
+unit** with a chip that sticks, **clear a mark** from every enemy carrying it,
+**deal bonus damage against a marked unit** (applied automatically, optionally
+tied to one named weapon), and **modify Strength**.
+
+An ability can also declare that it **moves its unit**, which runs the overwatch
+check afterwards just as a MOVE would.
 
 A free attack used *as an RP reaction* interrupts: the counter resolves first and
 the original attack is parked, then either resumes or is dropped if its attacker
@@ -170,12 +175,14 @@ Both official line-ups ship with every ability wired up, not just written out.
 Briant. The Commissar's 6" aura and his WITHDRAW ban, Nick's Cloaked and Grenade,
 Fred's Snap Shot and Choke Hold, Al's Kill Count, Alfred's unlimited dagger.
 
-**Orks** — Boss Nob Blikker, Da Hunta, Mikaaaaghhh, Snitcherz and Riksnik. The
-Boss's +1 Strength aura moves the wound table for anyone who ticks it; *Small* is
-an always-on aura that needs no tick at all; Snitcherz's Klaw is D3, so the app
-asks for the roll instead of assuming; Da Hunta chips his quarry for the whole
-game; *Kwik Dakka* genuinely interrupts — the counter-attack resolves first, and
-if it kills the attacker their attack never happens.
+**Orks** — Snitcherz, Boss Nob Blikker, Da Hunta, Riksnik and Mikaaaaghhh. The
+Boss's *Intimidating Presence* is a +1-to-wound aura anyone in 6" can tick;
+*Small* is an always-on aura that needs no tick at all; Snitcherz's Klaw is D3,
+so the app asks for the roll instead of assuming; **Da Hunta MARKS** an enemy and
+his Shoota then does +1 damage to it automatically, while *Don't ya Dare* wipes
+every enemy mark and pins it on whoever just shot him; *Kwik Dakka* genuinely
+interrupts — the counter-attack resolves first, and if it kills the attacker
+their attack never happens.
 
 Space Marines are included as a clearly-labelled example.
 

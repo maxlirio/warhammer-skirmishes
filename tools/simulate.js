@@ -496,7 +496,7 @@ function buildPreset(faction, owner) {
     u.weapons = spec.weapons.map(w => Store.newWeapon(w));
     u.abilities = (spec.abilities || []).map(function (a) {
       const ab = Store.newAbility({ name: a.name, trigger: a.trigger, cost: a.cost,
-        text: a.text, usesPerGame: a.usesPerGame || 0,
+        text: a.text, usesPerGame: a.usesPerGame || 0, moves: !!a.moves,
         opponentReacts: a.opponentReacts !== false });
       ab.effects = (a.effects || []).map(function (e) {
         const row = Store.newEffectRow(e);
@@ -669,24 +669,69 @@ check('it is listed as always-on', small.map(a => a.always), [true]);
 check('Lasgun 3+ becomes 4+ with no interaction', Engine.attackNumbers().hitTarget, 4);
 Engine.flowHit(false);
 
-console.log('\n== Boss Nob: a Strength aura moves the wound table ==');
+console.log('\n== Intimidating Presence: +1 to wound within 6" ==');
+Engine.forceEndChain();
 Engine.forceControl(0, null);
 Engine.adjustAP(0, 6);
 Engine.beginAction('shoot');
-Engine.flowPickUnit(hunta.id);              // Shoota S4 vs T4 → 4+
+Engine.flowPickUnit(hunta.id);               // Shoota S4 vs T4 -> 4+
 Engine.flowPickAttackTarget(guardsman.id);
 Engine.flowPickWeapon(hunta.weapons[0].id);
 Engine.flowPickReaction('none');
 check('S4 vs T4 wounds on 4+', Engine.attackNumbers().woundTarget, 4);
-const nobAura = Engine.applicableAuras(G().flow).find(a => a.stat === 'strength');
+const nobAura = Engine.applicableAuras(G().flow).find(a => a.stat === 'wound');
 check('the Boss aura is offered', !!nobAura, true);
+check('and it is his', nobAura.unit, 'Boss Nob Blikker');
 Engine.toggleAura(nobAura.key);
-const boosted = Engine.attackNumbers();
-check('within 6" it is S5', boosted.strength, 5);
-check('so it wounds on 3+', boosted.woundTarget, 3);
+check('within 6" it wounds on 3+', Engine.attackNumbers().woundTarget, 3);
+check('Strength itself is untouched', Engine.attackNumbers().strength, 4);
 Engine.flowHit(false);
 
-console.log('\n== Snitcherz: D3 damage is asked for, not assumed ==');
+console.log('\n== Da Hunta MARKS a target, and hits it harder ==');
+Engine.forceEndChain();
+Engine.forceControl(0, null);
+Engine.adjustAP(0, 6);
+const hAb = hunta.abilities.find(a => a.name === 'Da Hunta');
+const need = Engine.effectsNeedingTarget(hAb, { sourceUnitId: hunta.id });
+Engine.useFreeAbility(hunta.id, hAb.id);
+Engine.flowPickTarget(need[0].id, guardsman.id);
+Engine.confirmAbility();
+check('the guardsman is MARKED',
+  (U('Guardsman').effects || []).map(e => e.label), ['MARKED']);
+Engine.beginAction('shoot');
+Engine.flowPickUnit(hunta.id);
+Engine.flowPickAttackTarget(guardsman.id);
+Engine.flowPickWeapon(hunta.weapons.find(w => w.name === 'Shoota').id);
+Engine.flowPickReaction('none');
+check('the Shoota gets +1 damage against it', Engine.attackNumbers().markDamage, 1);
+check('so the default damage is 2', Engine.attackNumbers().damage, 2);
+Engine.flowHit(false);
+// ...but only with the Shoota.
+Engine.forceEndChain();
+Engine.forceControl(0, null);
+Engine.adjustAP(0, 4);
+Engine.beginAction('fight');
+Engine.flowPickUnit(hunta.id);
+Engine.flowPickAttackTarget(guardsman.id);
+Engine.flowPickWeapon(hunta.weapons.find(w => w.name === 'Choppa').id);
+Engine.flowPickReaction('none');
+check('the Choppa gets nothing', Engine.attackNumbers().markDamage, 0);
+Engine.flowHit(false);
+
+console.log('\n== Don\'t ya Dare clears marks and re-marks the shooter ==');
+Engine.forceEndChain();
+Engine.forceControl(1, null);
+Engine.adjustAP(1, 4);
+Engine.beginAction('shoot');
+Engine.flowPickUnit(guardsman.id);
+Engine.flowPickAttackTarget(hunta.id);
+Engine.flowPickReaction('special', hunta.abilities.find(a => a.name === "Don't ya Dare").id);
+check('exactly one mark survives, on the shooter',
+  G().units.filter(x => (x.effects || []).some(e => e.label === 'MARKED')).map(x => x.name),
+  ['Guardsman']);
+Engine.flowHit(false);
+
+console.log('\n== Snitcherz: D3 damage is asked for, not assumed ==');console.log('\n== Snitcherz: D3 damage is asked for, not assumed ==');
 Engine.forceControl(0, null);
 Engine.adjustAP(0, 4);
 Engine.beginAction('fight');
@@ -735,29 +780,6 @@ console.log('\n== Kwik Dakka: the reaction shoots first ==');
   Engine.flowHit(true); Engine.flowWound(true); Engine.flowDamage(9);
   check('the attacker is down', U('Guardsman').alive, false);
   check('and their attack never resolves', G().flow, null);
-})();
-
-console.log('\n== Da Hunta marks his quarry for the game ==');
-(function () {
-  const mob3 = buildPreset(orks, 0);
-  const foe = [mkUnit(1, 'Guardsman', 3, 4,
-    [{ name: 'Lasgun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], [])];
-  Engine.startGame({ playerNames: ['Orks', 'Guard'], vpTarget: 10, firstPlayer: 0,
-                     mission: { id: null } }, mob3.concat(foe));
-  Engine.confirmStartPhase();
-  const h = U('Da Hunta'), gm = U('Guardsman');
-  const ab = h.abilities.find(a => a.name === 'Da Hunta');
-  const need = Engine.effectsNeedingTarget(ab, { sourceUnitId: h.id });
-  check('it asks which enemy is the quarry', need.length, 1);
-  Engine.useFreeAbility(h.id, ab.id);
-  check('so it opens a picker instead of firing blind', G().flow.step, 'pick');
-  check('and knows it costs nothing', G().flow.freeUse, true);
-  Engine.flowPickTarget(need[0].id, gm.id);
-  Engine.confirmAbility();
-  check('the quarry is chipped for the game',
-    (U('Guardsman').effects || []).map(e => e.label), ["DA HUNTA'S QUARRY"]);
-  check('no AP was spent', ap(0), 1);
-  check('the button is spent', Engine.usableFreeAbilities(U('Da Hunta')).length, 0);
 })();
 
 console.log('\n== an area effect: one roll each, tick the failures ==');
@@ -1266,6 +1288,69 @@ console.log('\n== walkthrough vs experienced ==');
   check('and every reaction too',
     RULES.rangedReactions.concat(RULES.meleeReactions)
       .every(r => typeof r.flavour === 'string' && r.flavour.length > 0), true);
+})();
+
+console.log('\n== unmark only clears the enemy\'s chips ==');
+(function () {
+  const mob = buildPreset(orks, 0);
+  const foes = [
+    mkUnit(1, 'Guard A', 3, 4, [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], []),
+    mkUnit(1, 'Guard B', 3, 4, [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], [])
+  ];
+  Engine.startGame({ playerNames: ['Orks', 'Guard'], firstPlayer: 0, vpTarget: 10,
+                     mission: { id: null } }, mob.concat(foes));
+  Engine.confirmStartPhase();
+  Engine.adjustAP(0, 6);
+  Engine.adjustAP(1, 4);
+  const h = U('Da Hunta');
+
+  // Mark Guard A, and put the same chip on a friendly for good measure.
+  Store.commit('seed', function () {
+    U('Guard A').effects.push({ id: 'm1', label: 'MARKED', duration: 'manual', ownerPlayer: 1 });
+    U('Snitcherz').effects.push({ id: 'm2', label: 'MARKED', duration: 'manual', ownerPlayer: 0 });
+  });
+  Engine.forceControl(1, null);
+  Engine.beginAction('shoot');
+  Engine.flowPickUnit(U('Guard B').id);
+  Engine.flowPickAttackTarget(h.id);
+  Engine.flowPickReaction('special', h.abilities.find(a => a.name === "Don't ya Dare").id);
+  check('Guard A\u2019s mark is cleared',
+    (U('Guard A').effects || []).filter(e => e.label === 'MARKED').length, 0);
+  check('the shooter picks it up',
+    (U('Guard B').effects || []).filter(e => e.label === 'MARKED').length, 1);
+  check('a friendly chip is left alone',
+    (U('Snitcherz').effects || []).filter(e => e.label === 'MARKED').length, 1);
+  Engine.flowHit(false);
+})();
+
+console.log('\n== Unpredictable moves, so overwatch gets its look ==');
+(function () {
+  const mob = buildPreset(orks, 0);
+  const foes = [mkUnit(1, 'Watcher', 3, 4,
+    [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], [])];
+  Engine.startGame({ playerNames: ['Orks', 'Guard'], firstPlayer: 1, vpTarget: 10,
+                     mission: { id: null } }, mob.concat(foes));
+  Engine.confirmStartPhase();
+  Engine.adjustAP(1, 4);
+  Engine.beginAction('overwatch');
+  Engine.flowPickUnit(U('Watcher').id);
+  Engine.confirmOverwatch();
+  Engine.forceEndChain();
+  Store.commit('hand over', function () {
+    const g = Store.get();
+    g.turn.player = 0;
+    g.players[0].ap = 3;
+    g.control = { player: 0, forcedUnitId: null, reason: 'test' };
+  });
+  const sn = U('Snitcherz');
+  Engine.beginAction('ability');
+  Engine.flowPickUnit(sn.id);
+  Engine.flowPickAbility(sn.abilities.find(a => a.name === 'Unpredictable').id);
+  Engine.confirmAbility();
+  check('the movement check opens', G().flow.kind, 'owcheck');
+  check('with Snitcherz as the mover', G().flow.moverId, sn.id);
+  Engine.flowFireOverwatch();               // nothing committed
+  check('and the ability still ends the chain', G().chain.active, false);
 })();
 
 console.log('\n== summary ==');
