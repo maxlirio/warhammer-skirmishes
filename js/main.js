@@ -86,6 +86,12 @@
       case 'showlog':      UI.setModal('log'); return;
       case 'showrules':    UI.setModal('rules'); return;
       case 'showhouserules': UI.setModal('houserules'); return;
+      case 'toggleverbose':
+        Store.commit('reading mode', function () {
+          const st = Store.get();
+          st.settings.verbose = st.settings.verbose === false;
+        });
+        return;
       case 'hrcost': Engine.setActionOverride(p[1], 'cost', Number(p[2])); return;
       case 'hrap':   Engine.setActionOverride(p[1], 'opponentGainsAP', Number(p[2])); return;
       case 'openactions':  UI.setModal('actions'); return;

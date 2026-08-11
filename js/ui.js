@@ -28,7 +28,7 @@ const UI = (function () {
   /* ================================================================ SHELL */
 
   function playScreen(g) {
-    return '<div class="screen">' +
+    return '<div class="screen' + (g.settings.verbose === false ? ' lean' : '') + '">' +
       topbar(g) +
       controlbar(g) +
       '<div class="board"><div class="rosters">' +
@@ -280,7 +280,9 @@ const UI = (function () {
   }
 
   function wrap(inner) {
-    return '<div class="overlay" data-overlay="1"><div class="modal">' + inner + '</div></div>';
+    const g = G();
+    return '<div class="overlay' + (g && g.settings.verbose === false ? ' lean' : '') +
+      '" data-overlay="1"><div class="modal">' + inner + '</div></div>';
   }
 
   function head(title, step, closeAct) {
@@ -305,8 +307,9 @@ const UI = (function () {
             ' <span class="ctag ' + (a.kind === 'aggressive' ? 'agg">AGGRESSIVE' : 'pas">PASSIVE') + '</span>' +
             (a.id === 'pass' && Engine.mustPass()
               ? ' <span class="ctag req">YOUR ONLY MOVE</span>' : '') + '</div>' +
-          '<div class="cdesc">' + esc(a.short || a.text) + '</div>' +
-          '<div class="apnote' + (a.kind === 'aggressive' ? ' agg'
+          '<div class="cdesc tip">' + esc(a.short || a.text) + '</div>' +
+          '<div class="cflav leanonly">' + esc(a.flavour || '') + '</div>' +
+          '<div class="apnote tip' + (a.kind === 'aggressive' ? ' agg'
             : (a.opponentGainsAP > 0 ? ' gives' : ' free')) + '">' +
             esc(Engine.apConsequence(a)) + '</div>' +
           (av.ok ? '' : '<div class="cflav" style="color:var(--bad)">' + esc(av.why) + '</div>') +
@@ -411,7 +414,7 @@ const UI = (function () {
           : missionCheck(g) +
             '<div style="font-size:10px;letter-spacing:.14em;color:var(--gold);font-weight:800;margin:12px 0 6px">' +
             'ANY OTHER VP</div>' +
-            '<div class="noteline">Anything else you scored this turn — the app has no idea what your ' +
+            '<div class="noteline tip">Anything else you scored this turn — the app has no idea what your ' +
               'mission rewards, so tell it.</div>' +
             '<div style="display:flex;gap:7px;margin-bottom:8px;flex-wrap:wrap">' +
               g.players.map(pl => '<button class="btn sm p' + pl.id + '" style="flex:1 1 45%" ' +
@@ -520,7 +523,7 @@ const UI = (function () {
     return head('MOVEMENT', 'DOES ANYTHING FIRE?') +
       '<div class="crumbs"><b>' + esc(mover ? mover.name : '?') + '</b> moved</div>' +
       '<div class="mbody">' +
-        '<div class="noteline">You can see the table — did that movement bring ' +
+        '<div class="noteline tip">You can see the table — did that movement bring ' +
           esc(mover ? mover.name : 'them') + ' into range of any of these? Tap them in the order ' +
           'you want them resolved.</div>' +
         opts.map(function (o) {
@@ -538,7 +541,7 @@ const UI = (function () {
             esc(mover ? mover.name : 'the moving unit') + ' is destroyed partway through, the ' +
             'rest are <b>still spent</b> and whatever it was doing produces nothing — that is ' +
             'the risk of committing more than one.</div>'
-          : '<div class="noteline">Choose which are firing and risk wasting one, or choose none ' +
+          : '<div class="noteline tip">Choose which are firing and risk wasting one, or choose none ' +
             'at all — an unfired token stays on the table.</div>') +
       '</div>' +
       '<div class="mfoot">' +
@@ -600,8 +603,8 @@ const UI = (function () {
       '<div class="mbody">' +
         '<div class="rollbox"><div class="lbl">' + a.name + '</div>' +
           '<div class="big" style="font-size:20px">' + esc(u.name) + '</div>' +
-          '<div class="sub">' + esc(a.prompt || a.text) + '</div></div>' +
-        '<div class="noteline">Costs ' + a.cost + ' AP. ' +
+          '<div class="sub">' + esc(a.prompt || a.flavour || '') + '</div></div>' +
+        '<div class="noteline tip">Costs ' + a.cost + ' AP. ' +
           (a.endsChain ? 'The action chain ends.' : 'The action chain continues.') + '</div>' +
         (a.expiresOverwatch && (u.tokens || []).some(t => t.kind === 'overwatch')
           ? '<div class="noteline warn">' + esc(u.name) + '\'s OVERWATCH token will be removed.</div>' : '') +
@@ -625,15 +628,15 @@ const UI = (function () {
               ? '<div class="noteline">' + esc(g.players[Store.opponentOf(g.control.player)].name) +
                 ' passed too, so this ends the action chain and play returns to ' +
                 esc(g.players[g.turn.player].name) + '.</div>'
-              : '<div class="noteline">Passing on its own does nothing but decline to act — the ' +
+              : '<div class="noteline tip">Passing on its own does nothing but decline to act — the ' +
                 'chain carries on to ' + esc(g.players[Store.opponentOf(g.control.player)].name) +
                 '. If they pass too, the chain ends.</div>')
-          : '<div class="noteline">No action chain is running. Passing changes nothing unless you ' +
+          : '<div class="noteline tip">No action chain is running. Passing changes nothing unless you ' +
             'also end your turn.</div>') +
         (o.canEndTurn
           ? '<div class="noteline warn">It is your turn, so you may end it here. Nothing else ' +
             'will.</div>' : '') +
-        '<div class="noteline">' + me + ' currently has ' + g.players[g.control.player].ap +
+        '<div class="noteline tip">' + me + ' currently has ' + g.players[g.control.player].ap +
           ' AP. Anything unspent carries over.</div>' +
       '</div>' +
       '<div class="mfoot">' +
@@ -670,7 +673,7 @@ const UI = (function () {
         '<div class="rollbox"><div class="lbl">' + esc(Store.unit(f.unitId).name) + '</div>' +
           '<div class="big" style="font-size:20px">' + esc(cp ? cp.label : '') + '</div>' +
           '<div class="sub">It stays yours until an enemy SECURES it.</div></div>' +
-        '<div class="noteline">Costs 1 AP. At the end of each turn you score 1 VP for every ' +
+        '<div class="noteline tip">Costs 1 AP. At the end of each turn you score 1 VP for every ' +
           'objective you hold — the app will count them for you.</div>' +
       '</div>' +
       footBack('confirmsecure', 'SECURE IT — 1 AP');
@@ -689,7 +692,7 @@ const UI = (function () {
           '<div class="sub">You have checked it is within 3" on the table.</div></div>' +
         '<div class="noteline warn">While carrying the RELIC this unit cannot use OVERWATCH. ' +
           'If it is destroyed, the RELIC drops where it fell.</div>' +
-        '<div class="noteline">Get it to your own side of the battlefield to score 3 VP and end ' +
+        '<div class="noteline tip">Get it to your own side of the battlefield to score 3 VP and end ' +
           'the game — tell the app in the End Phase when that happens.</div>' +
       '</div>' +
       footBack('confirmrelic', 'TAKE IT — 1 AP');
@@ -708,10 +711,10 @@ const UI = (function () {
         '<div class="rollbox"><div class="lbl">TOKEN</div><div class="big" style="font-size:20px">' +
           esc(u.name) + '</div>' +
           '<div class="sub">Place an overwatch token within 12" of this unit.</div></div>' +
-        '<div class="noteline">A <b>⌖ FIRE OVERWATCH</b> button appears on ' + esc(u.name) +
+        '<div class="noteline tip">A <b>⌖ FIRE OVERWATCH</b> button appears on ' + esc(u.name) +
           '\u2019s card. When an enemy moves within 3" of the token and is a legal target, press ' +
           'it to interrupt — the app never decides that.</div>' +
-        '<div class="noteline">You interrupt and resolve a shoot sequence at <b>-1 to hit</b>, ' +
+        '<div class="noteline tip">You interrupt and resolve a shoot sequence at <b>-1 to hit</b>, ' +
           'skipping steps 2 and 3 — so <b>the defender gains no RP</b>. Any of ' +
           esc(u.name) + '\u2019s ranged weapons may be used' +
           (ranged.length ? '' : ' — but this unit has none!') + '.</div>' +
@@ -860,7 +863,7 @@ const UI = (function () {
         (effects.length
           ? effects.map(e => '<div class="noteline">' + effectSummary(e) +
               targetNames(f.targets[e.id]) + '</div>').join('')
-          : '<div class="noteline">This token has no stored mechanical effects — it is a reminder only. ' +
+          : '<div class="noteline tip">This token has no stored mechanical effects — it is a reminder only. ' +
             'Adjust wounds or AP by hand if needed.</div>') +
         (t.expiry === 'used' ? '<div class="noteline warn">The button is removed after this.</div>' : '') +
       '</div>' +
@@ -939,7 +942,7 @@ const UI = (function () {
       const enemies = g.units.filter(u => u.alive && u.owner !== attacker.owner);
       return head(title, 'SELECT DEFENDING UNIT') + crumb +
         '<div class="mbody">' +
-          '<div class="noteline">You have already checked range and line of sight on the table. ' +
+          '<div class="noteline tip">You have already checked range and line of sight on the table. ' +
             'The app just needs to know who is being attacked.</div>' +
           enemies.map(u => unitChoice(u, 'picktargetunit:' + u.id)).join('') +
         '</div>' + footBack();
@@ -976,7 +979,7 @@ const UI = (function () {
             '<button class="choice' + (r.cost > rp ? ' disabled' : '') + '" data-act="reaction:' + r.id + '">' +
               '<div class="cmain"><div class="cname">' + r.name +
                 (blocked[r.id] ? ' <span class="ctag agg">BLOCKED</span>' : '') + '</div>' +
-              '<div class="cdesc">' + esc(r.text) + '</div>' +
+              '<div class="cdesc tip">' + esc(r.text) + '</div>' +
               (blocked[r.id]
                 ? '<div class="cflav" style="color:var(--bad)">' + esc(blocked[r.id]) +
                   ' — tap only if you agree it applies.</div>'
@@ -990,7 +993,7 @@ const UI = (function () {
               '</div><div class="ccost">' + a.cost + ' RP</div></button>').join('') +
           '<button class="choice" data-act="reaction:none">' +
             '<div class="cmain"><div class="cname">NO REACTION</div>' +
-            '<div class="cdesc">Spend nothing and take the attack as it comes. ' +
+            '<div class="cdesc tip">Spend nothing and take the attack as it comes. ' +
               'Unspent RP does not carry over.</div></div>' +
             '<div class="ccost free">0 RP</div></button>' +
           abortRow() +
@@ -1030,7 +1033,7 @@ const UI = (function () {
           '</div>' +
           elevToggle(f, action) +
           auraToggles(f, 'hit') +
-          '<div class="noteline">Roll it on the table, then tell the app what happened.</div>' +
+          '<div class="noteline tip">Roll it on the table, then tell the app what happened.</div>' +
           abortRow() +
         '</div>' +
         '<div class="mfoot">' +
@@ -1102,9 +1105,15 @@ const UI = (function () {
   function menuModal(g) {
     return head('MENU', 'GAME TOOLS') +
       '<div class="mbody">' +
+        '<button class="choice" data-act="toggleverbose"><div class="cmain">' +
+          '<div class="cname">' + (g.settings.verbose === false ? 'WALKTHROUGH MODE' : 'EXPERIENCED MODE') +
+          '</div><div class="cdesc tip">Currently ' +
+            (g.settings.verbose === false ? 'experienced — names, costs and flavour only'
+                                          : 'walking you through every action') +
+          '. Tap to switch.</div></div></button>' +
         '<button class="choice" data-act="showhouserules"><div class="cmain">' +
           '<div class="cname">ACTIONS &amp; AP</div>' +
-          '<div class="cdesc">What every action costs and whether it gives your opponent AP — ' +
+          '<div class="cdesc tip">What every action costs and whether it gives your opponent AP — ' +
             'change any of it if I have one wrong.</div></div></button>' +
         '<button class="choice" data-act="showrules"><div class="cmain">' +
           '<div class="cname">RULES REFERENCE</div>' +
@@ -1112,7 +1121,7 @@ const UI = (function () {
             'elevation bonuses, in full.</div></div></button>' +
         '<button class="choice" data-act="showlog"><div class="cmain">' +
           '<div class="cname">FULL GAME LOG</div>' +
-          '<div class="cdesc">Every AP, VP, wound and effect change since the first turn.</div></div></button>' +
+          '<div class="cdesc tip">Every AP, VP, wound and effect change since the first turn.</div></div></button>' +
         ((g.mission && g.mission.id)
           ? '<button class="choice" data-act="showmission"><div class="cmain">' +
               '<div class="cname">MISSION</div>' +
@@ -1273,7 +1282,7 @@ const UI = (function () {
           : 'Level on VP — call it between you') + '</div>' +
         '<div class="noteline">' + g.players.map(pl =>
           esc(pl.name) + ' — ' + pl.vp + ' VP').join(' · ') + '</div>' +
-        '<div class="noteline">Play on if you agreed a higher target; the app keeps tracking either way.</div>' +
+        '<div class="noteline tip">Play on if you agreed a higher target; the app keeps tracking either way.</div>' +
       '</div>' +
       '<div class="mfoot">' +
         '<button class="btn ghost sm" data-act="dismisswin">KEEP PLAYING</button>' +

@@ -10,6 +10,7 @@ const Setup = (function () {
   function blankState() {
     return {
       step: 0,
+      mode: 'guided',            // 'guided' explains itself; 'lean' just labels
       playerNames: ['Player 1', 'Player 2'],
       vpTarget: RULES.defaultVPTarget,
       firstPlayer: 0,
@@ -65,7 +66,7 @@ const Setup = (function () {
   /* The slides are built fresh each render, because the mission card decides
      whether a briefing slide is needed at all. */
   function steps() {
-    const list = [{ kind: 'players' }, { kind: 'mission' }];
+    const list = [{ kind: 'mode' }, { kind: 'players' }, { kind: 'mission' }];
     for (let i = 0; i < PLAYERS; i++) list.push({ kind: 'army', owner: i });
     if (missionNeedsBriefing()) list.push({ kind: 'briefing' });
     list.push({ kind: 'review' });
@@ -84,6 +85,7 @@ const Setup = (function () {
 
   function stepTitle(n) {
     const s = stepAt(n);
+    if (s.kind === 'mode') return 'HOW IT READS';
     if (s.kind === 'players') return 'PLAYERS';
     if (s.kind === 'mission') return 'MISSION';
     if (s.kind === 'briefing') return 'BRIEFING';
@@ -127,13 +129,14 @@ const Setup = (function () {
 
     const s = stepAt(n);
     let body;
-    if (s.kind === 'players') body = playersStep();
+    if (s.kind === 'mode') body = modeStep();
+    else if (s.kind === 'players') body = playersStep();
     else if (s.kind === 'mission') body = missionStep();
     else if (s.kind === 'briefing') body = briefingStep();
     else if (s.kind === 'review') body = reviewStep();
     else body = armyStepView(s.owner);
 
-    return '<div class="screen">' +
+    return '<div class="screen' + (guided() ? '' : ' lean') + '">' +
       '<div class="wizhead">' +
         '<div class="wiztitle">WARHAMMER <span>SKIRMISHES</span></div>' +
         '<div class="wizstep">STEP ' + (n + 1) + ' OF ' + (lastStep() + 1) + ' — ' + stepTitle(n) + '</div>' +
@@ -156,6 +159,29 @@ const Setup = (function () {
 
   function field(label, inner) {
     return '<div class="field"><label>' + label + '</label>' + inner + '</div>';
+  }
+
+  /* Explanations are for people learning the game. Once you know it the prose is
+     noise, so lean mode drops every .hint in one go. */
+  const guided = () => S.mode !== 'lean';
+
+  function modeStep() {
+    return '<div class="lead">How much should the app explain?</div>' +
+      '<button class="misscard' + (guided() ? ' on' : '') + '" data-act="mode:guided">' +
+        '<div class="mcname">WALKTHROUGH</div>' +
+        '<div class="mcflav">For your first games.</div>' +
+        '<div class="mcsec">Every action, reaction and screen comes with what it does and what ' +
+          'it costs you. The app talks you through the sequence.</div>' +
+        (guided() ? '<div class="mcon">SELECTED</div>' : '') +
+      '</button>' +
+      '<button class="misscard' + (!guided() ? ' on' : '') + '" data-act="mode:lean">' +
+        '<div class="mcname">EXPERIENCED</div>' +
+        '<div class="mcflav">You know the game.</div>' +
+        '<div class="mcsec">Names, costs and flavour only. Dice targets, modifiers and everything ' +
+          'the app is actually tracking still show — just none of the teaching.</div>' +
+        (!guided() ? '<div class="mcon">SELECTED</div>' : '') +
+      '</button>' +
+      '<div class="modehint">You can change this mid-game from the menu.</div>';
   }
 
   /* --------------------------------------------------------- step: players */
@@ -867,6 +893,7 @@ const Setup = (function () {
       }
 
       /* ---- mission & objectives ---- */
+      case 'mode': S.mode = p[1]; return true;
       case 'mission':
         S.missionId = (p[1] === 'none') ? null : p[1];
         S.roles = { attacker: null, defender: null };
@@ -1024,6 +1051,7 @@ const Setup = (function () {
           endsWhen: m ? m.endsWhen : null,
           endsShort: m ? m.endsShort : null,
           firstPlayer: Number(S.firstPlayer) || 0,
+          verbose: guided(),
           mission: m ? { id: m.id, roles: m.roles ? { attacker: S.roles.attacker,
                                                       defender: S.roles.defender } : null }
                      : { id: null }

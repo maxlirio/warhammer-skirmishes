@@ -1238,6 +1238,36 @@ console.log('\n== a MOVE walks into overwatch too ==');
   check('and MOVE still ends the chain', G().chain.active, false);
 })();
 
+console.log('\n== walkthrough vs experienced ==');
+(function () {
+  const us = [
+    mkUnit(0, 'A', 3, 4, [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], []),
+    mkUnit(1, 'B', 3, 4, [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], [])
+  ];
+  Engine.startGame({ playerNames: ['One', 'Two'], firstPlayer: 0, vpTarget: 10,
+                     verbose: false, mission: { id: null } }, us);
+  check('experienced mode is recorded', Store.get().settings.verbose, false);
+  Store.commit('flip', function () {
+    const g = Store.get();
+    g.settings.verbose = g.settings.verbose === false;
+  });
+  check('and can be flipped mid-game', Store.get().settings.verbose, true);
+
+  Engine.startGame({ playerNames: ['One', 'Two'], firstPlayer: 0, vpTarget: 10,
+                     mission: { id: null } }, [
+    mkUnit(0, 'A', 3, 4, [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], []),
+    mkUnit(1, 'B', 3, 4, [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], [])
+  ]);
+  check('walkthrough is the default', Store.get().settings.verbose, true);
+
+  // The mode is presentation only — it must not touch a single rule.
+  check('every action still carries its flavour',
+    RULES.actions.every(a => typeof a.flavour === 'string' && a.flavour.length > 0), true);
+  check('and every reaction too',
+    RULES.rangedReactions.concat(RULES.meleeReactions)
+      .every(r => typeof r.flavour === 'string' && r.flavour.length > 0), true);
+})();
+
 console.log('\n== summary ==');
 console.log((checks - fails) + '/' + checks + ' checks passed');
 process.exit(fails ? 1 : 0);

@@ -31,12 +31,23 @@ Range, line of sight, movement legality, charge legality, whether an overwatch
 trigger occurred, and dice rolls. You decide all of that on the table and tell
 the app the outcome. It never asks "is the target in range?".
 
+## Walkthrough or experienced
+
+The first thing setup asks is how much the app should explain.
+
+**Walkthrough** spells out what every action, reaction and screen does — for your
+first games. **Experienced** shows names, costs, keywords and flavour only. It
+never hides anything the app is *tracking*: dice targets, modifier breakdowns,
+aura tick-boxes, whose AP is whose, the action chain. Only the teaching goes.
+Switchable mid-game from the menu.
+
 ## Playing
 
-1. **Setup** is a wizard, one slide at a time: both players' names → which of the
-   six Mission Cards (each printed verbatim, and each bringing its own win
-   condition — only a card-less game asks you to agree a VP target) → one slide
-   per army → a briefing slide if the mission needs one → review.
+1. **Setup** is a wizard, one slide at a time: how much it explains → both
+   players' names → which of the six Mission Cards (each printed verbatim, and
+   each bringing its own win condition — only a card-less game asks you to agree
+   a VP target) → one slide per army → a briefing slide if the mission needs one
+   → review.
 2. **ACTION LIST** — pick a Standard Action; the app walks the bookkeeping:
    attacker → defender → weapon → reaction → hit → wound → damage.
 3. The app shows the **target number** for every roll (weapon Hit value and the

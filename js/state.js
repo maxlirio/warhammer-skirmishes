@@ -65,7 +65,9 @@ const Store = (function () {
            survivor AP either. */
         overwatchGrantsAP: false,
         /* Per-action house rules: { move: { cost: 1, opponentGainsAP: 0 }, ... } */
-        actionOverrides: {}
+        actionOverrides: {},
+        /* false = experienced: labels, costs and flavour, no teaching. */
+        verbose: (config && config.verbose) !== false
       },
       players: [0, 1].map(function (i) {
         const nm = (config && config.playerNames && config.playerNames[i]);

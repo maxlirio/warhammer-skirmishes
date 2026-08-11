@@ -624,3 +624,14 @@ h1, h2, h3, h4 { margin: 0; font-weight: 700; letter-spacing: .02em; }
   color: var(--ink-mute); font-size: 11px; font-weight: 700; letter-spacing: .06em;
 }
 .abortbtn:active { background: var(--panel-2); color: var(--ink); }
+
+/* ------------------------------------------------ walkthrough vs experienced */
+
+.lean .tip,
+.lean .hint    { display: none; }
+.leanonly      { display: none; }
+.lean .leanonly { display: block; }
+
+.modehint {
+  font-size: 11px; color: var(--ink-mute); line-height: 1.45; margin-top: 8px;
+}
