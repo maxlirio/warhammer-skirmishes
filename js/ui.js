@@ -433,14 +433,23 @@ const UI = (function () {
           const cost = a.cost === null ? 'X AP' : (a.cost === 0 ? 'FREE' : a.cost + ' AP');
           return '<button class="choice' + (a.available.ok ? '' : ' disabled') +
             '" data-act="unitact:' + unitId + ':' + a.id + '">' +
-            '<div class="cmain"><div class="cname">' + a.name +
-              ' <span class="ctag ' + (a.kind === 'aggressive' ? 'agg">AGGRESSIVE' : 'pas">PASSIVE') +
-              '</span></div>' +
+            '<div class="cmain"><div class="cname">' + esc(a.name) +
+              (a.isAbility
+                ? ' <span class="ctag abil">SPECIAL ABILITY</span>'
+                : ' <span class="ctag ' + (a.kind === 'aggressive' ? 'agg">AGGRESSIVE'
+                                                                  : 'pas">PASSIVE') + '</span>') +
+              '</div>' +
             '<div class="cdesc tip">' + esc(a.short || a.text) + '</div>' +
             '<div class="cflav leanonly">' + esc(a.flavour || '') + '</div>' +
-            '<div class="apnote tip' + (a.kind === 'aggressive' ? ' agg'
-              : (a.opponentGainsAP > 0 ? ' gives' : ' free')) + '">' +
-              esc(Engine.apConsequence(a)) + '</div>' +
+            (a.isAbility
+              ? (a.effects || []).map(e => '<div class="cflav">' + effectSummary(e) +
+                  '</div>').join('') +
+                '<div class="apnote tip' + (a.opponentReacts ? ' gives' : ' free') + '">' +
+                  (a.opponentReacts ? 'Your opponent gets to react.'
+                                    : 'No reaction — the action chain ends.') + '</div>'
+              : '<div class="apnote tip' + (a.kind === 'aggressive' ? ' agg'
+                  : (a.opponentGainsAP > 0 ? ' gives' : ' free')) + '">' +
+                  esc(Engine.apConsequence(a)) + '</div>') +
             (a.available.ok ? '' : '<div class="cflav" style="color:var(--bad)">' +
               esc(a.available.why) + '</div>') +
             '</div><div class="ccost' + (a.cost === 0 ? ' free' : '') + '">' + cost + '</div>' +
@@ -509,9 +518,9 @@ const UI = (function () {
         '<div style="font-size:10px;letter-spacing:.14em;color:var(--gold);font-weight:800;margin:12px 0 6px">' +
           'INTERRUPTED ACTIONS</div>' +
         '<div class="noteline">If an effect interrupts an action so that it cannot be performed — ' +
-          'a DIVE out of sight, a unit shot off the board mid-move — the action immediately ends. ' +
-          'The action chain continues, but nothing that would have come of that action happens, ' +
-          '<b>not even gaining AP</b>. Use <b>COULD NOT BE PERFORMED</b> in the attack flow.</div>' +
+          'a unit shot off the board mid-move — the action immediately ends. The action chain ' +
+          'continues, but nothing that would have come of that action happens, ' +
+          '<b>not even gaining AP</b>. The app watches for this and does it for you.</div>' +
       '</div>' +
       '<div class="mfoot"><button class="btn ghost" data-act="close">CLOSE</button></div>';
   }
@@ -744,13 +753,6 @@ const UI = (function () {
     '</button>';
   }
 
-  /* "If an effect interrupts an action so that the action is not able to be
-     performed, the action immediately ends." Always one tap away. */
-  function abortRow() {
-    return '<button class="abortbtn" data-act="abort">COULD NOT BE PERFORMED — ' +
-      'nothing comes of it</button>';
-  }
-
   function footBack(confirmAct, confirmLabel, cls) {
     return '<div class="mfoot">' +
       '<button class="btn ghost sm" data-act="flowback">BACK</button>' +
@@ -779,7 +781,6 @@ const UI = (function () {
           (a.endsChain ? 'The action chain ends.' : 'The action chain continues.') + '</div>' +
         (a.expiresOverwatch && (u.tokens || []).some(t => t.kind === 'overwatch')
           ? '<div class="noteline warn">' + esc(u.name) + '\'s OVERWATCH token will be removed.</div>' : '') +
-        abortRow() +
       '</div>' +
       footBack('confirmsimple', 'DONE — ' + a.name);
   }
@@ -946,11 +947,17 @@ const UI = (function () {
         return multiPick(g, f, e, 'picktarget', esc(ab.name),
           'Everyone in range rolls. Tick the ones that failed.');
       }
-      return head(esc(ab.name), 'SELECT TARGET — ' + effectSummary(e).toUpperCase()) +
-        '<div class="mbody">' + pickableUnits(g, e, u.owner)
-          .map(x => unitChoice(x, 'picktarget:' + e.id + ':' + x.id,
-            x.owner === u.owner ? 'friendly' : 'enemy')).join('') +
-        '</div>' + footBack();
+      /* At the start of the game there is no chain to return to and nothing to
+         confirm — the pick IS the whole ability. */
+      return head(esc(ab.name), f.setupStep
+          ? 'BEFORE THE FIRST TURN — ' + esc(u.name).toUpperCase()
+          : 'SELECT TARGET — ' + effectSummary(e).toUpperCase()) +
+        '<div class="mbody">' +
+          (f.setupStep ? '<div class="noteline">' + esc(ab.text) + '</div>' : '') +
+          pickableUnits(g, e, u.owner)
+            .map(x => unitChoice(x, 'picktarget:' + e.id + ':' + x.id,
+              x.owner === u.owner ? 'friendly' : 'enemy')).join('') +
+        '</div>' + (f.setupStep ? '' : footBack());
     }
     return head(esc(ab.name), 'CONFIRM') +
       '<div class="mbody">' +
@@ -959,11 +966,15 @@ const UI = (function () {
           '<div class="sub">' + esc(ab.text) + '</div></div>' +
         (ab.effects || []).map(e => '<div class="noteline">' + effectSummary(e) +
           targetNames(f.targets[e.id]) + '</div>').join('') +
-        '<div class="noteline warn">Costs ' + ab.cost + ' AP. ' +
-          (Engine.abilityLetsThemReact(ab)
-            ? 'Your opponent gets to react — the chain continues, and they may answer with any ' +
-              'unit if they have the AP.'
-            : 'Your opponent does not get to react — the action chain ends here.') + '</div>' +
+        /* AP and the action chain only exist when this is a Standard Action.
+           A free ability — a card button, or one that resolves itself at the
+           start of the game — costs nothing and interrupts nothing. */
+        (f.freeUse ? ''
+          : '<div class="noteline warn">Costs ' + ab.cost + ' AP. ' +
+            (Engine.abilityLetsThemReact(ab)
+              ? 'Your opponent gets to react — the chain continues, and they may answer with ' +
+                'any unit if they have the AP.'
+              : 'Your opponent does not get to react — the action chain ends here.') + '</div>') +
       '</div>' +
       footBack('confirmability', 'USE ABILITY');
   }
@@ -1243,7 +1254,6 @@ const UI = (function () {
             '<div class="cdesc tip">Spend nothing and take the attack as it comes. ' +
               'Unspent RP does not carry over.</div></div>' +
             '<div class="ccost free">0 RP</div></button>' +
-          abortRow() +
         '</div>' +
         '<div class="mfoot"><button class="btn ghost sm" data-act="flowback">BACK</button></div>';
     }
@@ -1288,7 +1298,6 @@ const UI = (function () {
             ? '<div class="noteline">Roll all ' + n.dice + ', then tap how many hit.</div>' +
               countPad('hits', n.dice)
             : '<div class="noteline tip">Roll it on the table, then tell the app what happened.</div>') +
-          abortRow() +
         '</div>' +
         (multi ? '' :
         '<div class="mfoot">' +
@@ -1313,7 +1322,6 @@ const UI = (function () {
           '<div class="noteline">' + f.hits + ' shots hit. Tap how many of them wounded — ' +
             'each one deals ' + n.damage + '.</div>' +
           countPad('wounds', f.hits) +
-          abortRow() +
         '</div>';
     }
 
@@ -1335,7 +1343,6 @@ const UI = (function () {
           '</div>' +
           elevToggle(f, action) +
           auraToggles(f, ['wound', 'strength']) +
-          abortRow() +
         '</div>' +
         '<div class="mfoot">' +
           '<button class="btn bad" data-act="wound:0">FAILED</button>' +

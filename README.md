@@ -60,9 +60,11 @@ every popup — stays upright. Also switchable mid-game from the menu.
    game asks you to agree a VP target) → one slide per army → a briefing slide if
    the mission needs one → review.
 2. **Tap the unit you want to act with.** Every unit that can do something right
-   now glows and says *TAP TO ACT*; tapping it lists only the actions **that**
-   unit can take, with what each costs and what it hands the opponent. There is
-   no action list to open first and no "which unit?" step afterwards.
+   now glows and says *TAP TO ACT*; tapping it lists only what **that** unit can
+   do, with what each costs and what it hands the opponent — its Standard
+   Actions and **its own Special Abilities by name**, in one list. There is no
+   action list to open first, no "which unit?" step afterwards, and no SPECIAL
+   ABILITY button to go through.
 3. The app walks the bookkeeping from there: defender → weapon → reaction → hit →
    wound → damage.
 4. The app shows the **target number** for every roll (weapon Hit value and the
@@ -168,12 +170,13 @@ A token you did not commit stays on the table.
 
 ## Interrupted actions
 
-If something stops an action being performed at all — a DIVE that goes out of
-sight, a unit shot off the board mid-move — **COULD NOT BE PERFORMED** is one tap
-away throughout the attack flow and on a simple action's confirm screen. The
-action ends, the chain carries on, and nothing it would have produced happens:
-no damage, no VP, and **not even the AP** the target would have gained. The
-weapon is not spent either, since it was never used.
+If a unit is shot off the board mid-move, the action it was performing ends: the
+chain carries on and nothing it would have produced happens — no damage, no VP,
+and **not even the AP** the target would have gained. The weapon is not spent
+either, since it was never used.
+
+There is no button for this. The app is watching the overwatch check, so it sees
+the mover die and closes the action out by itself.
 
 ## Auras — "+1 to hit within 6\""
 
@@ -300,6 +303,8 @@ Make it a button. Three ways, in increasing order of automation:
 
 ## Custom abilities
 
+An `[X] AP` ability appears in its unit's action list next to MOVE and SHOOT,
+tagged **SPECIAL ABILITY**, with its cost and whether the opponent gets to react.
 Abilities are mechanical, not natural language. For each one you specify when it
 fires, whether your opponent gets to react to it, and a list of effects the app
 applies: gain/lose AP, RP or VP, deal or heal damage, modify Hit or Wound rolls
@@ -310,8 +315,9 @@ The triggers are `[X] AP`, `[X] RP`, `START:`, `END:`, passive, a free button �
 and two the app fires for you:
 
 - **AT THE START OF THE GAME** resolves itself before turn one. If it needs a
-  choice — *Da Hunta MARKS an enemy* — the app asks for it during setup and then
-  gets out of the way.
+  choice — *Da Hunta MARKS an enemy* — the app asks for it before the first turn
+  and the pick **is** the whole step: no confirmation, no talk of AP or the
+  action chain, because neither exists yet.
 - **WHEN THIS UNIT KILLS** fires the moment that unit destroys an enemy, and can
   be tied to one named weapon. *Kill Count* only counts kills made with Al's
   Bayonet, so shooting someone with his Lasgun does nothing — the app checks the

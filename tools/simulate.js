@@ -272,24 +272,20 @@ check('because this ability lets them', Engine.abilityLetsThemReact(
   U('Intercessor').abilities[0]), true);
 check('+1 to hit effect on the Intercessor', U('Intercessor').effects.length, 1);
 
-console.log('\n== DIVE cancels the attack ==');
+console.log('\n== DIVE moves the defender and the shot goes ahead ==');
 Engine.forceControl(0, null);
 Engine.adjustAP(0, 2);
 Engine.beginAction('shoot');
 Engine.flowPickUnit(U('Scout').id);
 Engine.flowPickAttackTarget(U('Ork Boy').id);
-const boyWounds = U('Ork Boy').wounds, oppAP = ap(1);
+const oppAP = ap(1);
 Engine.flowPickReaction('dive');
 check('DIVE goes straight to the roll', G().flow.step, 'hit');
 check('the dive itself no longer forfeits the AP', G().flow.apGrant, true);
-// The 3" took it out of sight, so the attack cannot be performed at all.
-Engine.abortAction();
-check('no damage dealt', U('Ork Boy').wounds, boyWounds);
-check('and nothing came of it, not even the AP', ap(1), oppAP);
-check('but the action chain carries on', G().chain.active, true);
-check('with the targeted unit still owed the response', G().control.forcedUnitId, U('Ork Boy').id);
-check('and the weapon was never spent',
-  Engine.weaponsFor(U('Scout').id, 'ranged')[0].used, false);
+Engine.flowHit(false);
+check('a miss still hands over the survivor AP', ap(1), oppAP + 1);
+check('the action chain carries on', G().chain.active, true);
+check('with the targeted unit owed the response', G().control.forcedUnitId, U('Ork Boy').id);
 
 console.log('\n== DISTRACT: extra AP and a free unit choice ==');
 Engine.forceEndChain();
@@ -1049,24 +1045,40 @@ console.log('\n== a DIVE that stays in sight still earns its AP ==');
   check('the survivor gains its AP as normal', ap(1), before + 1);
 })();
 
-console.log('\n== an interrupted MOVE costs the AP and yields nothing ==');
+console.log('\n== a MOVE interrupted by a fatal overwatch yields nothing ==');
 (function () {
   const us = [
-    mkUnit(0, 'A', 3, 4, [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], []),
-    mkUnit(1, 'B', 3, 4, [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], [])
+    mkUnit(0, 'A', 1, 4, [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], []),
+    mkUnit(1, 'Watcher', 3, 4,
+      [{ name: 'Cannon', type: 'ranged', hit: 2, strength: 8, damage: 4 }], [])
   ];
-  Engine.startGame({ playerNames: ['One', 'Two'], vpTarget: 10, firstPlayer: 0,
+  Engine.startGame({ playerNames: ['One', 'Two'], vpTarget: 10, firstPlayer: 1,
                      mission: { id: null } }, us);
+  Engine.confirmStartPhase();
+  Engine.adjustAP(1, 2);
+  Engine.beginAction('overwatch');
+  Engine.flowPickUnit(U('Watcher').id);
+  Engine.confirmOverwatch();
+
+  Engine.forceEndTurn();
+  Engine.confirmEndPhase();
   Engine.confirmStartPhase();
   Engine.adjustAP(0, 2);
   const mine = ap(0), theirs = ap(1);
   Engine.beginAction('move');
   Engine.flowPickUnit(U('A').id);
-  Engine.abortAction();
+  Engine.confirmSimple();
+  check('moving opens the overwatch check', G().flow.kind, 'owcheck');
+  const w = Engine.overwatchCandidates(U('A').id)[0];
+  Engine.flowToggleOverwatch(w.unitId, w.tokenId);
+  Engine.flowFireOverwatch();
+  Engine.flowHit(true);
+  Engine.flowWound(true);
+  check('the mover is shot off the board', U('A').alive, false);
+  /* No button to press: the app watched it happen and ended the MOVE itself. */
   check('the AP was still spent', ap(0), mine - 1);
-  check('the opponent gained nothing', ap(1), theirs);
-  check('and the chain continues rather than ending as MOVE would',
-    G().chain.active, true);
+  check('and the opponent gained nothing from it', ap(1), theirs);
+  check('nothing is left waiting for a confirmation', G().flow, null);
 })();
 
 console.log('\n== each card carries its own win condition ==');
@@ -1595,16 +1607,17 @@ console.log('\n== GREY KNIGHTS: dice buffs, reserves and teleports ==');
   Engine.adjustAP(0, 6);
 
   /* A unit in reserve can only do the thing that brings it in. */
-  check('a reserved unit offers just one action',
-    Engine.unitActions(U('Brother Drusius').id).map(a => a.id), ['ability']);
-  check('and only the arriving ability',
-    Engine.usableAPAbilities(U('Brother Drusius')).map(a => a.name), ['Deep Strike']);
+  check('a reserved unit offers just one thing, by name',
+    Engine.unitActions(U('Brother Drusius').id).map(a => a.name), ['Deep Strike']);
+  check('and it is flagged as a Special Ability',
+    Engine.unitActions(U('Brother Drusius').id)[0].isAbility, true);
   check('it cannot be shot at either',
     Engine.eligibleUnits().length > 0 &&
       G().units.filter(u => u.alive && !u.reserve).map(u => u.name).indexOf('Brother Drusius'), -1);
 
-  Engine.beginAction('ability', U('Brother Drusius').id);
-  Engine.flowPickAbility(Engine.usableAPAbilities(U('Brother Drusius'))[0].id);
+  Engine.beginAbility(U('Brother Drusius').id,
+    Engine.unitActions(U('Brother Drusius').id)[0].abilityId);
+  check('it goes straight to the confirm', G().flow.step, 'confirm');
   Engine.confirmAbility();
   check('Deep Strike puts it on the table', U('Brother Drusius').reserve, false);
   check('and it counts as having moved', U('Brother Drusius').movedThisTurn, true);

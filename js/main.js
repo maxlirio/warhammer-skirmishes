@@ -115,7 +115,10 @@
       case 'unitact':
         UI.setModal(null);
         UI.clearDamageDraft();
-        Engine.beginAction(p[2], p[1]);
+        /* "ability:<id>" is one of the unit's own Special Abilities, listed
+           alongside its Standard Actions now that the unit is already chosen. */
+        if (p[2] === 'ability') Engine.beginAbility(p[1], p[3]);
+        else Engine.beginAction(p[2], p[1]);
         return;
       case 'dopass': {
         /* One possible outcome: just do it. Two: ask which. */
@@ -213,7 +216,6 @@
 
       /* ---- flow navigation ---- */
       case 'flowback': UI.clearDamageDraft(); Engine.flowBack(); return;
-      case 'abort': UI.clearDamageDraft(); Engine.abortAction(); return;
       case 'owpick': Engine.flowToggleOverwatch(p[1], p[2]); return;
       case 'owgo': UI.clearDamageDraft(); Engine.flowFireOverwatch(); return;
 

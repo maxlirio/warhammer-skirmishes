@@ -145,8 +145,7 @@ const RULES = (function () {
     { id: 'dive', name: 'DIVE', cost: 1, moves: true,
       flavour: '“Who cares if your knees get dirty?!”',
       text: 'Move 3".',
-      tabletop: 'Move the defender 3". If that takes it out of sight, the attack cannot be ' +
-                'performed — use “COULD NOT BE PERFORMED”.' },
+      tabletop: 'Move the defender 3".' },
 
     { id: 'distract', name: 'DISTRACT', cost: 1, hitMod: +1, grantAP: 1,
       freeChoice: true, chainLivesOnDeath: true,

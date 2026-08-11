@@ -1119,8 +1119,7 @@ const Engine = (function () {
     if (!eligibleUnits().some(x => x.id === unitId)) return [];
     return actionList().filter(function (a) {
       if (a.noUnit) return false;                       // PASS has its own button
-      /* Off the battlefield: the only thing it can do is arrive. */
-      if (u.reserve) return a.flow === 'ability' && usableAPAbilities(u).length > 0;
+      if (u.reserve) return false;    // off the battlefield: only its arrival ability
       // "That unit may not MOVE this turn."
       if (a.id === 'move' && u.noMoveTurn) return false;
       const av = actionAvailability(a);
@@ -1132,9 +1131,34 @@ const Engine = (function () {
         if (!(u.weapons || []).some(w => w.type === 'ranged')) return false;
         if (relicCarrier() === unitId) return false;
       }
-      if (a.flow === 'ability' && !usableAPAbilities(u).length) return false;
+      if (a.flow === 'ability') return false;   // listed one by one, below
       return true;
-    }).map(a => Object.assign({}, a, { available: actionAvailability(a) }));
+    }).map(a => Object.assign({}, a, { available: actionAvailability(a) }))
+      /* You already chose the unit, so its Special Abilities belong in the same
+         list as its Standard Actions rather than behind a button. */
+      .concat(abilityActions(u));
+  }
+
+  /* A unit's "[X] AP —" abilities, dressed as entries in its action list. */
+  function abilityActions(u) {
+    const g = S();
+    if (g.pending) return [];
+    return (u.abilities || []).filter(a => a.trigger === 'ap' &&
+        (!u.reserve || isArrival(a)) &&
+        (!a.usesPerGame || (a.used || 0) < a.usesPerGame) &&
+        (!a.usesPerTurn || (a.usedTurn || 0) < a.usesPerTurn))
+      .map(function (a) {
+        const cost = Number(a.cost) || 0;
+        const poor = g.players[u.owner].ap < cost;
+        return {
+          id: 'ability:' + a.id, abilityId: a.id, isAbility: true,
+          name: a.name, kind: 'passive', flow: 'ability', cost: cost,
+          short: a.text, text: a.text, flavour: '',
+          opponentGainsAP: 0, effects: a.effects || [],
+          opponentReacts: abilityLetsThemReact(a),
+          available: poor ? { ok: false, why: 'not enough AP' } : { ok: true }
+        };
+      });
   }
 
   function usableFreeAbilities(u) {
@@ -1219,6 +1243,22 @@ const Engine = (function () {
         g.flow = { kind: 'simple', actionId: action.id, unitId: base.unitId,
                    step: base.unitId ? 'confirm' : 'unit' };
       }
+    });
+  }
+
+  /* Straight into one named ability: the unit and the ability are both known. */
+  function beginAbility(unitId, abilityId) {
+    const g = S();
+    const u = Store.unit(unitId);
+    const entry = u && abilityActions(u).find(a => a.abilityId === abilityId);
+    if (!entry || !entry.available.ok) return;
+    if (!eligibleUnits().some(x => x.id === unitId)) return;
+    Store.commit('begin ' + entry.name, function () {
+      const st = S();
+      st.flow = { kind: 'ability', actionId: 'ability', unitId: unitId,
+                  abilityId: abilityId, targets: {}, pickIndex: 0, step: 'confirm' };
+      const ab = findAbility(unitId, abilityId);
+      if (effectsNeedingTarget(ab, { sourceUnitId: unitId }).length) st.flow.step = 'pick';
     });
   }
 
@@ -1455,8 +1495,11 @@ const Engine = (function () {
       if (e && e.pick === 'multi') { toggleMulti(f, e, unitId); return; }
       f.targets[effectId] = unitId;
       const done = needs.every(x => filled(f.targets[x.id]));
-      if (done) f.step = 'confirm';
-      else f.pickIndex = needs.findIndex(x => !filled(f.targets[x.id]));
+      if (!done) { f.pickIndex = needs.findIndex(x => !filled(f.targets[x.id])); return; }
+      /* Nothing left to decide and nothing to pay: an ability that resolves
+         itself at the start of the game just gets on with it. */
+      if (f.setupStep) { resolveFreeFlow(f); return; }
+      f.step = 'confirm';
     });
   }
 
@@ -1477,6 +1520,7 @@ const Engine = (function () {
       if (!f) return;
       const next = flowNeeds(f).findIndex(x => !filled(f.targets[x.id]));
       if (next >= 0) { f.pickIndex = next; return; }
+      if (f.setupStep) { resolveFreeFlow(f); return; }
       f.step = 'confirm';
     });
   }
@@ -1574,21 +1618,24 @@ const Engine = (function () {
     return (u.abilities || []).find(a => a.id === abilityId) || null;
   }
 
+  /* Resolve a free-use ability flow. Callers are already inside a commit. */
+  function resolveFreeFlow(f) {
+    const g = S();
+    const uid = f.unitId, aid = f.abilityId, tg = f.targets;
+    const setup = f.setupStep, phase = f.phaseStep;
+    g.flow = null;
+    if (phase) resolvePhaseAbility(uid, aid, tg);
+    else resolveFreeAbility(uid, aid, tg);
+    if (setup) advanceSetupQueue();
+  }
+
   function confirmAbility() {
     Store.commit('use ability', function () {
       const g = S();
       const f = g.flow;
       if (!f) return;
       /* A card button, not a Standard Action: no AP, no effect on the chain. */
-      if (f.freeUse) {
-        const uid = f.unitId, aid = f.abilityId, tg = f.targets;
-        const setup = f.setupStep, phase = f.phaseStep;
-        g.flow = null;
-        if (phase) resolvePhaseAbility(uid, aid, tg);
-        else resolveFreeAbility(uid, aid, tg);
-        if (setup) advanceSetupQueue();
-        return;
-      }
+      if (f.freeUse) { resolveFreeFlow(f); return; }
       const actor = g.control.player;
       const ab = findAbility(f.unitId, f.abilityId);
       if (!ab) { g.flow = null; return; }
@@ -2285,33 +2332,6 @@ const Engine = (function () {
     };
   }
 
-  /* An effect stopped the action from happening at all — a DIVE out of sight, a
-     unit shot off the board mid-move. The action ends, the chain carries on, and
-     nothing it would have produced happens, not even the AP. */
-  function abortAction() {
-    Store.commit('interrupted', function () {
-      const g = S();
-      const f = g.flow;
-      if (!f) return;
-
-      if (f.kind === 'attack') {
-        chainEntry(uname(f.attackerId) + '\u2019s attack could not be performed — nothing comes ' +
-          'of it, not even the AP.', 'note');
-        f.cancelled = true;
-        finishAttack({ hit: false, cancelled: true });
-        return;
-      }
-
-      const action = actionDef(f.actionId);
-      const actor = g.control.player;
-      openChain(actor);
-      spendAP(actor, action.cost || 0);
-      chainEntry(pname(actor) + ': ' + action.name + ' could not be performed — nothing comes of ' +
-        'it, not even the AP.', 'note');
-      g.flow = null;
-      afterAction({ actor: actor, endsChain: false, forcedUnitId: null });
-    });
-  }
 
   /* ------------------------------------------------------ token triggers */
 
@@ -2742,13 +2762,12 @@ const Engine = (function () {
     actionDef, actionList, setActionOverride, apConsequence, controlMode, mustPass,
     actionAvailability, eligibleUnits, usableAPAbilities, usableFreeAbilities,
     weaponsFor, findAbility,
-    beginAction, unitActions, cancelFlow, flowBack, flowPickUnit,
+    beginAction, beginAbility, unitActions, abilityActions, cancelFlow, flowBack, flowPickUnit,
     flowPickControlPoint, confirmSecure, confirmRelic,
     missionCard, missionEndTurnItems, toggleUnitFlag, controlledCount,
     relicCarrier, setRelicCarrier, killValue, endGameNow,
     confirmSimple, confirmPass, confirmPassDirect, passOptions, confirmOverwatch,
     abilityLetsThemReact,
-    abortAction,
     flowPickAbility, flowPickTarget, flowDoneTargets, confirmAbility,
     useFreeAbility, usePhaseAbility,
     flowPickAttackTarget, flowPickWeapon, flowPickReaction,
