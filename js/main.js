@@ -86,6 +86,12 @@
       case 'showlog':      UI.setModal('log'); return;
       case 'showrules':    UI.setModal('rules'); return;
       case 'showhouserules': UI.setModal('houserules'); return;
+      case 'togglelayout':
+        Store.commit('layout', function () {
+          const st = Store.get();
+          st.settings.layout = st.settings.layout === 'table' ? 'normal' : 'table';
+        });
+        return;
       case 'toggleverbose':
         Store.commit('reading mode', function () {
           const st = Store.get();
@@ -94,7 +100,20 @@
         return;
       case 'hrcost': Engine.setActionOverride(p[1], 'cost', Number(p[2])); return;
       case 'hrap':   Engine.setActionOverride(p[1], 'opponentGainsAP', Number(p[2])); return;
-      case 'openactions':  UI.setModal('actions'); return;
+      case 'acts':         UI.setModal({ acts: p[1] }); return;
+      case 'abilinfo':     UI.setModal({ abil: [p[1], p[2]] }); return;
+      case 'unitact':
+        UI.setModal(null);
+        UI.clearDamageDraft();
+        Engine.beginAction(p[2], p[1]);
+        return;
+      case 'dopass': {
+        /* One possible outcome: just do it. Two: ask which. */
+        const o = Engine.passOptions();
+        if (o.inChain && o.canEndTurn) { Engine.beginAction('pass'); return; }
+        Engine.confirmPassDirect(!o.inChain && o.canEndTurn);
+        return;
+      }
       case 'openphase':    UI.setModal(null); return;
       case 'unitinfo':     UI.setModal({ unit: p[1] }); return;
       case 'undo': {

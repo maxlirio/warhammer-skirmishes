@@ -377,7 +377,9 @@ const RULES = (function () {
       { id: 'rp',      label: '[X] RP — Special Reaction', hint: 'Offered in the reaction list when this unit is attacked.' },
       { id: 'start',   label: 'START: —',                  hint: 'Offered in the Start Phase of its owner\'s turn.' },
       { id: 'end',     label: 'END: —',                    hint: 'Offered in the End Phase of its owner\'s turn.' },
-      { id: 'passive', label: 'PASSIVE',                   hint: 'Always on. Shown on the card as a reminder; no button.' },
+      { id: 'passive', label: 'PASSIVE',                   hint: 'Always on. Shown on the card as a chip; hover or tap it for the text.' },
+      { id: 'gamestart', label: 'AT THE START OF THE GAME', hint: 'Resolves itself before the first turn. The app asks for any choice it needs.' },
+      { id: 'onkill',  label: 'WHEN THIS UNIT KILLS',       hint: 'Fires by itself the moment this unit destroys an enemy — optionally only with one named weapon.' },
       { id: 'free',    label: 'FREE / manual',             hint: 'A button on the unit card you may press at any time.' }
     ],
 

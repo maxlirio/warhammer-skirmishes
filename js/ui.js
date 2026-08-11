@@ -4,7 +4,7 @@
 
 const UI = (function () {
 
-  let modal = null;          // UI-only overlays: 'actions' | 'menu' | 'log' | {unit:id}
+  let modal = null;          // UI-only overlays: {acts} | 'menu' | 'log' | {unit:id}
   let damageDraft = null;
   let vpDraft = null;
 
@@ -31,9 +31,15 @@ const UI = (function () {
     return '<div class="screen' + (g.settings.verbose === false ? ' lean' : '') + '">' +
       topbar(g) +
       controlbar(g) +
-      '<div class="board"><div class="rosters">' +
-        g.players.map((p, i) => rosterCol(g, i)).join('') +
-      '</div></div>' +
+      (g.settings.layout === 'table'
+        ? '<div class="board table">' +
+            '<div class="tablehalf p0"><div class="inner">' + rosterCol(g, 0) + '</div></div>' +
+            '<div class="tablemid">' + passCard(g) + '</div>' +
+            '<div class="tablehalf p1"><div class="inner">' + rosterCol(g, 1) + '</div></div>' +
+          '</div>'
+        : '<div class="board"><div class="rosters">' +
+            rosterCol(g, 0) + passCard(g) + rosterCol(g, 1) +
+          '</div></div>') +
       tokenTray(g) +
       chainbox(g) +
       actionbar(g) +
@@ -117,6 +123,21 @@ const UI = (function () {
     '</div>';
   }
 
+  /* PASS behaves like a unit you can tap, so it lives on the board between the
+     two rosters rather than in a list. */
+  function passCard(g) {
+    if (g.pending || g.flow) return '<div class="passcard off"></div>';
+    const o = Engine.passOptions();
+    const other = esc(g.players[Store.opponentOf(g.control.player)].name);
+    const what = o.wouldEndChain ? 'ends the action chain'
+               : (o.inChain ? 'declines — ' + other + ' answers'
+                            : 'ends ' + esc(g.players[g.control.player].name) + '\u2019s turn');
+    return '<button class="passcard' + (Engine.mustPass() ? ' must' : '') + '" data-act="dopass">' +
+      '<span class="pc1">PASS</span>' +
+      '<span class="pc2">' + what + '</span>' +
+    '</button>';
+  }
+
   function unitCard(g, u) {
     // Gold ring = this unit is required to act. Coloured edge = its player has
     // the initiative and may pick it.
@@ -145,8 +166,12 @@ const UI = (function () {
     const flagOn = flag && u.flags && u.flags[flag.id];
     const carrying = Engine.relicCarrier() === u.id;
 
-    const passives = (u.abilities || []).filter(a => a.trigger === 'passive')
-      .map(a => '<span class="chip-s pass" title="' + esc(a.text) + '">' + esc(a.name) + '</span>').join('') +
+    const onwatch = (u.tokens || []).some(t => t.kind === 'overwatch');
+    const passives = (u.abilities || [])
+      .filter(a => a.trigger === 'passive' || a.trigger === 'onkill' || a.trigger === 'gamestart')
+      .map(a => '<button class="chip-s pass" data-act="abilinfo:' + u.id + ':' + a.id + '" ' +
+        'title="' + esc(a.text) + '">' + esc(a.name) + '</button>').join('') +
+      (onwatch ? '<span class="chip-s watch">⌖ OVERWATCHING</span>' : '') +
       (flagOn ? '<span class="chip-s mission">' + flag.label + '</span>' : '') +
       (carrying ? '<span class="chip-s mission">CARRYING THE RELIC</span>' : '') +
       (u.marker ? '<span class="chip-s mission">MISSION MARKER · NO RP</span>' : '');
@@ -157,14 +182,13 @@ const UI = (function () {
 
     /* Buttons live on the unit that owns them, so with several units ready you
        can always see who is firing and who is still waiting. */
-    const tokens = (u.tokens || []).map(function (t) {
-      const ow = t.kind === 'overwatch';
-      return '<div class="tokrow' + (ow ? ' ow' : '') + '">' +
+    /* Overwatch fires from the movement check, so it is a status, not a button.
+       Everything else still needs pressing when the table says so. */
+    const tokens = (u.tokens || []).filter(t => t.kind !== 'overwatch').map(function (t) {
+      return '<div class="tokrow">' +
         '<button class="tokfire" data-act="tok:' + u.id + ':' + t.id + '">' +
-          '<span class="tf1">' + (ow ? '⌖ FIRE OVERWATCH' : '▸ ' + esc(t.label)) + '</span>' +
-          '<span class="tf2">' + esc(ow
-            ? 'Ready — press when an enemy comes within 3" of the token'
-            : (t.text || 'Press when it triggers')) + '</span>' +
+          '<span class="tf1">▸ ' + esc(t.label) + '</span>' +
+          '<span class="tf2">' + esc(t.text || 'Press when it triggers') + '</span>' +
         '</button>' +
         '<button class="tokx" data-act="rmtok:' + u.id + ':' + t.id + '">✕</button>' +
       '</div>';
@@ -174,8 +198,11 @@ const UI = (function () {
       .map(a => '<button class="abilbtn" data-act="freeab:' + u.id + ':' + a.id + '">' +
         esc(a.name) + '</button>').join('');
 
+    const ready = (mustAct || canAct) && Engine.unitActions(u.id).length > 0;
     return '<div class="unit p' + u.owner +
-      (u.alive ? (mustAct ? ' acting' : (canAct ? ' canact' : '')) : ' dead') + '">' +
+      (u.alive ? (mustAct ? ' acting' : (canAct ? ' canact' : '')) : ' dead') +
+      (ready ? ' ready' : '') + '"' +
+      (ready ? ' data-act="acts:' + u.id + '"' : '') + '>' +
       '<div class="uhead">' +
         '<div class="uname">' + esc(u.name) + '</div>' +
         '<div class="wtxt ' + sev + '"><span class="cur">' + u.wounds + '</span>' +
@@ -195,6 +222,7 @@ const UI = (function () {
         '<button class="wbtn" data-act="w:' + u.id + ':-1">−</button>' +
         '<button class="wbtn" data-act="w:' + u.id + ':1">+</button>' +
         '<div class="spacer"></div>' +
+        (ready ? '<span class="tapme">TAP TO ACT</span>' : '') +
         '<button class="abilbtn" data-act="unitinfo:' + u.id + '">DETAILS</button>' +
       '</div>' +
     '</div>';
@@ -250,11 +278,16 @@ const UI = (function () {
     const pending = !!g.pending;
     return '<div class="actionbar">' +
       '<button class="sidebtn" data-act="undo"><span class="ic">↺</span>UNDO</button>' +
-      '<button class="bigbtn' + (!pending && Engine.mustPass() ? ' must' : '') + '" data-act="' +
-        (pending ? 'openphase' : 'openactions') + '">' +
-        (pending ? (g.pending.type === 'start' ? 'RESOLVE START PHASE' : 'RESOLVE END PHASE')
-                 : (Engine.mustPass() ? 'NO AP — PASS' : 'ACTION LIST')) +
-      '</button>' +
+      (pending
+        ? '<button class="bigbtn" data-act="openphase">' +
+            (g.pending.type === 'start' ? 'RESOLVE START PHASE' : 'RESOLVE END PHASE') + '</button>'
+        : '<div class="prompt' + (Engine.mustPass() ? ' must' : '') + '">' +
+            esc(Engine.mustPass()
+              ? 'No AP left — pass'
+              : (g.control.forcedUnitId
+                  ? 'Tap ' + (Store.unit(g.control.forcedUnitId) || {}).name
+                  : 'Tap a glowing unit, or pass')) +
+          '</div>') +
       '<button class="sidebtn" data-act="menu"><span class="ic">≡</span>MENU</button>' +
     '</div>';
   }
@@ -266,7 +299,8 @@ const UI = (function () {
     // Anything that might score sits at the front of the queue: nothing else
     // matters until the player has said what it was worth.
     if ((g.vpPrompts || []).length) return wrap(vpModal(g));
-    if (modal === 'actions') return wrap(actionListModal(g));
+    if (modal && modal.acts) return wrap(unitActionsModal(g, modal.acts));
+    if (modal && modal.abil) return wrap(abilityInfoModal(g, modal.abil[0], modal.abil[1]));
     if (modal === 'menu') return wrap(menuModal(g));
     if (modal === 'log') return wrap(logModal(g));
     if (modal === 'mission') return wrap(missionModal(g));
@@ -293,46 +327,52 @@ const UI = (function () {
     '</div>';
   }
 
-  /* ---------------------------------------------------------- action list */
+  /* Pick the unit first, then what it does. */
+  function unitActionsModal(g, unitId) {
+    const u = Store.unit(unitId);
+    if (!u) return '';
+    const list = Engine.unitActions(unitId);
+    return head(esc(u.name).toUpperCase(), 'WHAT DOES IT DO?') +
+      '<div class="mbody">' +
+        (list.length ? list.map(function (a) {
+          const cost = a.cost === null ? 'X AP' : (a.cost === 0 ? 'FREE' : a.cost + ' AP');
+          return '<button class="choice' + (a.available.ok ? '' : ' disabled') +
+            '" data-act="unitact:' + unitId + ':' + a.id + '">' +
+            '<div class="cmain"><div class="cname">' + a.name +
+              ' <span class="ctag ' + (a.kind === 'aggressive' ? 'agg">AGGRESSIVE' : 'pas">PASSIVE') +
+              '</span></div>' +
+            '<div class="cdesc tip">' + esc(a.short || a.text) + '</div>' +
+            '<div class="cflav leanonly">' + esc(a.flavour || '') + '</div>' +
+            '<div class="apnote tip' + (a.kind === 'aggressive' ? ' agg'
+              : (a.opponentGainsAP > 0 ? ' gives' : ' free')) + '">' +
+              esc(Engine.apConsequence(a)) + '</div>' +
+            (a.available.ok ? '' : '<div class="cflav" style="color:var(--bad)">' +
+              esc(a.available.why) + '</div>') +
+            '</div><div class="ccost' + (a.cost === 0 ? ' free' : '') + '">' + cost + '</div>' +
+          '</button>';
+        }).join('')
+          : '<div class="noteline">Nothing this unit can do right now.</div>') +
+      '</div>' +
+      '<div class="mfoot"><button class="btn ghost" data-act="close">CLOSE</button></div>';
+  }
 
-  function actionListModal(g) {
-    const cp = g.control.player;
-    const rows = Engine.actionList().map(function (a) {
-      const av = Engine.actionAvailability(a);
-      if (av.hide) return '';
-      const cost = a.cost === null ? 'X AP' : (a.cost === 0 ? 'FREE' : a.cost + ' AP');
-      return '<button class="choice' + (av.ok ? '' : ' disabled') + '" data-act="action:' + a.id + '">' +
-        '<div class="cmain">' +
-          '<div class="cname">' + a.name +
-            ' <span class="ctag ' + (a.kind === 'aggressive' ? 'agg">AGGRESSIVE' : 'pas">PASSIVE') + '</span>' +
-            (a.id === 'pass' && Engine.mustPass()
-              ? ' <span class="ctag req">YOUR ONLY MOVE</span>' : '') + '</div>' +
-          '<div class="cdesc tip">' + esc(a.short || a.text) + '</div>' +
-          '<div class="cflav leanonly">' + esc(a.flavour || '') + '</div>' +
-          '<div class="apnote tip' + (a.kind === 'aggressive' ? ' agg'
-            : (a.opponentGainsAP > 0 ? ' gives' : ' free')) + '">' +
-            esc(Engine.apConsequence(a)) + '</div>' +
-          (av.ok ? '' : '<div class="cflav" style="color:var(--bad)">' + esc(av.why) + '</div>') +
-        '</div>' +
-        '<div class="ccost' + (a.cost === 0 ? ' free' : '') + '">' + cost + '</div>' +
-      '</button>';
-    }).join('');
-
-    const mode = Engine.controlMode();
-    return head('ACTION LIST', esc(g.players[cp].name) + ' · ' + g.players[cp].ap + ' AP AVAILABLE') +
-      '<div class="crumbs"><span class="badge ' + (mode === 'reacting' ? 'react' : 'turn') + '">' +
-        (mode === 'reacting' ? 'REACTING TO ' + esc(g.players[g.turn.player].name).toUpperCase()
-                             : 'THEIR OWN TURN') + '</span>' +
-        (Engine.mustPass() ? ' <span class="badge must">NO AP — MUST PASS</span>' : '') + '</div>' +
-      (g.control.forcedUnitId
-        ? '<div class="crumbs">Aggressive Action response: <b>' +
-            esc(Store.unit(g.control.forcedUnitId).name) + '</b> must be the acting unit.</div>'
-        : '') +
-      '<div class="mbody">' + rows + '</div>' +
-      '<div class="mfoot">' +
-        '<button class="btn ghost sm" data-act="showrules">RULES</button>' +
-        '<button class="btn ghost" data-act="close">CLOSE</button>' +
-      '</div>';
+  /* One passive, spelled out. */
+  function abilityInfoModal(g, unitId, abilityId) {
+    const u = Store.unit(unitId);
+    const a = u && (u.abilities || []).find(x => x.id === abilityId);
+    if (!a) return '';
+    const trig = RULES.abilityTriggers.find(t => t.id === a.trigger);
+    return head(esc(a.name).toUpperCase(), esc(u.name).toUpperCase()) +
+      '<div class="mbody">' +
+        '<div class="noteline">' + esc(a.text) + '</div>' +
+        (trig ? '<div class="noteline tip">' + esc(trig.label) + ' — ' + esc(trig.hint) + '</div>' : '') +
+        ((a.effects || []).length
+          ? '<div style="font-size:10px;letter-spacing:.14em;color:var(--gold);font-weight:800;' +
+            'margin:10px 0 5px">WHAT THE APP DOES WITH IT</div>' +
+            a.effects.map(e => '<div class="noteline">' + effectSummary(e) + '</div>').join('')
+          : '') +
+      '</div>' +
+      '<div class="mfoot"><button class="btn ghost" data-act="close">CLOSE</button></div>';
   }
 
   /* The full card text, for when someone needs the exact wording. */
@@ -616,6 +656,25 @@ const UI = (function () {
   function passFlow(g, f) {
     const o = Engine.passOptions();
     const me = esc(g.players[g.control.player].name);
+    const other = esc(g.players[Store.opponentOf(g.control.player)].name);
+    /* Only asked when both outcomes are on the table. */
+    return head('PASS', esc(g.players[g.control.player].ap) + ' AP REMAINING') +
+      '<div class="mbody">' +
+        '<div class="rollbox"><div class="lbl">PASS TO</div>' +
+          '<div class="big" style="font-size:22px">' + other + '</div>' +
+          '<div class="sub">' + me + ' has ' + g.players[g.control.player].ap +
+            ' AP. End just the action chain, or the whole turn?</div></div>' +
+      '</div>' +
+      '<div class="mfoot">' +
+        '<button class="btn ghost sm" data-act="close">BACK</button>' +
+        '<button class="btn" data-act="confirmpass:0">END THE CHAIN</button>' +
+        '<button class="btn primary" data-act="confirmpass:1">END MY TURN</button>' +
+      '</div>';
+  }
+
+  function passFlowOld(g, f) {
+    const o = Engine.passOptions();
+    const me = esc(g.players[g.control.player].name);
     return head('PASS', o.wouldEndChain ? 'THE SECOND PASS — THE CHAIN ENDS'
                                         : (o.inChain ? 'DECLINE TO ACT' : 'YOUR TURN')) +
       '<div class="mbody">' +
@@ -757,7 +816,7 @@ const UI = (function () {
           'Everyone in range rolls. Tick the ones that failed.');
       }
       return head(esc(ab.name), 'SELECT TARGET — ' + effectSummary(e).toUpperCase()) +
-        '<div class="mbody">' + Store.get().units.filter(x => x.alive)
+        '<div class="mbody">' + pickableUnits(g, e, u.owner)
           .map(x => unitChoice(x, 'picktarget:' + e.id + ':' + x.id,
             x.owner === u.owner ? 'friendly' : 'enemy')).join('') +
         '</div>' + footBack();
@@ -779,12 +838,23 @@ const UI = (function () {
   }
 
   /* One roll each: tick everyone the dice went against. */
+  /* An effect may say whose units it can pick — "choose one enemy unit". */
+  function pickableUnits(g, e, mineOwner) {
+    const side = e.side || 'any';
+    return g.units.filter(function (x) {
+      if (!x.alive) return false;
+      if (side === 'enemy') return x.owner !== mineOwner;
+      if (side === 'friendly') return x.owner === mineOwner;
+      return true;
+    });
+  }
+
   function multiPick(g, f, e, actPrefix, title, sub) {
     const chosen = Array.isArray(f.targets[e.id]) ? f.targets[e.id] : [];
     return head(title, 'WHICH UNITS? — ' + effectSummary(e).toUpperCase()) +
       '<div class="mbody">' +
         '<div class="noteline">' + sub + '</div>' +
-        g.units.filter(x => x.alive).map(function (x) {
+        pickableUnits(g, e, (Store.unit(f.unitId) || {}).owner).map(function (x) {
           const on = chosen.indexOf(x.id) >= 0;
           return '<button class="choice p' + x.owner + (on ? ' sel' : '') +
             '" data-act="' + actPrefix + ':' + e.id + ':' + x.id + '">' +
@@ -853,7 +923,7 @@ const UI = (function () {
           esc(t.text || 'Everyone in range rolls. Tick the ones that failed.'));
       }
       return head('[ ' + esc(t.label) + ' ]', 'WHICH UNIT — ' + effectSummary(e).toUpperCase()) +
-        '<div class="mbody">' + Store.get().units.filter(x => x.alive)
+        '<div class="mbody">' + pickableUnits(g, e, u.owner)
           .map(x => unitChoice(x, 'tokentarget:' + e.id + ':' + x.id)).join('') + '</div>' +
         '<div class="mfoot"><button class="btn ghost" data-act="close">CANCEL</button></div>';
     }
@@ -1106,6 +1176,11 @@ const UI = (function () {
   function menuModal(g) {
     return head('MENU', 'GAME TOOLS') +
       '<div class="mbody">' +
+        '<button class="choice" data-act="togglelayout"><div class="cmain">' +
+          '<div class="cname">' + (g.settings.layout === 'table' ? 'ONE WAY UP' : 'ACROSS THE TABLE') +
+          '</div><div class="cdesc tip">Currently ' +
+            (g.settings.layout === 'table' ? 'turned to face each player'
+                                           : 'all one way up') + '. Tap to switch.</div></div></button>' +
         '<button class="choice" data-act="toggleverbose"><div class="cmain">' +
           '<div class="cname">' + (g.settings.verbose === false ? 'WALKTHROUGH MODE' : 'EXPERIENCED MODE') +
           '</div><div class="cdesc tip">Currently ' +

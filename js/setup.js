@@ -11,6 +11,7 @@ const Setup = (function () {
     return {
       step: 0,
       mode: 'guided',            // 'guided' explains itself; 'lean' just labels
+      layout: 'normal',          // 'table' turns each half to face its player
       playerNames: ['Player 1', 'Player 2'],
       vpTarget: RULES.defaultVPTarget,
       firstPlayer: 0,
@@ -183,7 +184,21 @@ const Setup = (function () {
           'the app is actually tracking still show — just none of the teaching.</div>' +
         (!guided() ? '<div class="mcon">SELECTED</div>' : '') +
       '</button>' +
-      '<div class="modehint">You can change this mid-game from the menu.</div>';
+      '<div class="modehint">You can change this mid-game from the menu.</div>' +
+
+      '<h2>WHICH WAY UP?</h2>' +
+      '<button class="misscard' + (S.layout !== 'table' ? ' on' : '') + '" data-act="layout:normal">' +
+        '<div class="mcname">ONE WAY UP</div>' +
+        '<div class="mcflav">Passing the device back and forth.</div>' +
+        (S.layout !== 'table' ? '<div class="mcon">SELECTED</div>' : '') +
+      '</button>' +
+      '<button class="misscard' + (S.layout === 'table' ? ' on' : '') + '" data-act="layout:table">' +
+        '<div class="mcname">ACROSS THE TABLE</div>' +
+        '<div class="mcflav">Lying between you.</div>' +
+        '<div class="mcsec">Each player\'s units turn sideways to face them, one from the left ' +
+          'and one from the right, so neither of you is reading upside down.</div>' +
+        (S.layout === 'table' ? '<div class="mcon">SELECTED</div>' : '') +
+      '</button>';
   }
 
   /* --------------------------------------------------------- step: players */
@@ -540,6 +555,14 @@ const Setup = (function () {
     if (kind.num) {
       inner += field('AMOUNT' + (kind.unit ? ' (' + kind.unit + ')' : ''),
         '<input type="number" data-bind="' + base + ':value" value="' + esc(e.value) + '">');
+    }
+    if (kind.pick || kind.mark) {
+      inner += field('WHOSE UNITS MAY BE PICKED',
+        '<select data-bind="' + base + ':side">' +
+          '<option value="any"' + ((e.side || 'any') === 'any' ? ' selected' : '') + '>Either side</option>' +
+          '<option value="enemy"' + (e.side === 'enemy' ? ' selected' : '') + '>Enemy units only</option>' +
+          '<option value="friendly"' + (e.side === 'friendly' ? ' selected' : '') + '>Friendly units only</option>' +
+        '</select>');
     }
     if (kind.pick) {
       inner += field('APPLIES TO',
@@ -925,6 +948,7 @@ const Setup = (function () {
 
       /* ---- mission & objectives ---- */
       case 'mode': S.mode = p[1]; return true;
+      case 'layout': S.layout = p[1]; return true;
       case 'mission':
         S.missionId = (p[1] === 'none') ? null : p[1];
         S.roles = { attacker: null, defender: null };
@@ -981,6 +1005,7 @@ const Setup = (function () {
             const ab = Store.newAbility({
               name: a.name, trigger: a.trigger, cost: a.cost, text: a.text,
               usesPerGame: a.usesPerGame || 0, moves: !!a.moves,
+              weaponName: a.weaponName || '',
               opponentReacts: a.opponentReacts !== false
             });
             ab.effects = (a.effects || []).map(function (e) {
@@ -1083,6 +1108,7 @@ const Setup = (function () {
           endsShort: m ? m.endsShort : null,
           firstPlayer: Number(S.firstPlayer) || 0,
           verbose: guided(),
+          layout: S.layout || 'normal',
           mission: m ? { id: m.id, roles: m.roles ? { attacker: S.roles.attacker,
                                                       defender: S.roles.defender } : null }
                      : { id: null }

@@ -41,23 +41,38 @@ never hides anything the app is *tracking*: dice targets, modifier breakdowns,
 aura tick-boxes, whose AP is whose, the action chain. Only the teaching goes.
 Switchable mid-game from the menu.
 
+## One way up, or across the table
+
+The same slide asks how the two of you are sitting.
+
+**ONE WAY UP** is the normal phone layout: both rosters upright, passed back and
+forth. **ACROSS THE TABLE** is for a phone or tablet lying flat between you —
+each player's half of the board is rotated to face them, so you read your own
+units the right way up from your own side and nobody has to turn the device
+around. Everything shared — the phase bar, the action chain, the prompts and
+every popup — stays upright. Also switchable mid-game from the menu.
+
 ## Playing
 
-1. **Setup** is a wizard, one slide at a time: how much it explains → both
-   players' names → which of the six Mission Cards (each printed verbatim, and
-   each bringing its own win condition — only a card-less game asks you to agree
-   a VP target) → one slide per army → a briefing slide if the mission needs one
-   → review.
-2. **ACTION LIST** — pick a Standard Action; the app walks the bookkeeping:
-   attacker → defender → weapon → reaction → hit → wound → damage.
-3. The app shows the **target number** for every roll (weapon Hit value and the
+1. **Setup** is a wizard, one slide at a time: how much it explains and how you
+   are sitting → both players' names → which of the six Mission Cards (each
+   printed verbatim, and each bringing its own win condition — only a card-less
+   game asks you to agree a VP target) → one slide per army → a briefing slide if
+   the mission needs one → review.
+2. **Tap the unit you want to act with.** Every unit that can do something right
+   now glows and says *TAP TO ACT*; tapping it lists only the actions **that**
+   unit can take, with what each costs and what it hands the opponent. There is
+   no action list to open first and no "which unit?" step afterwards.
+3. The app walks the bookkeeping from there: defender → weapon → reaction → hit →
+   wound → damage.
+4. The app shows the **target number** for every roll (weapon Hit value and the
    S-vs-T wound table, with every modifier already folded in). You roll the dice
    and press HIT / MISS, WOUND / FAILED.
-4. **Persistent buttons live on the unit that owns them.** OVERWATCH puts a
-   **⌖ FIRE OVERWATCH** button on that unit's card, so with several units ready
-   at once you can always see who is firing and who is still waiting. You press
-   it when the trigger happens on the table.
-5. Every End Phase runs END: abilities → the mission's scoring → any other VP.
+5. **PASS is a card between the two rosters**, not an action buried in a list. It
+   tells you what it will do before you touch it — *ends the chain*, *ends
+   Player 1's turn* — and just does it. You are only asked to confirm when there
+   is a genuine choice to make between ending the chain and ending your turn.
+6. Every End Phase runs END: abilities → the mission's scoring → any other VP.
 
 Every number can be corrected by hand (±AP, ±VP, ±wounds), and **UNDO** rolls
 back the last 40 changes.
@@ -103,6 +118,16 @@ Every unit is saved to this browser's library when a game starts, and
 **+ ADD UNIT** offers them back to you instead of a blank form. There is a
 **SAVE** button for saving mid-edit, whole-roster save/load for a full team at
 once, and JSON export/import to move everything to another device.
+
+## What a unit card tells you
+
+Under the name sit small chips: **wounds**, weapons, and every ability the unit
+has. A passive shows its full text **when you hover over it** and opens it in a
+window when you tap — nothing about a unit is more than one press away, and in
+Experienced mode that is where the explanation lives instead of on screen.
+
+A unit that has placed an overwatch is simply tagged **⌖ OVERWATCHING**. There is
+no button to hunt for, because you never fire it by hand — see below.
 
 ## Overwatch fires on movement
 
@@ -178,12 +203,14 @@ Both official line-ups ship with every ability wired up, not just written out.
 
 **Astra Militarum** — Guardsmen "Alfred", "Al", "Fred" and "Nick", and Commissar
 Briant. The Commissar's 6" aura and his WITHDRAW ban, Nick's Cloaked and Grenade,
-Fred's Snap Shot and Choke Hold, Al's Kill Count, Alfred's unlimited dagger.
+Fred's Snap Shot and Choke Hold, Alfred's unlimited dagger, and Al's **Kill
+Count**, which the app fires by itself the moment his Bayonet finishes somebody.
 
 **Orks** — Snitcherz, Boss Nob Blikker, Da Hunta, Riksnik and Mikaaaaghhh. The
 Boss's *Intimidating Presence* is a +1-to-wound aura anyone in 6" can tick;
 *Small* is an always-on aura that needs no tick at all; Snitcherz's Klaw is D3,
-so the app asks for the roll instead of assuming; **Da Hunta MARKS** an enemy and
+so the app asks for the roll instead of assuming; **Da Hunta MARKS** an enemy
+before the first turn even starts, because his card says he does, and
 his Shoota then does +1 damage to it automatically, while *Don't ya Dare* wipes
 every enemy mark and pins it on whoever just shot him; *Kwik Dakka* genuinely
 interrupts — the counter-attack resolves first, and if it kills the attacker
@@ -213,10 +240,24 @@ Make it a button. Three ways, in increasing order of automation:
 ## Custom abilities
 
 Abilities are mechanical, not natural language. For each one you specify when it
-fires (`[X] AP`, `[X] RP`, `START:`, `END:`, passive, or a free button), whether
-your opponent gets to react to it, and a list of effects the app applies: gain/lose AP, RP or VP, deal or heal damage, modify
-Hit or Wound rolls for a chosen duration, place a token with its own trigger
-effects, or just print a reminder.
+fires, whether your opponent gets to react to it, and a list of effects the app
+applies: gain/lose AP, RP or VP, deal or heal damage, modify Hit or Wound rolls
+for a chosen duration, place a token with its own trigger effects, or just print
+a reminder.
+
+The triggers are `[X] AP`, `[X] RP`, `START:`, `END:`, passive, a free button —
+and two the app fires for you:
+
+- **AT THE START OF THE GAME** resolves itself before turn one. If it needs a
+  choice — *Da Hunta MARKS an enemy* — the app asks for it during setup and then
+  gets out of the way.
+- **WHEN THIS UNIT KILLS** fires the moment that unit destroys an enemy, and can
+  be tied to one named weapon. *Kill Count* only counts kills made with Al's
+  Bayonet, so shooting someone with his Lasgun does nothing — the app checks the
+  weapon, you don't.
+
+Target pickers can be limited to **enemies** or **friendlies**, so an ability
+that marks an enemy never offers you your own squad.
 
 ## Turn or reaction?
 
@@ -228,7 +269,7 @@ badge — gold **THEIR TURN** / **THEIR TURN · IN CHAIN**, or blue
 
 ## Which actions hand over AP
 
-Every action in the ACTION LIST says so in colour, so you never have to
+Every action says so in colour on the button you press, so you never have to
 remember: green *"Your opponent gains no AP"*, amber *"Your opponent gains 1
 AP"*, grey *"The target gains 1 AP if it survives — nothing otherwise"* for the
 Aggressive ones.
@@ -245,8 +286,8 @@ offers to end the turn — nothing else ever will. **Two passes in a row, one fr
 each player, end the action chain.**
 
 When you have no AP, the app says so rather than skipping you: a red
-**NO AP — MUST PASS** badge, the main button becomes **NO AP — PASS**, and PASS
-is tagged *YOUR ONLY MOVE* in the action list.
+**NO AP — MUST PASS** badge, and the PASS card turns red to tell you it is your
+only move.
 
 ## Rules choices worth knowing
 

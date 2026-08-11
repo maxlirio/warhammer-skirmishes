@@ -34,7 +34,7 @@ const Store = (function () {
 
   function newEffectRow(patch) {
     return Object.assign({
-      id: nextId('ef'), kind: 'ap_self', value: 1, pick: 'prompt',
+      id: nextId('ef'), kind: 'ap_self', value: 1, pick: 'prompt', side: 'any',
       duration: 'chain', label: '', expiry: 'chain', tokenAttack: false, text: ''
     }, patch || {});
   }
@@ -67,7 +67,9 @@ const Store = (function () {
         /* Per-action house rules: { move: { cost: 1, opponentGainsAP: 0 }, ... } */
         actionOverrides: {},
         /* false = experienced: labels, costs and flavour, no teaching. */
-        verbose: (config && config.verbose) !== false
+        verbose: (config && config.verbose) !== false,
+        /* 'table' turns each player's half to face them. */
+        layout: (config && config.layout) || 'normal'
       },
       players: [0, 1].map(function (i) {
         const nm = (config && config.playerNames && config.playerNames[i]);
@@ -318,7 +320,7 @@ const PRESETS = [
         { name: 'Bayonet Charge', trigger: 'passive', cost: 0,
           text: 'When this unit charges, his Bayonet has +1 damage for the attack.',
           effects: [] },
-        { name: 'Kill Count', trigger: 'free', cost: 0,
+        { name: 'Kill Count', trigger: 'onkill', cost: 0, weaponName: 'Bayonet',
           text: 'Whenever this unit defeats an enemy unit using its Bayonet, permanently ' +
                 'increase his OC by one.',
           effects: [{ kind: 'stat', stat: 'oc', value: 1, pick: 'self' }] }
@@ -488,10 +490,10 @@ const PRESETS = [
         { name: 'Choppa', type: 'melee', range: 1, hit: 3, strength: 4, damage: 1 }
       ],
       abilities: [
-        { name: 'Da Hunta', trigger: 'free', cost: 0, usesPerGame: 1,
+        { name: 'Da Hunta', trigger: 'gamestart', cost: 0,
           text: 'At the beginning of the game choose one enemy unit. That unit becomes MARKED.',
-          effects: [{ kind: 'mark', label: 'MARKED', pick: 'prompt', duration: 'manual',
-                      text: 'MARKED by Da Hunta.' }] },
+          effects: [{ kind: 'mark', label: 'MARKED', pick: 'prompt', side: 'enemy',
+                      duration: 'manual', text: 'MARKED by Da Hunta.' }] },
         { name: 'Gud at His Job', trigger: 'passive', cost: 0,
           text: 'This unit\'s Shoota has +1 damage against a MARKED unit.',
           effects: [{ kind: 'markbonus', label: 'MARKED', value: 1, weaponName: 'Shoota' }] },

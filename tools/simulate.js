@@ -71,6 +71,23 @@ function check(label, actual, expected) {
 }
 
 const G = () => Store.get();
+
+/* Abilities that resolve "at the beginning of the game" open a picker before
+   turn one. Answer it so the rest of a test can get on with the game. */
+const rawStartGame = Engine.startGame;
+function settleSetup() {
+  let guard = 0;
+  while (G() && G().flow && G().flow.setupStep && guard++ < 12) {
+    const f = G().flow;
+    const ab = Engine.findAbility(f.unitId, f.abilityId);
+    const needs = Engine.effectsNeedingTarget(ab, { sourceUnitId: f.unitId });
+    const me = Store.unit(f.unitId).owner;
+    const foe = G().units.find(u => u.alive && u.owner !== me);
+    needs.forEach(e => Engine.flowPickTarget(e.id, foe.id));
+    Engine.confirmAbility();
+  }
+}
+Engine.startGame = function (cfg, units) { rawStartGame(cfg, units); settleSetup(); };
 const U = name => G().units.find(u => u.name === name);
 const ap = i => G().players[i].ap;
 const vp = i => G().players[i].vp;
@@ -592,11 +609,34 @@ Engine.flowHit(false);
 check('the dagger is still available',
   Engine.weaponsFor(alfred.id, 'melee').find(w => w.name === 'Dagger').used, false);
 
-console.log('\n== Kill Count raises OC for good ==');
+console.log('\n== Kill Count fires itself on a Bayonet kill ==');
+check('it is an on-kill ability now',
+  al.abilities.find(a => a.name === 'Kill Count').trigger, 'onkill');
 const ocBefore = U('Guardsman "Al" 434-435').oc;
-Engine.useFreeAbility(al.id, al.abilities.find(a => a.name === 'Kill Count').id);
-check('OC permanently up by one', U('Guardsman "Al" 434-435').oc, ocBefore + 1);
-check('and it costs no AP, being an ability not an action', ap(0), ap(0));
+Engine.forceEndChain();
+Engine.forceControl(0, null);
+Engine.adjustAP(0, 6);
+// A Lasgun kill must not count.
+Engine.beginAction('shoot');
+Engine.flowPickUnit(al.id);
+Engine.flowPickAttackTarget(cultist.id);
+Engine.flowPickWeapon(al.weapons.find(w => w.name === 'Lasgun').id);
+Engine.flowPickReaction('none');
+Engine.flowHit(true); Engine.flowWound(true); Engine.flowDamage(1);
+check('OC untouched by a Lasgun hit', U('Guardsman "Al" 434-435').oc, ocBefore);
+// Now finish them with the Bayonet.
+Engine.forceEndChain();
+Engine.forceControl(0, null);
+Engine.adjustAP(0, 6);
+Engine.beginAction('fight');
+Engine.flowPickUnit(al.id);
+Engine.flowPickAttackTarget(cultist.id);
+Engine.flowPickWeapon(al.weapons.find(w => w.name === 'Bayonet').id);
+Engine.flowPickReaction('none');
+Engine.flowHit(true); Engine.flowWound(true); Engine.flowDamage(9);
+check('the cultist is down', U('Cultist').alive, false);
+check('and OC went up by itself', U('Guardsman "Al" 434-435').oc, ocBefore + 1);
+Engine.resolveVP(G().vpPrompts[0].id, 1);
 
 console.log('\n== Grappling Hook hands over an AP, as its card says ==');
 Engine.forceEndChain();
@@ -687,17 +727,14 @@ check('within 6" it wounds on 3+', Engine.attackNumbers().woundTarget, 3);
 check('Strength itself is untouched', Engine.attackNumbers().strength, 4);
 Engine.flowHit(false);
 
-console.log('\n== Da Hunta MARKS a target, and hits it harder ==');
+console.log('\n== Da Hunta MARKED someone before turn one, and hits them harder ==');
+check('the ability resolves itself at game start',
+  hunta.abilities.find(a => a.name === 'Da Hunta').trigger, 'gamestart');
+check('and the only enemy is already MARKED',
+  (U('Guardsman').effects || []).map(e => e.label), ['MARKED']);
 Engine.forceEndChain();
 Engine.forceControl(0, null);
 Engine.adjustAP(0, 6);
-const hAb = hunta.abilities.find(a => a.name === 'Da Hunta');
-const need = Engine.effectsNeedingTarget(hAb, { sourceUnitId: hunta.id });
-Engine.useFreeAbility(hunta.id, hAb.id);
-Engine.flowPickTarget(need[0].id, guardsman.id);
-Engine.confirmAbility();
-check('the guardsman is MARKED',
-  (U('Guardsman').effects || []).map(e => e.label), ['MARKED']);
 Engine.beginAction('shoot');
 Engine.flowPickUnit(hunta.id);
 Engine.flowPickAttackTarget(guardsman.id);

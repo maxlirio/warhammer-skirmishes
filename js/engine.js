@@ -97,8 +97,37 @@ const Engine = (function () {
     Store.commit('start game', function () {
       log('— GAME START —', 'big');
       applyMission();
-      beginTurn(g.turn.player, true);
+      g.setupQueue = [];
+      g.units.forEach(function (u) {
+        (u.abilities || []).filter(a => a.trigger === 'gamestart').forEach(function (a) {
+          g.setupQueue.push({ unitId: u.id, abilityId: a.id });
+        });
+      });
+      advanceSetupQueue();
     });
+  }
+
+  /* "At the beginning of the game…" — resolved before anyone takes a turn,
+     asking for whatever choice the ability needs. */
+  function advanceSetupQueue() {
+    const g = S();
+    const next = (g.setupQueue || []).shift();
+    if (!next) {
+      g.flow = null;
+      beginTurn(g.turn.player, true);
+      return;
+    }
+    const ab = findAbility(next.unitId, next.abilityId);
+    if (!ab) { advanceSetupQueue(); return; }
+    const needs = effectsNeedingTarget(ab, { sourceUnitId: next.unitId });
+    if (!needs.length) {
+      resolveFreeAbility(next.unitId, next.abilityId, {});
+      advanceSetupQueue();
+      return;
+    }
+    g.flow = { kind: 'ability', freeUse: true, setupStep: true, actionId: 'ability',
+               unitId: next.unitId, abilityId: next.abilityId,
+               targets: {}, pickIndex: 0, step: 'pick' };
   }
 
   /* ------------------------------------------------------------- missions */
@@ -949,6 +978,28 @@ const Engine = (function () {
     return list;
   }
 
+  /* The action list is per unit now, so it only offers what that unit can do. */
+  function unitActions(unitId) {
+    const g = S();
+    const u = Store.unit(unitId);
+    if (!u || !u.alive) return [];
+    if (!eligibleUnits().some(x => x.id === unitId)) return [];
+    return actionList().filter(function (a) {
+      if (a.noUnit) return false;                       // PASS has its own button
+      const av = actionAvailability(a);
+      if (av.hide) return false;
+      if (a.flow === 'attack') {
+        if (!weaponsFor(unitId, a.attackRange).some(w => !w.used)) return false;
+      }
+      if (a.id === 'overwatch') {
+        if (!(u.weapons || []).some(w => w.type === 'ranged')) return false;
+        if (relicCarrier() === unitId) return false;
+      }
+      if (a.flow === 'ability' && !usableAPAbilities(u).length) return false;
+      return true;
+    }).map(a => Object.assign({}, a, { available: actionAvailability(a) }));
+  }
+
   function usableFreeAbilities(u) {
     return (u.abilities || []).filter(a => a.trigger === 'free' &&
       (!a.usesPerGame || (a.used || 0) < a.usesPerGame));
@@ -979,7 +1030,7 @@ const Engine = (function () {
 
   /* ------------------------------------------------------- start an action */
 
-  function beginAction(actionId) {
+  function beginAction(actionId, presetUnitId) {
     const action = actionDef(actionId);
     if (!action) return;
     const avail = actionAvailability(action);
@@ -992,10 +1043,12 @@ const Engine = (function () {
         return;
       }
       const pool = eligibleUnits();
+      const chosen = presetUnitId && pool.some(u => u.id === presetUnitId)
+        ? presetUnitId : (pool.length === 1 ? pool[0].id : null);
       const base = {
         actionId: action.id,
-        unitId: pool.length === 1 ? pool[0].id : null,
-        step: pool.length === 1 ? nextStepAfterUnit(action) : 'unit'
+        unitId: chosen,
+        step: chosen ? nextStepAfterUnit(action) : 'unit'
       };
       if (action.flow === 'attack') {
         g.flow = Object.assign({
@@ -1134,10 +1187,25 @@ const Engine = (function () {
 
   /* PASS on its own does nothing except let the active player end their turn.
      Two passes in a row — one from each player — end the action chain. */
+  /* Straight from the board button, with no window in the way. */
+  function confirmPassDirect(endTurn) {
+    Store.commit('pass', function () {
+      const g = S();
+      g.flow = { kind: 'pass' };
+      doPass(endTurn);
+    });
+  }
+
   function confirmPass(endTurn) {
     Store.commit('pass', function () {
       const g = S();
       if (!g.flow) return;
+      doPass(endTurn);
+    });
+  }
+
+  function doPass(endTurn) {
+      const g = S();
       const who = g.control.player;
       const isTurnPlayer = who === g.turn.player;
       g.flow = null;
@@ -1164,7 +1232,6 @@ const Engine = (function () {
       }
       // A pass is a Passive Action: the other player answers with any unit.
       afterAction({ actor: who, endsChain: false, forcedUnitId: null, isPass: true });
-    });
   }
 
   /* What PASS can do from here. */
@@ -1276,9 +1343,10 @@ const Engine = (function () {
       if (!f) return;
       /* A card button, not a Standard Action: no AP, no effect on the chain. */
       if (f.freeUse) {
-        const uid = f.unitId, aid = f.abilityId, tg = f.targets;
+        const uid = f.unitId, aid = f.abilityId, tg = f.targets, setup = f.setupStep;
         g.flow = null;
         resolveFreeAbility(uid, aid, tg);
+        if (setup) advanceSetupQueue();
         return;
       }
       const actor = g.control.player;
@@ -1317,6 +1385,23 @@ const Engine = (function () {
         return;
       }
       afterAction({ actor: actor, endsChain: ends, forcedUnitId: null, reason: ab.name });
+    });
+  }
+
+  /* "Whenever this unit defeats an enemy unit using its Bayonet…" — the app
+     watched the kill happen, so it fires the ability itself. */
+  function runOnKillAbilities(attackerId, weapon, victimName) {
+    const u = Store.unit(attackerId);
+    if (!u) return;
+    (u.abilities || []).filter(a => a.trigger === 'onkill').forEach(function (ab) {
+      if (ab.weaponName && weapon &&
+          String(ab.weaponName).toLowerCase() !== String(weapon.name).toLowerCase()) return;
+      if (ab.usesPerGame && (ab.used || 0) >= ab.usesPerGame) return;
+      ab.used = (ab.used || 0) + 1;
+      chainEntry(u.name + ': “' + ab.name + '” triggers — ' + victimName + ' is down.', 'action');
+      applyEffects(ab.effects, {
+        sourceUnitId: attackerId, sourcePlayer: u.owner, targets: {}, label: ab.name
+      });
     });
   }
 
@@ -1665,7 +1750,11 @@ const Engine = (function () {
     let killed = false;
 
     if (result.damage) {
+      const victim = uname(f.targetId);
+      const wpn = (Store.unit(f.attackerId) || { weapons: [] }).weapons
+        .find(w => w.id === f.weaponId);
       killed = dealDamage(f.targetId, result.damage, attackerPlayer);
+      if (killed) runOnKillAbilities(f.attackerId, wpn, victim);
     }
 
     // RP never carries between attacks.
@@ -2204,11 +2293,12 @@ const Engine = (function () {
     actionDef, actionList, setActionOverride, apConsequence, controlMode, mustPass,
     actionAvailability, eligibleUnits, usableAPAbilities, usableFreeAbilities,
     weaponsFor, findAbility,
-    beginAction, cancelFlow, flowBack, flowPickUnit,
+    beginAction, unitActions, cancelFlow, flowBack, flowPickUnit,
     flowPickControlPoint, confirmSecure, confirmRelic,
     missionCard, missionEndTurnItems, toggleUnitFlag, controlledCount,
     relicCarrier, setRelicCarrier, killValue, endGameNow,
-    confirmSimple, confirmPass, passOptions, confirmOverwatch, abilityLetsThemReact,
+    confirmSimple, confirmPass, confirmPassDirect, passOptions, confirmOverwatch,
+    abilityLetsThemReact,
     abortAction,
     flowPickAbility, flowPickTarget, flowDoneTargets, confirmAbility,
     useFreeAbility, usePhaseAbility,
