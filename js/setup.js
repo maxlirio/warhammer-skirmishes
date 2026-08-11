@@ -185,8 +185,7 @@ const Setup = (function () {
   function missionCardFace(m, chosen) {
     return '<button class="misscard' + (chosen ? ' on' : '') + '" ' +
       'data-act="mission:' + m.id + '">' +
-      '<div class="mcname">MISSION CARD — ' + m.name +
-        (m.players ? ' <span class="mcp">[' + m.players + ' PLAYERS]</span>' : '') + '</div>' +
+      '<div class="mcname">MISSION CARD — ' + m.name + '</div>' +
       '<div class="mcflav">' + esc(m.flavour) + '</div>' +
       '<div class="mcsec"><b>BATTLEFIELD</b>' + lines(m.battlefield) + '</div>' +
       '<div class="mcsec"><b>OBJECTIVE</b>' + lines(m.objective) + '</div>' +

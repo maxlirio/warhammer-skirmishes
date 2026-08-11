@@ -236,7 +236,7 @@ const RULES = (function () {
                   vp: 1 }]
     },
     {
-      id: 'ambush', name: 'AMBUSH', players: 2,
+      id: 'ambush', name: 'AMBUSH',
       flavour: '“The first shot is yours. The last one might not be.”',
       battlefield: ['The defending player sets up first, and they also set up a BAIT token in ' +
                     'their deploy zone. The attacking player sets up their units second.'],
