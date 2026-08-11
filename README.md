@@ -89,6 +89,15 @@ Every unit is saved to this browser's library when a game starts, and
 **SAVE** button for saving mid-edit, whole-roster save/load for a full team at
 once, and JSON export/import to move everything to another device.
 
+## Interrupted actions
+
+If something stops an action being performed at all — a DIVE that goes out of
+sight, a unit shot off the board mid-move — **COULD NOT BE PERFORMED** is one tap
+away throughout the attack flow and on a simple action's confirm screen. The
+action ends, the chain carries on, and nothing it would have produced happens:
+no damage, no VP, and **not even the AP** the target would have gained. The
+weapon is not spent either, since it was never used.
+
 ## Auras — "+1 to hit within 6\""
 
 The app cannot measure 6", so it does not try. An aura is declared once on a
@@ -194,9 +203,9 @@ is tagged *YOUR ONLY MOVE* in the action list.
 ## Rules choices worth knowing
 
 - **Overwatch.** Place a token within 12" of the unit. When an enemy moves within
-  3" of it you interrupt and resolve a full shoot sequence, skipping steps 2 and
-  3 — so no RP for the defender, and no to-hit penalty. The token lives until its
-  unit moves or attacks.
+  3" of it you interrupt and resolve a shoot sequence at **-1 to hit**, skipping
+  steps 2 and 3 — so no RP for the defender. Any of the unit's ranged weapons may
+  be used. The token lives until its unit moves or attacks.
 - **Overwatch AP.** An overwatch shot is an interrupt: the defender gains no RP
   (per the card) and no survivor AP, and control does not change hands unless the
   target dies.

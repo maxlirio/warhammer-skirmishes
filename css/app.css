@@ -614,3 +614,12 @@ h1, h2, h3, h4 { margin: 0; font-weight: 700; letter-spacing: .02em; }
   border: 1px solid var(--line); color: var(--ink-mute); font-weight: 800;
 }
 .tokx:active { background: var(--line-hot); color: var(--ink); }
+
+/* ---------------------------------------------- an action that never happened */
+
+.abortbtn {
+  display: block; width: 100%; margin-top: 10px; padding: 9px;
+  border-radius: 8px; border: 1px dashed var(--line-hot);
+  color: var(--ink-mute); font-size: 11px; font-weight: 700; letter-spacing: .06em;
+}
+.abortbtn:active { background: var(--panel-2); color: var(--ink); }

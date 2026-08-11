@@ -1696,6 +1696,34 @@ const Engine = (function () {
     };
   }
 
+  /* An effect stopped the action from happening at all — a DIVE out of sight, a
+     unit shot off the board mid-move. The action ends, the chain carries on, and
+     nothing it would have produced happens, not even the AP. */
+  function abortAction() {
+    Store.commit('interrupted', function () {
+      const g = S();
+      const f = g.flow;
+      if (!f) return;
+
+      if (f.kind === 'attack') {
+        chainEntry(uname(f.attackerId) + '\u2019s attack could not be performed — nothing comes ' +
+          'of it, not even the AP.', 'note');
+        f.cancelled = true;
+        finishAttack({ hit: false, cancelled: true });
+        return;
+      }
+
+      const action = actionDef(f.actionId);
+      const actor = g.control.player;
+      openChain(actor);
+      spendAP(actor, action.cost || 0);
+      chainEntry(pname(actor) + ': ' + action.name + ' could not be performed — nothing comes of ' +
+        'it, not even the AP.', 'note');
+      g.flow = null;
+      afterAction({ actor: actor, endsChain: false, forcedUnitId: null });
+    });
+  }
+
   /* ------------------------------------------------------ token triggers */
 
   function triggerToken(unitId, tokenId) {
@@ -1954,6 +1982,7 @@ const Engine = (function () {
     missionCard, missionEndTurnItems, toggleUnitFlag, controlledCount,
     relicCarrier, setRelicCarrier, killValue, endGameNow,
     confirmSimple, confirmPass, passOptions, confirmOverwatch, abilityLetsThemReact,
+    abortAction,
     flowPickAbility, flowPickTarget, flowDoneTargets, confirmAbility,
     useFreeAbility, usePhaseAbility,
     flowPickAttackTarget, flowPickWeapon, flowPickReaction,

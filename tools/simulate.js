@@ -247,10 +247,16 @@ Engine.flowPickUnit(U('Scout').id);
 Engine.flowPickAttackTarget(U('Ork Boy').id);
 const boyWounds = U('Ork Boy').wounds, oppAP = ap(1);
 Engine.flowPickReaction('dive');
-check('DIVE goes straight to the roll now', G().flow.step, 'hit');
-Engine.flowHit(false);
+check('DIVE goes straight to the roll', G().flow.step, 'hit');
+check('the dive itself no longer forfeits the AP', G().flow.apGrant, true);
+// The 3" took it out of sight, so the attack cannot be performed at all.
+Engine.abortAction();
 check('no damage dealt', U('Ork Boy').wounds, boyWounds);
-check('and no AP for the diving unit', ap(1), oppAP);
+check('and nothing came of it, not even the AP', ap(1), oppAP);
+check('but the action chain carries on', G().chain.active, true);
+check('with the targeted unit still owed the response', G().control.forcedUnitId, U('Ork Boy').id);
+check('and the weapon was never spent',
+  Engine.weaponsFor(U('Scout').id, 'ranged')[0].used, false);
 
 console.log('\n== DISTRACT: extra AP and a free unit choice ==');
 Engine.forceEndChain();
@@ -938,6 +944,45 @@ console.log('\n== an ability decides whether they react ==');
   check('a reacting ability hands over', G().control.player, 1);
   check('the chain is live', G().chain.active, true);
   check('and AP only moved because the ability said so', ap(1), oppBefore + 1);
+})();
+
+console.log('\n== a DIVE that stays in sight still earns its AP ==');
+(function () {
+  const us = [
+    mkUnit(0, 'A', 3, 4, [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], []),
+    mkUnit(1, 'B', 3, 4, [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], [])
+  ];
+  Engine.startGame({ playerNames: ['One', 'Two'], vpTarget: 10, firstPlayer: 0,
+                     mission: { id: null } }, us);
+  Engine.confirmStartPhase();
+  Engine.adjustAP(0, 2);
+  const before = ap(1);
+  Engine.beginAction('shoot');
+  Engine.flowPickUnit(U('A').id);
+  Engine.flowPickAttackTarget(U('B').id);
+  Engine.flowPickReaction('dive');
+  Engine.flowHit(false);                       // the shot happens and misses
+  check('the survivor gains its AP as normal', ap(1), before + 1);
+})();
+
+console.log('\n== an interrupted MOVE costs the AP and yields nothing ==');
+(function () {
+  const us = [
+    mkUnit(0, 'A', 3, 4, [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], []),
+    mkUnit(1, 'B', 3, 4, [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], [])
+  ];
+  Engine.startGame({ playerNames: ['One', 'Two'], vpTarget: 10, firstPlayer: 0,
+                     mission: { id: null } }, us);
+  Engine.confirmStartPhase();
+  Engine.adjustAP(0, 2);
+  const mine = ap(0), theirs = ap(1);
+  Engine.beginAction('move');
+  Engine.flowPickUnit(U('A').id);
+  Engine.abortAction();
+  check('the AP was still spent', ap(0), mine - 1);
+  check('the opponent gained nothing', ap(1), theirs);
+  check('and the chain continues rather than ending as MOVE would',
+    G().chain.active, true);
 })();
 
 console.log('\n== summary ==');

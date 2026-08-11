@@ -363,6 +363,12 @@ const UI = (function () {
           'respond — the chain stays open and play returns to the turn player.</div>' +
         '<div class="noteline">Each weapon may only be used once per action chain. ' +
           'AP carries between turns; unspent RP does not carry between attacks.</div>' +
+        '<div style="font-size:10px;letter-spacing:.14em;color:var(--gold);font-weight:800;margin:12px 0 6px">' +
+          'INTERRUPTED ACTIONS</div>' +
+        '<div class="noteline">If an effect interrupts an action so that it cannot be performed — ' +
+          'a DIVE out of sight, a unit shot off the board mid-move — the action immediately ends. ' +
+          'The action chain continues, but nothing that would have come of that action happens, ' +
+          '<b>not even gaining AP</b>. Use <b>COULD NOT BE PERFORMED</b> in the attack flow.</div>' +
       '</div>' +
       '<div class="mfoot"><button class="btn ghost" data-act="close">CLOSE</button></div>';
   }
@@ -521,6 +527,13 @@ const UI = (function () {
     '</button>';
   }
 
+  /* "If an effect interrupts an action so that the action is not able to be
+     performed, the action immediately ends." Always one tap away. */
+  function abortRow() {
+    return '<button class="abortbtn" data-act="abort">COULD NOT BE PERFORMED — ' +
+      'nothing comes of it</button>';
+  }
+
   function footBack(confirmAct, confirmLabel, cls) {
     return '<div class="mfoot">' +
       '<button class="btn ghost sm" data-act="flowback">BACK</button>' +
@@ -549,6 +562,7 @@ const UI = (function () {
           (a.endsChain ? 'The action chain ends.' : 'The action chain continues.') + '</div>' +
         (a.expiresOverwatch && (u.tokens || []).some(t => t.kind === 'overwatch')
           ? '<div class="noteline warn">' + esc(u.name) + '\'s OVERWATCH token will be removed.</div>' : '') +
+        abortRow() +
       '</div>' +
       footBack('confirmsimple', 'DONE — ' + a.name);
   }
@@ -654,8 +668,8 @@ const UI = (function () {
         '<div class="noteline">A <b>⌖ FIRE OVERWATCH</b> button appears on ' + esc(u.name) +
           '\u2019s card. When an enemy moves within 3" of the token and is a legal target, press ' +
           'it to interrupt — the app never decides that.</div>' +
-        '<div class="noteline">You interrupt and resolve a full shoot sequence, skipping steps 2 ' +
-          'and 3 — so <b>the defender gains no RP</b> and there is no to-hit penalty. Any of ' +
+        '<div class="noteline">You interrupt and resolve a shoot sequence at <b>-1 to hit</b>, ' +
+          'skipping steps 2 and 3 — so <b>the defender gains no RP</b>. Any of ' +
           esc(u.name) + '\u2019s ranged weapons may be used' +
           (ranged.length ? '' : ' — but this unit has none!') + '.</div>' +
         '<div class="noteline warn">Removed the moment this unit moves or attacks.</div>' +
@@ -929,6 +943,7 @@ const UI = (function () {
             '<div class="cdesc">Spend nothing and take the attack as it comes. ' +
               'Unspent RP does not carry over.</div></div>' +
             '<div class="ccost free">0 RP</div></button>' +
+          abortRow() +
         '</div>' +
         '<div class="mfoot"><button class="btn ghost sm" data-act="flowback">BACK</button></div>';
     }
@@ -966,6 +981,7 @@ const UI = (function () {
           elevToggle(f, action) +
           auraToggles(f, 'hit') +
           '<div class="noteline">Roll it on the table, then tell the app what happened.</div>' +
+          abortRow() +
         '</div>' +
         '<div class="mfoot">' +
           '<button class="btn bad" data-act="hit:0">MISS</button>' +
@@ -991,6 +1007,7 @@ const UI = (function () {
           '</div>' +
           elevToggle(f, action) +
           auraToggles(f, ['wound', 'strength']) +
+          abortRow() +
         '</div>' +
         '<div class="mfoot">' +
           '<button class="btn bad" data-act="wound:0">FAILED</button>' +

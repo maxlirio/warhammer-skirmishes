@@ -48,11 +48,12 @@ const RULES = (function () {
     {
       id: 'charge', name: 'CHARGE', cost: 2, kind: 'aggressive', flow: 'attack',
       attackRange: 'melee', isCharge: true,
-      short: 'Move 1D6" then resolve the fight sequence. Your opponent gains 1 AP.',
+      short: 'Move 1D6" then fight. Opponent gains 1 AP. From high ground: +1 Wound, +1 Damage.',
       flavour: '“Close the distance.”',
       text: 'Move up to 1D6" toward an enemy unit. You must end within range of at least one of ' +
             'your melee weapons, or not make the move at all. Resolve the fight sequence against ' +
-            'that unit. Your opponent gains 1 AP.',
+            'that unit. Your opponent gains 1 AP. Charging from higher elevation gives +1 to ' +
+            'Wound and +1 Damage.',
       prompt: 'Roll 1D6 and move that far toward the target. You must end in melee range or not move at all.',
       elevation: 'charge',
       endsChain: false, opponentGainsAP: 1,
@@ -71,13 +72,13 @@ const RULES = (function () {
     },
     {
       id: 'overwatch', name: 'OVERWATCH', cost: 1, kind: 'passive', flow: 'overwatch',
-      short: 'Place a token within 12". Interrupt later and resolve a shoot sequence — the defender gets no RP.',
+      short: 'Place a token within 12". Interrupt later with a shoot sequence at -1 to hit, and no RP for them.',
       flavour: '“Come into my sights.”',
       text: 'Place an overwatch token within 12" of this unit. If an enemy unit moves within 3" ' +
             'of that token and is eligible to be targeted by at least one of this unit\'s ranged ' +
             'weapons, you may interrupt your opponent\'s action and immediately resolve the shoot ' +
-            'sequence against it, skipping steps 2 and 3 — the defender gains no RP. If the unit ' +
-            'that used this action moves or attacks, immediately remove the token.',
+            'sequence against it at -1 to hit, skipping steps 2 and 3 — the defender gains no RP. ' +
+            'If the unit that used this action moves or attacks, immediately remove the token.',
       prompt: 'Place an overwatch token within 12" of this unit.',
       endsChain: false, opponentGainsAP: 0
     },
@@ -141,10 +142,11 @@ const RULES = (function () {
       selfEffect: { label: 'Cannot move', duration: 'nextAP',
                     detail: 'This unit cannot move for your next AP (DUCK).' } },
 
-    { id: 'dive', name: 'DIVE', cost: 1, noAPGrant: true,
+    { id: 'dive', name: 'DIVE', cost: 1,
       flavour: '“Who cares if your knees get dirty?!”',
-      text: 'Move 3". You do not get an AP after this attack.',
-      tabletop: 'Move the defender 3".' },
+      text: 'Move 3".',
+      tabletop: 'Move the defender 3". If that takes it out of sight, the attack cannot be ' +
+                'performed — use “COULD NOT BE PERFORMED”.' },
 
     { id: 'distract', name: 'DISTRACT', cost: 1, hitMod: +1, grantAP: 1,
       freeChoice: true, chainLivesOnDeath: true,
