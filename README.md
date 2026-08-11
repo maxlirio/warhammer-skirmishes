@@ -93,6 +93,20 @@ Every unit is saved to this browser's library when a game starts, and
 **SAVE** button for saving mid-edit, whole-roster save/load for a full team at
 once, and JSON export/import to move everything to another device.
 
+## Interrupts, and interrupts of interrupts
+
+An attack being resolved can be interrupted — a DIVE that carries the target past
+an overwatch token, say. **INTERRUPT THIS ATTACK?** appears mid-flow listing every
+waiting trigger with its unit and owner; firing one parks the attack underneath
+and resolves the interrupt on top. The crumb line shows the stack (`↑ waiting:
+Alfred → Ork Nob`), and when the interrupt finishes the parked attack picks up
+exactly where it left off.
+
+That nests to any depth: an overwatch fired into a dive can itself be answered by
+a second overwatch, and they unwind in order. If any interrupt kills either party
+to a parked attack, that attack never resolves and — per the rule below —
+produces nothing at all.
+
 ## Interrupted actions
 
 If something stops an action being performed at all — a DIVE that goes out of

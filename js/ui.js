@@ -539,6 +539,23 @@ const UI = (function () {
       'nothing comes of it</button>';
   }
 
+  /* An attack can be interrupted mid-resolution — a DIVE into an overwatch, say
+     — and the interrupt can itself be interrupted. */
+  function interruptRow(g, f) {
+    const opts = Engine.interruptOptions();
+    if (!opts.length) return '';
+    return '<div style="font-size:10px;letter-spacing:.14em;color:var(--p2);font-weight:800;' +
+        'margin:12px 0 5px">INTERRUPT THIS' + (f && f.resumeFlow ? ' INTERRUPT' : ' ATTACK') +
+        '?</div>' +
+      '<div class="noteline">Did that movement bring someone into a waiting trigger? Fire it now ' +
+        'and this attack waits for it.</div>' +
+      opts.map(o => '<button class="tokfire ow" style="width:100%;margin-bottom:6px" ' +
+        'data-act="tok:' + o.unitId + ':' + o.tokenId + '">' +
+        '<span class="tf1">⌖ ' + esc(o.label) + '</span>' +
+        '<span class="tf2">' + esc(o.unitName) + ' · ' + esc(g.players[o.owner].name) +
+        '</span></button>').join('');
+  }
+
   function footBack(confirmAct, confirmLabel, cls) {
     return '<div class="mfoot">' +
       '<button class="btn ghost sm" data-act="flowback">BACK</button>' +
@@ -876,10 +893,17 @@ const UI = (function () {
     const attacker = f.attackerId ? Store.unit(f.attackerId) : null;
     const target = f.targetId ? Store.unit(f.targetId) : null;
 
+    let stack = '';
+    for (let p = f.resumeFlow, depth = 1; p; p = p.resumeFlow, depth++) {
+      stack += '<div style="color:var(--ink-mute);font-size:10.5px">' +
+        '↑ waiting: ' + esc((Store.unit(p.attackerId) || {}).name || '?') + ' → ' +
+        esc((Store.unit(p.targetId) || {}).name || '?') + '</div>';
+    }
     const crumb = '<div class="crumbs">' +
       (attacker ? '<b>' + esc(attacker.name) + '</b>' : 'attacker') + ' → ' + title +
       (target ? ' → <b>' + esc(target.name) + '</b>' : '') +
       (f.weaponId && attacker ? ' · ' + esc((attacker.weapons.find(w => w.id === f.weaponId) || {}).name) : '') +
+      stack +
     '</div>';
 
     if (f.step === 'attacker') {
@@ -986,6 +1010,7 @@ const UI = (function () {
           elevToggle(f, action) +
           auraToggles(f, 'hit') +
           '<div class="noteline">Roll it on the table, then tell the app what happened.</div>' +
+          interruptRow(g, f) +
           abortRow() +
         '</div>' +
         '<div class="mfoot">' +
@@ -1012,6 +1037,7 @@ const UI = (function () {
           '</div>' +
           elevToggle(f, action) +
           auraToggles(f, ['wound', 'strength']) +
+          interruptRow(g, f) +
           abortRow() +
         '</div>' +
         '<div class="mfoot">' +

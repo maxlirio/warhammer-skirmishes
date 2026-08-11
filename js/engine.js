@@ -1621,20 +1621,26 @@ const Engine = (function () {
 
     g.flow = null;
 
-    /* A counter-attack made as a reaction: the original attack was parked. */
+    /* Something interrupted an attack — a counter-attack, an overwatch fired
+       into a DIVE. If either party is down, the parked action cannot be
+       performed and nothing comes of it. */
     if (f.resumeFlow) {
       const parked = f.resumeFlow;
-      const originalAttacker = Store.unit(parked.attackerId);
-      if (!originalAttacker || !originalAttacker.alive) {
-        chainEntry(uname(parked.attackerId) + ' is down — their attack never resolves.', 'reaction');
+      const atk = Store.unit(parked.attackerId);
+      const def = Store.unit(parked.targetId);
+      const atkDown = !atk || !atk.alive;
+      const defDown = !def || !def.alive;
+      if (atkDown || defDown) {
+        chainEntry((atkDown ? uname(parked.attackerId) + ' is down'
+                            : uname(parked.targetId) + ' is down') +
+          ' — the interrupted attack never resolves, and nothing comes of it.', 'reaction');
         g.flow = null;
-        closeChain('the attacker was defeated first');
+        closeChain('a unit was destroyed mid-action');
         handOffToTurnPlayer();
         checkVictory();
         return;
       }
-      chainEntry('The counter-attack is done — ' + originalAttacker.name +
-        '\u2019s attack now resolves.', 'reaction');
+      chainEntry('The interrupt is done — ' + atk.name + '\u2019s attack resumes.', 'reaction');
       g.flow = parked;
       checkVictory();
       return;
@@ -1734,6 +1740,30 @@ const Engine = (function () {
 
   /* ------------------------------------------------------ token triggers */
 
+  /* Buttons that can interrupt whatever is happening right now. An interrupt
+     may itself be interrupted — each one parks the flow beneath it. */
+  function interruptOptions() {
+    const g = S();
+    if (!g) return [];
+    const out = [];
+    g.units.filter(u => u.alive).forEach(function (u) {
+      (u.tokens || []).forEach(function (t) {
+        if (t.kind === 'overwatch' || t.attackOpts) {
+          out.push({ unitId: u.id, tokenId: t.id, label: t.label,
+                     unitName: u.name, owner: u.owner });
+        }
+      });
+    });
+    return out;
+  }
+
+  /* Park the attack being resolved so the interrupt can run on top of it. */
+  function parkCurrentFlow() {
+    const g = S();
+    if (!g.flow || g.flow.kind !== 'attack') return null;
+    return JSON.parse(JSON.stringify(g.flow));
+  }
+
   function triggerToken(unitId, tokenId) {
     const g = S();
     const u = Store.unit(unitId);
@@ -1743,8 +1773,10 @@ const Engine = (function () {
     if (t.kind === 'overwatch') {
       Store.commit('overwatch shot', function () {
         const g2 = S();
+        const parked = parkCurrentFlow();
         const ranged = (u.weapons || []).filter(w => w.type === 'ranged');
-        chainEntry(u.name + ' triggers OVERWATCH.', 'token');
+        chainEntry(u.name + ' triggers OVERWATCH' +
+          (parked ? ', interrupting ' + uname(parked.attackerId) + '\u2019s attack' : '') + '.', 'token');
         g2.flow = {
           kind: 'attack', actionId: 'shoot', attackerId: unitId, targetId: null,
           weaponId: ranged.length === 1 ? ranged[0].id : null,
@@ -1755,6 +1787,7 @@ const Engine = (function () {
           freeChoice: false, chainLivesOnDeath: false, endsChainOverride: null,
           step: 'target'
         };
+        if (parked) g2.flow.resumeFlow = parked;
         // Overwatch fires, so the token comes off the table.
         u.tokens = (u.tokens || []).filter(x => x.id !== tokenId);
       });
@@ -1765,8 +1798,11 @@ const Engine = (function () {
     if (t.attackOpts) {
       Store.commit('trigger ' + t.label, function () {
         const u2 = Store.unit(unitId);
-        chainEntry(u2.name + ' triggers [' + t.label + '].', 'token');
+        const parked = parkCurrentFlow();
+        chainEntry(u2.name + ' triggers [' + t.label + ']' +
+          (parked ? ', interrupting ' + uname(parked.attackerId) + '\u2019s attack' : '') + '.', 'token');
         openFreeAttack(unitId, Object.assign({ label: t.label }, t.attackOpts));
+        if (parked && S().flow) S().flow.resumeFlow = parked;
         if (t.expiry === 'used') u2.tokens = (u2.tokens || []).filter(x => x.id !== tokenId);
       });
       return;
@@ -1998,6 +2034,7 @@ const Engine = (function () {
     applicableAuras, toggleAura, blockedReactions, flowRedirect, openFreeAttack,
     effectsNeedingTarget,
     triggerToken, confirmToken, tokenPickTarget, tokenEffects, removeToken,
+    interruptOptions,
     adjustAP, adjustVP, adjustWounds, removeUnit, removeEffect,
     addManualEffect, addManualToken, forceControl, forceEndChain, forceEndTurn,
     setPendingVP, scoreVP, promptVP, resolveVP, log,

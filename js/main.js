@@ -227,7 +227,7 @@
       case 'confirmoverwatch': Engine.confirmOverwatch(); return;
 
       /* ---- tokens ---- */
-      case 'tok': UI.setModal(null); Engine.triggerToken(p[1], p[2]); return;
+      case 'tok': UI.setModal(null); UI.clearDamageDraft(); Engine.triggerToken(p[1], p[2]); return;
       case 'tokentarget': Engine.tokenPickTarget(p[1], p[2]); return;
       case 'confirmtoken': Engine.confirmToken(); return;
 
