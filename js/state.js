@@ -55,7 +55,12 @@ const Store = (function () {
       createdAt: new Date().toISOString(),
       screen: 'play',
       settings: {
-        vpTarget: (config && config.vpTarget) || RULES.defaultVPTarget,
+        /* Each Mission Card carries its own win condition; only a card-less
+           game asks the players to pick one. */
+        vpTarget: (config && config.vpTarget !== undefined)
+          ? config.vpTarget : RULES.defaultVPTarget,
+        endsWhen: (config && config.endsWhen) || null,
+        endsShort: (config && config.endsShort) || null,
         /* An overwatch shot is an interrupt: no RP for the defender, and no
            survivor AP either. */
         overwatchGrantsAP: false,

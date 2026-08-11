@@ -301,7 +301,7 @@ Store.commit('add mission', function () {
 });
 const vpBefore = vp(0);
 const item = Engine.missionEndTurnItems()[0];
-check('KING OF THE HILL has an end-of-turn item', item.name, 'Holding the HIGH GROUND');
+check('KING OF THE HILL has an end-of-turn item', item.name, 'The HIGH GROUND');
 Engine.scoreMissionObjective(item.id, 0);
 check('objective queues a VP prompt', G().vpPrompts.length, 1);
 check('pre-filled from the card', G().vpPrompts[0].suggested, 1);
@@ -983,6 +983,48 @@ console.log('\n== an interrupted MOVE costs the AP and yields nothing ==');
   check('the opponent gained nothing', ap(1), theirs);
   check('and the chain continues rather than ending as MOVE would',
     G().chain.active, true);
+})();
+
+console.log('\n== each card carries its own win condition ==');
+(function () {
+  const expect = { sabotage: 10, hill: 10, ambush: null, assassination: 10, secure: 10, relic: null };
+  Object.keys(expect).forEach(function (id) {
+    check(id + ' VP target', RULES.missionById(id).vpTarget, expect[id]);
+  });
+  check('every card says how it ends',
+    RULES.missions.every(m => typeof m.endsWhen === 'string' && m.endsWhen.length > 0), true);
+  check('and prints its text as lines',
+    RULES.missions.every(m => Array.isArray(m.battlefield) && Array.isArray(m.objective) &&
+      Array.isArray(m.special)), true);
+
+  // A mission with no VP target must never be won on points.
+  const us = [
+    mkUnit(0, 'A', 3, 4, [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], []),
+    mkUnit(1, 'B', 3, 4, [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], [])
+  ];
+  Engine.startGame({ playerNames: ['One', 'Two'], firstPlayer: 0,
+                     vpTarget: RULES.missionById('relic').vpTarget,
+                     endsWhen: RULES.missionById('relic').endsWhen,
+                     mission: { id: 'relic' } }, us);
+  Engine.confirmStartPhase();
+  check('the card overrode the target', G().settings.vpTarget, null);
+  check('and recorded how it ends', G().settings.endsWhen,
+    'a RELIC carrier reaches their own side of the battlefield');
+  Engine.adjustVP(0, 50, 'test');
+  check('50 VP wins nothing here', G().winner, null);
+
+  // Whereas a card that does end on VP still does.
+  Engine.startGame({ playerNames: ['One', 'Two'], firstPlayer: 0,
+                     vpTarget: RULES.missionById('secure').vpTarget,
+                     endsWhen: RULES.missionById('secure').endsWhen,
+                     mission: { id: 'secure' } }, [
+    mkUnit(0, 'A', 3, 4, [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], []),
+    mkUnit(1, 'B', 3, 4, [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], [])
+  ]);
+  Engine.confirmStartPhase();
+  check('SECURE THE AREA plays to 10', G().settings.vpTarget, 10);
+  Engine.adjustVP(0, 10, 'test');
+  check('and 10 VP wins it', G().winner, 0);
 })();
 
 console.log('\n== summary ==');

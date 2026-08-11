@@ -116,6 +116,13 @@ const Engine = (function () {
     if (!m) return;
     log('Mission: ' + m.name + '.', 'phase');
 
+    /* The card's win condition replaces whatever was configured. */
+    g.settings.vpTarget = (m.vpTarget === undefined) ? g.settings.vpTarget : m.vpTarget;
+    g.settings.endsWhen = m.endsWhen || null;
+    g.settings.endsShort = m.endsShort || null;
+    log('This mission ends when ' + (m.endsWhen || 'a player reaches ' +
+      g.settings.vpTarget + ' VP') + '.', 'note');
+
     if (m.rosterMod && m.rosterMod.woundsDelta) {
       const min = m.rosterMod.woundsMin || 1;
       g.units.forEach(function (u) {
@@ -658,6 +665,7 @@ const Engine = (function () {
   function checkVictory() {
     const g = S();
     if (g.winner !== null && g.winner !== undefined) return;
+    if (!g.settings.vpTarget) return;      // this mission does not end on VP
     g.players.forEach(function (p) {
       if (p.vp >= g.settings.vpTarget) {
         g.winner = p.id;

@@ -168,30 +168,30 @@ const Setup = (function () {
         '</div>').join('') +
 
       '<h2>THE GAME</h2>' +
-      '<div class="grid2">' +
-        field('VICTORY POINTS TO WIN',
-          '<input type="number" min="1" data-bind="cfg:vpTarget" value="' + esc(S.vpTarget) + '">') +
-        field('WHO TAKES THE FIRST TURN',
-          '<select data-bind="cfg:firstPlayer" data-rerender="1">' +
-            S.playerNames.map((nm, i) =>
-              '<option value="' + i + '"' + (S.firstPlayer === i ? ' selected' : '') + '>' +
-                esc(nm) + '</option>').join('') +
-          '</select>') +
-      '</div>' +
+      field('WHO TAKES THE FIRST TURN',
+        '<select data-bind="cfg:firstPlayer" data-rerender="1">' +
+          S.playerNames.map((nm, i) =>
+            '<option value="' + i + '"' + (S.firstPlayer === i ? ' selected' : '') + '>' +
+              esc(nm) + '</option>').join('') +
+        '</select>') +
       '<div class="hint">Turns alternate. Each turn the active player gains 1 AP in their ' +
-        'Start Phase.</div>';
+        'Start Phase. How the game is won comes from the Mission Card on the next slide.</div>';
   }
 
   /* --------------------------------------------------------- step: mission */
 
+  const lines = xs => (Array.isArray(xs) ? xs : [xs]).map(esc).join('<br>');
+
   function missionCardFace(m, chosen) {
     return '<button class="misscard' + (chosen ? ' on' : '') + '" ' +
       'data-act="mission:' + m.id + '">' +
-      '<div class="mcname">' + m.name + '</div>' +
+      '<div class="mcname">MISSION CARD — ' + m.name +
+        (m.players ? ' <span class="mcp">[' + m.players + ' PLAYERS]</span>' : '') + '</div>' +
       '<div class="mcflav">' + esc(m.flavour) + '</div>' +
-      '<div class="mcsec"><b>BATTLEFIELD</b> ' + esc(m.battlefield) + '</div>' +
-      '<div class="mcsec"><b>OBJECTIVE</b> ' + esc(m.objective) + '</div>' +
-      '<div class="mcsec"><b>SPECIAL RULES</b> ' + esc(m.special) + '</div>' +
+      '<div class="mcsec"><b>BATTLEFIELD</b>' + lines(m.battlefield) + '</div>' +
+      '<div class="mcsec"><b>OBJECTIVE</b>' + lines(m.objective) + '</div>' +
+      '<div class="mcsec"><b>SPECIAL RULE' + ((m.special || []).length > 1 ? 'S' : '') + '</b>' +
+        lines(m.special) + '</div>' +
       (chosen ? '<div class="mcon">SELECTED</div>' : '') +
     '</button>';
   }
@@ -199,14 +199,23 @@ const Setup = (function () {
   function missionStep() {
     const m = card();
     return '<div class="lead">Which Mission Card?</div>' +
-      '<div class="hint">The card sets the battlefield and what you score for. The app tracks ' +
-        'everything it can — markers you can shoot, objectives you SECURE, who is carrying the ' +
-        'RELIC — and reads the rest back to you at the end of each turn.</div>' +
+      '<div class="hint">The card sets the battlefield, what you score for, and how the game is ' +
+        'won. The app tracks everything it can — markers you can shoot, objectives you SECURE, ' +
+        'who is carrying the RELIC — and reads the rest back to you at the end of each turn.</div>' +
       '<button class="misscard' + (!S.missionId ? ' on' : '') + '" data-act="mission:none">' +
         '<div class="mcname">NO MISSION CARD</div>' +
-        '<div class="mcflav">Just fight. Award VP by hand whenever you agree one was scored.</div>' +
+        '<div class="mcflav">The standard game: 1 VP at the end of each turn for each objective ' +
+          'where you have the most OC.</div>' +
         (!S.missionId ? '<div class="mcon">SELECTED</div>' : '') +
       '</button>' +
+      (!S.missionId
+        ? '<div class="card">' +
+            field('VICTORY POINTS TO WIN',
+              '<input type="number" min="1" data-bind="cfg:vpTarget" value="' + esc(S.vpTarget) + '">') +
+            '<div class="hint">With no card, you agree the target yourselves. Every Mission Card ' +
+              'brings its own win condition instead.</div>' +
+          '</div>'
+        : '') +
       RULES.missions.map(x => missionCardFace(x, S.missionId === x.id)).join('') +
       (m && m.extraActions
         ? '<div class="noteline warn">This mission adds the ' +
@@ -309,7 +318,7 @@ const Setup = (function () {
         '<div class="shd" style="margin-bottom:8px">MISSION</div>' +
         (card()
           ? '<div class="revrow"><span class="rn">' + card().name + '</span></div>' +
-            '<div class="revsub">' + esc(card().objective) + '</div>' +
+            '<div class="revsub">' + lines(card().objective) + '</div>' +
             (S.roles.attacker !== null && card().roles
               ? '<div class="revsub">Attacker: <b>' + esc(S.playerNames[S.roles.attacker]) +
                 '</b> · Defender: <b>' + esc(S.playerNames[S.roles.defender]) + '</b></div>' : '') +
@@ -323,9 +332,11 @@ const Setup = (function () {
       '</div>' +
       '<div class="card">' +
         '<div class="shd" style="margin-bottom:8px">VICTORY</div>' +
-        '<div class="revsub">First to <b style="color:var(--good)">' + esc(S.vpTarget) +
-          ' VP</b> wins. Every unit, mission and objective you entered is being saved to this ' +
-          'browser, so next time it is a few taps.</div>' +
+        '<div class="revsub">' + (card()
+          ? 'This mission ends when <b style="color:var(--good)">' + esc(card().endsWhen) + '</b>.'
+          : 'First to <b style="color:var(--good)">' + esc(S.vpTarget) + ' VP</b> wins.') +
+          ' Every unit you entered is being saved to this browser, so next time it is a few ' +
+          'taps.</div>' +
       '</div>' +
       '<div class="grid2">' +
         '<button class="btn sm" style="flex:1" data-act="export">EXPORT JSON</button>' +
@@ -1010,7 +1021,9 @@ const Setup = (function () {
         }
         Engine.startGame({
           playerNames: S.playerNames,
-          vpTarget: Number(S.vpTarget) || 10,
+          vpTarget: m ? m.vpTarget : (Number(S.vpTarget) || 10),
+          endsWhen: m ? m.endsWhen : null,
+          endsShort: m ? m.endsShort : null,
           firstPlayer: Number(S.firstPlayer) || 0,
           mission: m ? { id: m.id, roles: m.roles ? { attacker: S.roles.attacker,
                                                       defender: S.roles.defender } : null }

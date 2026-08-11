@@ -34,8 +34,9 @@ the app the outcome. It never asks "is the target in range?".
 ## Playing
 
 1. **Setup** is a wizard, one slide at a time: both players' names → which of the
-   six Mission Cards → one slide per army → a briefing slide if the mission needs
-   one → review.
+   six Mission Cards (each printed verbatim, and each bringing its own win
+   condition — only a card-less game asks you to agree a VP target) → one slide
+   per army → a briefing slide if the mission needs one → review.
 2. **ACTION LIST** — pick a Standard Action; the app walks the bookkeeping:
    attacker → defender → weapon → reaction → hit → wound → damage.
 3. The app shows the **target number** for every roll (weapon Hit value and the
@@ -71,8 +72,11 @@ honestly can:
 | **Secure the Area** | Three markers whose controller it remembers, a SECURE action, and an end-of-turn VP total it counts itself |
 | **The Relic** | Who is carrying it, blocks OVERWATCH for the carrier, and drops it where the carrier died |
 
-Everything above still asks before it scores — the app suggests the card's
-number and you confirm or change it.
+Each card is reproduced **verbatim** — battlefield, objective and special rules,
+line for line — and carries its own win condition: 10 VP for Sabotage, King of
+the Hill, Assassination and Secure the Area; last one standing for Ambush; relic
+carried home for The Relic. Everything above still asks before it scores — the
+app suggests the card's number and you confirm or change it.
 
 ## Datasheets
 

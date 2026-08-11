@@ -13,6 +13,9 @@ const UI = (function () {
 
   const G = () => Store.get();
 
+  /* Card text is stored as printed lines, so render it that way. */
+  const lines = xs => (Array.isArray(xs) ? xs : [xs]).map(esc).join('<br>');
+
   function render() {
     const app = document.getElementById('app');
     const g = G();
@@ -43,7 +46,9 @@ const UI = (function () {
         '<span class="tn">' + esc(g.players[g.turn.player].name) + '</span>' +
         '<span class="tp">' + (g.turn.phase === 'start' ? 'START PHASE'
                              : g.turn.phase === 'end' ? 'END PHASE' : 'ACTION PHASE') + '</span>' +
-        '<span class="tv">FIRST TO ' + g.settings.vpTarget + ' VP</span>' +
+        '<span class="tv">' + esc(g.settings.endsShort ||
+          (g.settings.vpTarget ? 'FIRST TO ' + g.settings.vpTarget + ' VP' : 'SEE THE CARD')) +
+        '</span>' +
       '</div>' +
       '<div class="topbar">' +
         g.players.map((p, i) => plate(g, i)).join('') +
@@ -427,9 +432,9 @@ const UI = (function () {
     const items = Engine.missionEndTurnItems();
     return '<div style="font-size:10px;letter-spacing:.14em;color:var(--gold);font-weight:800;margin:12px 0 6px">' +
         (m ? 'MISSION — ' + m.name : 'SCORING') + '</div>' +
-      '<div class="noteline">' + esc(m ? m.objective
-        : 'Standard game mode: at the end of each turn, 1 VP for each objective where you have ' +
-          'the most OC.') + '</div>' +
+      '<div class="noteline">' + (m ? lines(m.objective)
+        : esc('Standard game mode: at the end of each turn, 1 VP for each objective where you ' +
+              'have the most OC.')) + '</div>' +
       controlPointStrip(g) +
       relicStrip(g) +
       (items.length
@@ -486,8 +491,8 @@ const UI = (function () {
           '<div class="lbl">' + esc(p.reason).toUpperCase() + '</div>' +
           '<div class="big">' + draft + '</div>' +
           '<div class="sub">How many VP does ' + esc(g.players[p.player].name) +
-            ' score for this? They are on ' + g.players[p.player].vp + ' VP of ' +
-            g.settings.vpTarget + '.</div>' +
+            ' score for this? They are on ' + g.players[p.player].vp + ' VP' +
+            (g.settings.vpTarget ? ' of ' + g.settings.vpTarget : '') + '.</div>' +
         '</div>' +
         '<div class="numpad">' +
           [0, 1, 2, 3, 4, 5, 6, 7].map(x =>
@@ -1093,9 +1098,10 @@ const UI = (function () {
       '<div class="mbody">' +
         (m
           ? '<div class="mcflav" style="margin-bottom:10px">' + esc(m.flavour) + '</div>' +
-            '<div class="noteline"><b>BATTLEFIELD</b><br>' + esc(m.battlefield) + '</div>' +
-            '<div class="noteline"><b>OBJECTIVE</b><br>' + esc(m.objective) + '</div>' +
-            '<div class="noteline"><b>SPECIAL RULES</b><br>' + esc(m.special) + '</div>' +
+            '<div class="noteline"><b>BATTLEFIELD</b><br>' + lines(m.battlefield) + '</div>' +
+            '<div class="noteline"><b>OBJECTIVE</b><br>' + lines(m.objective) + '</div>' +
+            '<div class="noteline"><b>SPECIAL RULE' +
+              ((m.special || []).length > 1 ? 'S' : '') + '</b><br>' + lines(m.special) + '</div>' +
             (g.mission.roles && g.mission.roles.attacker !== null
               ? '<div class="noteline">Attacker: <b>' + esc(g.players[g.mission.roles.attacker].name) +
                 '</b> · Defender: <b>' + esc(g.players[g.mission.roles.defender].name) + '</b></div>'
