@@ -84,6 +84,11 @@ kill, a mission objective, anything you agree on — opens a keypad asking how m
 VP that is worth to that player, pre-filled with a sensible default you can
 override or zero out. The app adds up what you tell it and nothing else.
 
+Where a card names a price on a unit's head — *the Grey Knights are worth 2 VP
+each* — that number goes on the datasheet (**WORTH THIS MANY VP WHEN
+DESTROYED**), shows on the unit's card, and is what the keypad opens with. It is
+still only a suggestion, and the keypad still asks.
+
 ## Mission Cards
 
 All six printed cards are built in, and the app owns as much of each as it
@@ -258,7 +263,7 @@ interrupts — the counter-attack resolves first, and if it kills the attacker
 their attack never happens.
 
 **Grey Knights** — Brother Drusius, Brother Lucius and Justicar Aurelius, plus
-the GREY KNIGHTS PSYCHIC card. Drusius starts in reserve and *Deep Strikes* in;
+the GREY KNIGHTS PSYCHIC card. Each of them is worth **2 VP** when destroyed. Drusius starts in reserve and *Deep Strikes* in;
 his *Unescapable Wrath* strikes DIVE off the enemy's reaction list **only** when
 he is firing the Purifying Flame. Lucius's *Heavy Gatling* offers four dice when
 the app agrees he has not moved. Aurelius's *Into the Warp* takes the ticks for

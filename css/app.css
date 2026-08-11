@@ -212,6 +212,7 @@ h1, h2, h3, h4 { margin: 0; font-weight: 700; letter-spacing: .02em; }
 .chip-s.eff { border-color: #3b5a7a; color: #9ec6ec; }
 .chip-s.pass { border-color: #4a3f6b; color: #b6a6e6; }
 .chip-s.reserve { border-color: #4a6b6b; color: #8fd6d6; background: #101f1f; }
+.chip-s.vpworth { border-color: #3f6b45; color: #93d79b; }
 .chip-s.warnchip { border-color: var(--warn); color: var(--warn); }
 .chip-s.eff button, .chip-s.tok button { margin-left: 5px; color: var(--ink-mute); font-weight: 800; }
 

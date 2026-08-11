@@ -46,6 +46,9 @@ const Store = (function () {
       move: 6, maxWounds: 1, wounds: 1, toughness: 4, oc: 0,
       weapons: [], abilities: [], notes: '',
       alive: true, effects: [], tokens: [],
+      /* Some cards say what a unit is worth to whoever kills it. 0 = the
+         app's usual 1 VP suggestion. It is only ever a suggestion. */
+      killVP: 0,
       /* Deep Strike: the unit exists but is not on the battlefield yet, so it
          cannot be shot at, cannot act, and cannot be picked as a target. */
       reserve: false, movedThisTurn: false, noMoveTurn: false
@@ -438,7 +441,7 @@ const PRESETS = [
   },
   units: [
     {
-      name: 'Brother Drusius', move: 5, maxWounds: 2, toughness: 5, oc: 1,
+      name: 'Brother Drusius', move: 5, killVP: 2, maxWounds: 2, toughness: 5, oc: 1,
       reserve: true,
       notes: '"The fires of purity thirst for your blood!"',
       weapons: [
@@ -460,7 +463,7 @@ const PRESETS = [
       ]
     },
     {
-      name: 'Brother Lucius', move: 5, maxWounds: 2, toughness: 4, oc: 1,
+      name: 'Brother Lucius', move: 5, killVP: 2, maxWounds: 2, toughness: 4, oc: 1,
       notes: 'Death from above.',
       weapons: [
         { name: 'Psilencer', type: 'ranged', range: 18, hit: 4, strength: 3, damage: 1 },
@@ -481,7 +484,7 @@ const PRESETS = [
       ]
     },
     {
-      name: 'Justicar Aurelius', move: 5, maxWounds: 3, toughness: 5, oc: 2,
+      name: 'Justicar Aurelius', move: 5, killVP: 2, maxWounds: 3, toughness: 5, oc: 2,
       notes: '"Your blasphemous acts shall reach no further."',
       weapons: [
         { name: 'Storm Bolter', type: 'ranged', range: 12, hit: 2, strength: 3, damage: 1 },

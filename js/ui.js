@@ -261,6 +261,7 @@ const UI = (function () {
         'title="' + esc(a.text) + '">' + esc(a.name) + '</button>').join('') +
       (onwatch ? '<span class="chip-s watch">⌖ OVERWATCHING</span>' : '') +
       (u.reserve ? '<span class="chip-s reserve">IN RESERVE — OFF THE BATTLEFIELD</span>' : '') +
+      (u.killVP ? '<span class="chip-s vpworth">WORTH ' + u.killVP + ' VP</span>' : '') +
       (u.noMoveTurn ? '<span class="chip-s warnchip">MAY NOT MOVE THIS TURN</span>' : '') +
       (flagOn ? '<span class="chip-s mission">' + flag.label + '</span>' : '') +
       (carrying ? '<span class="chip-s mission">CARRYING THE RELIC</span>' : '') +

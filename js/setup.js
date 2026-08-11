@@ -443,6 +443,13 @@ const Setup = (function () {
       '<div class="hint">Straight off the datasheet. Toughness feeds the wound-table reminder ' +
         'the app shows during attacks; OC is tracked for you to read, never judged.</div>' +
 
+      field('WORTH THIS MANY VP WHEN DESTROYED',
+        '<input type="number" min="0" data-bind="unit:' + u.id + ':killVP" value="' +
+          esc(u.killVP || 0) + '">') +
+      '<div class="hint">Only if the card says so — the Grey Knights are worth 2 each. It is a ' +
+        'suggestion: the app still opens the keypad and asks, with this number already in it. ' +
+        'Leave it at 0 for the usual 1 VP.</div>' +
+
       '<div class="sub">' +
         '<div class="shd">WEAPONS</div>' +
         (u.weapons || []).map(w => weaponRow(u, w)).join('') +
@@ -815,7 +822,8 @@ const Setup = (function () {
     if (kind === 'unit') {
       const u = findUnit(p[1]); if (!u) return;
       const key = p[2];
-      u[key] = ['maxWounds', 'toughness', 'oc', 'move'].indexOf(key) >= 0 ? Number(value) : value;
+      u[key] = ['maxWounds', 'toughness', 'oc', 'move', 'killVP'].indexOf(key) >= 0
+        ? Number(value) : value;
       if (key === 'maxWounds') u.wounds = u.maxWounds;
       return;
     }
@@ -1026,7 +1034,7 @@ const Setup = (function () {
             name: spec.name, move: spec.move, maxWounds: spec.maxWounds,
             wounds: spec.maxWounds, toughness: spec.toughness, oc: spec.oc || 0,
             notes: spec.notes || '',
-            reserve: !!spec.reserve
+            reserve: !!spec.reserve, killVP: spec.killVP || 0
           });
           u.weapons = spec.weapons.map(w => Store.newWeapon(w));
           u.abilities = (spec.abilities || []).map(function (a) {

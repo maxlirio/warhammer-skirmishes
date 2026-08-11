@@ -509,7 +509,7 @@ function buildPreset(faction, owner) {
     const u = Store.newUnit(owner, {
       name: spec.name, move: spec.move, maxWounds: spec.maxWounds, wounds: spec.maxWounds,
       toughness: spec.toughness, oc: spec.oc || 0, notes: spec.notes || '',
-      reserve: !!spec.reserve
+      reserve: !!spec.reserve, killVP: spec.killVP || 0
     });
     u.weapons = spec.weapons.map(w => Store.newWeapon(w));
     u.abilities = (spec.abilities || []).map(function (a) {
@@ -1695,6 +1695,31 @@ console.log('\n== GREY KNIGHTS: Gate of Infinity off the card ==');
 })();
 
 
+
+console.log('\n== a Grey Knight is worth 2 VP ==');
+(function () {
+  const knights = buildPreset(gk, 0);
+  const foes = [mkUnit(1, 'Killer', 3, 4,
+    [{ name: 'Cannon', type: 'ranged', hit: 2, strength: 8, damage: 4 }], [])];
+  Engine.startGame({ playerNames: ['Knights', 'Chaos'], vpTarget: 10, firstPlayer: 1,
+                     mission: { id: null }, cards: { 0: gk.card } }, knights.concat(foes));
+  Engine.confirmStartPhase();
+  check('the card says so', Engine.killValue(U('Brother Lucius')), 2);
+  check('and an ordinary unit still suggests 1', Engine.killValue(U('Killer')), 1);
+  Engine.adjustAP(1, 3);
+  Engine.beginAction('shoot');
+  Engine.flowPickUnit(U('Killer').id);
+  Engine.flowPickAttackTarget(U('Brother Lucius').id);
+  Engine.flowPickReaction('none');
+  Engine.flowHit(true);
+  Engine.flowWound(true);
+  Engine.flowDamage(4);
+  check('Lucius is down', U('Brother Lucius').alive, false);
+  check('the keypad opens pre-filled with 2', G().vpPrompts[0].suggested, 2);
+  check('but nothing is scored until it is answered', vp(1), 0);
+  Engine.resolveVP(G().vpPrompts[0].id, 2);
+  check('and then it is', vp(1), 2);
+})();
 
 console.log('\n== a home-made "+3 MOV" ability ==');
 (function () {
