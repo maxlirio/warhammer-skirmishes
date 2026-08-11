@@ -1346,7 +1346,8 @@ const Engine = (function () {
     const ctx = { sourceUnitId: unitId, sourcePlayer: u.owner, targets: targets || {}, label: ab.name };
     applyEffects(ab.effects, ctx);
     checkVictory();
-    if (ctx.freeAttack) openFreeAttack(unitId, ctx.freeAttack);
+    if (ctx.freeAttack) { openFreeAttack(unitId, ctx.freeAttack); return; }
+    if (ab.moves) openOverwatchCheck(unitId, { type: 'none' });
   }
 
   /* START:/END: abilities fired from the phase modal. */
@@ -1363,6 +1364,7 @@ const Engine = (function () {
       const g = S();
       if (!g.pending.fired) g.pending.fired = [];
       g.pending.fired.push(abilityId);
+      if (ab.moves) openOverwatchCheck(unitId, { type: 'none' });
     });
   }
 
@@ -1493,6 +1495,14 @@ const Engine = (function () {
         }
 
         f.step = f.redirect ? 'redirect' : 'hit';
+        if (ab.moves) f.reactionMoves = true;
+
+        /* A reaction that moves this unit gets its overwatch look now. One that
+           moves whoever it redirects to waits until that unit is chosen. */
+        if (ab.moves && !f.redirect) {
+          const parkedA = JSON.parse(JSON.stringify(f));
+          if (openOverwatchCheck(f.targetId, { type: 'attack', flow: parkedA })) return;
+        }
         return;
       }
 
@@ -1541,10 +1551,15 @@ const Engine = (function () {
       const f = S().flow;
       if (!f) return;
       const from = uname(f.targetId);
+      const moved = f.reactionMoves && newTargetId !== f.targetId;
       f.targetId = newTargetId;
       f.redirect = false;
       chainEntry('The attack is redirected from ' + from + ' to ' + uname(newTargetId) + '.', 'reaction');
       f.step = 'hit';
+      if (moved) {
+        const parkedR = JSON.parse(JSON.stringify(f));
+        openOverwatchCheck(newTargetId, { type: 'attack', flow: parkedR });
+      }
     });
   }
 
@@ -1916,6 +1931,7 @@ const Engine = (function () {
     g.flow = null;
 
     if (moverDown) {
+      if (after.type === 'none') { checkVictory(); return; }
       if (after.type === 'attack') {
         closeChain('a unit was destroyed mid-action');
         handOffToTurnPlayer();
@@ -1926,6 +1942,7 @@ const Engine = (function () {
       return;
     }
 
+    if (after.type === 'none') { checkVictory(); return; }
     if (after.type === 'attack') {
       g.flow = after.flow;
       checkVictory();

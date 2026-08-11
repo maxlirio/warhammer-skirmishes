@@ -1353,6 +1353,106 @@ console.log('\n== Unpredictable moves, so overwatch gets its look ==');
   check('and the ability still ends the chain', G().chain.active, false);
 })();
 
+console.log('\n== every kind of move gets the overwatch look ==');
+(function () {
+  function fresh() {
+    const us = [
+      mkUnit(0, 'Runner', 3, 4, [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 }],
+        [{ name: 'Sprint', trigger: 'ap', cost: 1, text: 'move', moves: true, effects: [] },
+         { name: 'Scramble', trigger: 'free', cost: 0, text: 'move', moves: true, effects: [] },
+         { name: 'Dawn Dash', trigger: 'start', cost: 0, text: 'move', moves: true, effects: [] },
+         { name: 'Sidestep', trigger: 'rp', cost: 1, text: 'move', moves: true, effects: [] }]),
+      mkUnit(0, 'Mate', 3, 4, [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], []),
+      mkUnit(1, 'Watcher', 3, 4, [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], []),
+      mkUnit(1, 'Sniper', 3, 4, [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], [])
+    ];
+    Engine.startGame({ playerNames: ['One', 'Two'], firstPlayer: 1, vpTarget: 10,
+                       mission: { id: null } }, us);
+    Engine.confirmStartPhase();
+    Engine.adjustAP(1, 4);
+    Engine.beginAction('overwatch');
+    Engine.flowPickUnit(U('Watcher').id);
+    Engine.confirmOverwatch();
+    Engine.forceEndChain();
+    Store.commit('hand over', function () {
+      const g = Store.get();
+      g.turn.player = 0;
+      g.players[0].ap = 4;
+      g.players[1].ap = 2;
+      g.control = { player: 0, forcedUnitId: null, reason: 'test' };
+    });
+    return U('Runner');
+  }
+
+  // 1. an AP ability
+  let r = fresh();
+  Engine.beginAction('ability');
+  Engine.flowPickUnit(r.id);
+  Engine.flowPickAbility(r.abilities.find(a => a.name === 'Sprint').id);
+  Engine.confirmAbility();
+  check('an AP ability that moves', G().flow && G().flow.kind, 'owcheck');
+  Engine.flowFireOverwatch();
+
+  // 2. a card button
+  r = fresh();
+  Engine.useFreeAbility(r.id, r.abilities.find(a => a.name === 'Scramble').id);
+  check('a card button that moves', G().flow && G().flow.kind, 'owcheck');
+  Engine.flowFireOverwatch();
+
+  // 3. a START: ability, fired from the phase modal
+  r = fresh();
+  Store.commit('phase', function () {
+    Store.get().pending = { type: 'start', player: 0, manualVP: 0 };
+  });
+  Engine.usePhaseAbility(r.id, r.abilities.find(a => a.name === 'Dawn Dash').id);
+  check('a START: ability that moves', G().flow && G().flow.kind, 'owcheck');
+  Engine.flowFireOverwatch();
+
+  // 4. an RP reaction ability
+  r = fresh();
+  Store.commit('hand over', function () {
+    const g = Store.get();
+    g.turn.player = 1;
+    g.players[1].ap = 4;
+    g.control = { player: 1, forcedUnitId: null, reason: 'test' };
+  });
+  Engine.beginAction('shoot');
+  Engine.flowPickUnit(U('Sniper').id);        // a different unit, so the token survives
+  Engine.flowPickAttackTarget(r.id);
+  Engine.flowPickReaction('special', r.abilities.find(a => a.name === 'Sidestep').id);
+  check('an RP ability that moves', G().flow && G().flow.kind, 'owcheck');
+  check('and the shot is parked under it', G().flow.after.type, 'attack');
+})();
+
+console.log('\n== Get In Front of Me moves whoever takes the hit ==');
+(function () {
+  const mob = buildPreset(orks, 0);
+  const foes = [
+    mkUnit(1, 'Watcher', 3, 4, [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], []),
+    mkUnit(1, 'Sniper', 3, 4, [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], [])
+  ];
+  Engine.startGame({ playerNames: ['Orks', 'Guard'], firstPlayer: 1, vpTarget: 10,
+                     mission: { id: null } }, mob.concat(foes));
+  Engine.confirmStartPhase();
+  Engine.adjustAP(1, 6);
+  Engine.adjustAP(0, 3);
+  Engine.beginAction('overwatch');
+  Engine.flowPickUnit(U('Watcher').id);
+  Engine.confirmOverwatch();
+  Engine.forceControl(1, null);
+  Engine.beginAction('shoot');
+  Engine.flowPickUnit(U('Sniper').id);
+  Engine.flowPickAttackTarget(U('Mikaaaaghhh').id);
+  Engine.flowPickReaction('special',
+    U('Mikaaaaghhh').abilities.find(a => a.name === 'Get In Front of Me').id);
+  check('it asks who steps in', G().flow.step, 'redirect');
+  Engine.flowRedirect(U('Snitcherz').id);
+  check('the one shoved in front triggers the check', G().flow.kind, 'owcheck');
+  check('and it is Snitcherz who moved', G().flow.moverId, U('Snitcherz').id);
+  Engine.flowFireOverwatch();
+  check('then the shot resolves against them', G().flow.targetId, U('Snitcherz').id);
+})();
+
 console.log('\n== summary ==');
 console.log((checks - fails) + '/' + checks + ' checks passed');
 process.exit(fails ? 1 : 0);

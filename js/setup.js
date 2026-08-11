@@ -496,12 +496,13 @@ const Setup = (function () {
         '<button class="addbtn" style="flex:1" data-act="addTokenEffect:' + u.id + ':' + a.id + '">+ BUTTON ON THE TABLE</button>' +
       '</div>' +
 
+      '<button class="toggle' + (a.moves ? ' on' : '') + '" data-act="togMoves:' +
+        u.id + ':' + a.id + '">' +
+        '<span class="box">' + (a.moves ? '✓' : '') + '</span>' +
+        '<span>This moves a unit — check enemy overwatch afterwards</span></button>' +
+
       (a.trigger === 'ap'
-        ? '<button class="toggle' + (a.moves ? ' on' : '') + '" data-act="togMoves:' +
-            u.id + ':' + a.id + '">' +
-            '<span class="box">' + (a.moves ? '✓' : '') + '</span>' +
-            '<span>This ability moves the unit — check for overwatch afterwards</span></button>' +
-          field('DOES YOUR OPPONENT GET TO REACT?',
+        ? field('DOES YOUR OPPONENT GET TO REACT?',
             '<select data-bind="ability:' + u.id + ':' + a.id + ':opponentReacts">' +
               '<option value="true"' + (a.opponentReacts !== false ? ' selected' : '') + '>' +
                 'Yes — the action chain continues</option>' +

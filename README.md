@@ -107,8 +107,13 @@ once, and JSON export/import to move everything to another device.
 ## Overwatch fires on movement
 
 Overwatch triggers on a unit *moving*, so the app asks at exactly the moments a
-unit moves: a **MOVE**, a **CHARGE**'s 1D6", and the reactions that shift the
-defender — **DODGE**, **DIVE**, **WITHDRAW**.
+unit moves — you never have to close a window and hunt for the button yourself.
+That covers **MOVE**, a **CHARGE**'s 1D6", the reactions that shift the defender
+(**DODGE**, **DIVE**, **WITHDRAW**), and **any ability whose card says move**:
+tick *"This moves a unit"* when you build it and the check runs afterwards,
+whether it fires from an AP action, a card button, a START:/END: phase, or an RP
+reaction. Something like *Get In Front of Me*, which moves whoever it shoves into
+the shot, checks for that unit once you have chosen them.
 
 At those points a **MOVEMENT — DOES ANYTHING FIRE?** screen lists every waiting
 trigger belonging to the moving unit's opponent, with its unit and owner. There
