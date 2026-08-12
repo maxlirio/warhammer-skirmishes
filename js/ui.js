@@ -408,9 +408,52 @@ const UI = (function () {
     return '';
   }
 
+  /* Lying flat between two players, a window that faces the wrong way is
+     useless. Every screen knows who it is talking to, so it turns to them. */
+  function modalFacing(g) {
+    if (!g) return null;
+    if ((g.asks || []).length) return g.asks[0].player;
+    const f = g.flow;
+    if (f) {
+      if (f.kind === 'card') return f.playerId;
+      if (f.kind === 'owcheck') {
+        const mover = Store.unit(f.moverId);
+        return mover ? Store.opponentOf(mover.owner) : g.control.player;
+      }
+      if (f.kind === 'attack') {
+        /* The defender is the one choosing, right up until the roll. */
+        const target = f.targetId ? Store.unit(f.targetId) : null;
+        if (target && (f.step === 'reaction' || f.step === 'redirect')) return target.owner;
+        const atk = f.attackerId ? Store.unit(f.attackerId) : null;
+        return atk ? atk.owner : g.control.player;
+      }
+      const u = f.unitId ? Store.unit(f.unitId) : null;
+      if (u) return u.owner;
+      return g.control.player;
+    }
+    if (g.pending) return g.pending.player;
+    if (modal && modal.acts) {
+      const u = Store.unit(modal.acts);
+      if (u) return u.owner;
+    }
+    if (modal && modal.card !== undefined) return modal.card;
+    if (modal && modal.abil) {
+      const u = Store.unit(modal.abil[0]);
+      if (u) return u.owner;
+    }
+    if (modal && modal.unit) {
+      const u = Store.unit(modal.unit);
+      if (u) return u.owner;
+    }
+    return g.control.player;
+  }
+
   function wrap(inner) {
     const g = G();
+    const table = g && g.settings.layout === 'table';
+    const facing = table ? modalFacing(g) : null;
     return '<div class="overlay' + (g && g.settings.verbose === false ? ' lean' : '') +
+      (table ? ' table face-p' + (facing === 1 ? 1 : 0) : '') +
       '" data-overlay="1"><div class="modal">' + inner + '</div></div>';
   }
 
@@ -698,7 +741,7 @@ const UI = (function () {
     const mover = Store.unit(f.moverId);
     const opts = Engine.overwatchCandidates(f.moverId);
     const order = {};
-    f.queue.forEach((q, i) => { order[q.tokenId] = i + 1; });
+    f.queue.forEach((q, i) => { order[q.abilityId || q.tokenId] = i + 1; });
     return head('MOVEMENT', 'DOES ANYTHING FIRE?') +
       '<div class="crumbs"><b>' + esc(mover ? mover.name : '?') + '</b> moved</div>' +
       '<div class="mbody">' +
@@ -706,12 +749,15 @@ const UI = (function () {
           esc(mover ? mover.name : 'them') + ' into range of any of these? Tap them in the order ' +
           'you want them resolved.</div>' +
         opts.map(function (o) {
-          const n = order[o.tokenId];
+          const key = o.abilityId || o.tokenId;
+          const n = order[key];
           return '<button class="choice p' + o.owner + (n ? ' sel' : '') +
-            '" data-act="owpick:' + o.unitId + ':' + o.tokenId + '">' +
-            '<div class="cmain"><div class="cname">⌖ ' + esc(o.label) + '</div>' +
+            '" data-act="owpick:' + o.unitId + ':' + key + ':' + (o.abilityId ? 'a' : 't') + '">' +
+            '<div class="cmain"><div class="cname">⌖ ' + esc(o.label) +
+              (o.abilityId ? ' <span class="ctag abil">ABILITY</span>' : '') + '</div>' +
             '<div class="cdesc">' + esc(o.unitName) + ' · ' + esc(g.players[o.owner].name) +
-            '</div></div>' +
+            '</div>' +
+            (o.text ? '<div class="cflav">' + esc(o.text) + '</div>' : '') + '</div>' +
             '<div class="ccost' + (n ? '' : ' free') + '">' + (n ? '#' + n : '—') + '</div>' +
           '</button>';
         }).join('') +
@@ -1389,7 +1435,7 @@ const UI = (function () {
   /* ---------------------------------------------------------- menu / log */
 
   function menuModal(g) {
-    return head('MENU', 'GAME TOOLS') +
+    return head('MENU', 'GAME TOOLS · BUILD ' + esc(RULES.build)) +
       '<div class="mbody">' +
         '<button class="choice" data-act="togglelayout"><div class="cmain">' +
           '<div class="cname">' + (g.settings.layout === 'table' ? 'ONE WAY UP' : 'ACROSS THE TABLE') +

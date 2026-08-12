@@ -312,7 +312,7 @@ const PRESETS = [
         { name: 'Leathered Fist', type: 'melee', range: 1, hit: 4, strength: 2, damage: 1 }
       ],
       abilities: [
-        { name: 'Snap Shot', trigger: 'free', cost: 0, usesPerGame: 1,
+        { name: 'Snap Shot', trigger: 'overwatch', cost: 0, usesPerGame: 1,
           text: 'Once per game, when an enemy unit moves within 6" of this unit, if it is an ' +
                 'eligible ranged target, this unit may interrupt their action. Resolve a shoot ' +
                 'sequence against that unit. Skip steps 2 and 3.',

@@ -49,8 +49,14 @@ The same slide asks how the two of you are sitting.
 forth. **ACROSS THE TABLE** is for a phone or tablet lying flat between you —
 each player's half of the board is rotated to face them, so you read your own
 units the right way up from your own side and nobody has to turn the device
-around. Everything shared — the phase bar, the action chain, the prompts and
-every popup — stays upright. Also switchable mid-game from the menu.
+around.
+
+**Every window turns to whoever it is talking to.** Open an action list and it
+faces the player acting; reach the reaction step and it turns to face the
+defender; the roll turns it back. Phase screens face the player whose phase it
+is, a faction card's powers face its owner, and the movement check faces the
+player whose triggers are waiting. Only the shared furniture — the phase bar,
+the action chain — stays put. Switchable mid-game from the menu.
 
 ## Playing
 
@@ -146,8 +152,15 @@ no button to hunt for, because you never fire it by hand — see below.
 
 Overwatch triggers on a unit *moving*, so the app asks at exactly the moments a
 unit moves — you never have to close a window and hunt for the button yourself.
+It offers two kinds of waiting trigger: an **overwatch token**, and any ability
+whose trigger is **WHEN AN ENEMY MOVES NEARBY** — Fred's *Snap Shot* is an
+overwatch in everything but name, so it is offered from the same window, spends
+its once-per-game use when it fires, and is wasted the same way if the mover
+dies before its turn in the queue.
+
 That covers **MOVE**, a **CHARGE**'s 1D6", the reactions that shift the defender
-(**DODGE**, **DIVE**, **WITHDRAW**), and **any ability whose card says move**:
+(**DODGE**, **DIVE**, **WITHDRAW**), a teleport, and **any ability whose card
+says move**:
 tick *"This moves a unit"* when you build it and the check runs afterwards,
 whether it fires from an AP action, a card button, a START:/END: phase, or an RP
 reaction. Something like *Get In Front of Me*, which moves whoever it shoves into
@@ -259,7 +272,8 @@ The official line-ups ship with every ability wired up, not just written out.
 
 **Astra Militarum** — Guardsmen "Alfred", "Al", "Fred" and "Nick", and Commissar
 Briant. The Commissar's 6" aura and his WITHDRAW ban, Nick's Cloaked and Grenade,
-Fred's Snap Shot and Choke Hold, Alfred's unlimited dagger, and Al's **Kill
+Fred's Choke Hold and his *Snap Shot* (which the app treats as an overwatch),
+Alfred's unlimited dagger, and Al's **Kill
 Count**, which the app fires by itself the moment his Bayonet finishes somebody.
 
 **Orks** — Snitcherz, Boss Nob Blikker, Da Hunta, Riksnik and Mikaaaaghhh. The

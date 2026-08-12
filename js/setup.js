@@ -353,6 +353,9 @@ const Setup = (function () {
       (rosterList.length
         ? '<div class="sub" style="margin-top:9px">' +
             '<div class="shd">SAVED ROSTERS — tap to load into this slot</div>' +
+            '<div class="hint">A saved roster keeps each datasheet exactly as it was when you ' +
+              'saved it. If a card has changed since, tap the faction preset above instead — ' +
+              'that is always the current one.</div>' +
             rosterList.map((r, i) =>
               '<div style="display:flex;gap:6px;margin-bottom:5px;align-items:center">' +
                 '<button class="btn sm" style="flex:1;text-align:left" ' +

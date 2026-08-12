@@ -1291,8 +1291,14 @@ const Engine = (function () {
         relic: ['unit', 'confirm'],
         simple: ['unit', 'confirm']
       }[f.kind] || [];
-      const i = order.indexOf(f.step);
-      if (i > 0) f.step = order[i - 1];
+      /* The unit is chosen before the action now, so "which unit?" is not a
+         step anyone can go back to — nor is "which ability?" once the ability
+         itself was the thing tapped. */
+      const skip = { unit: true, attacker: true };
+      if (f.abilityId && f.kind === 'ability') skip.ability = true;
+      let i = order.indexOf(f.step) - 1;
+      while (i >= 0 && skip[order[i]]) i--;
+      if (i >= 0) f.step = order[i];
       else S().flow = null;
     });
   }
@@ -2350,6 +2356,13 @@ const Engine = (function () {
                      unitName: u.name, owner: u.owner });
         }
       });
+      /* An ability that waits for movement is offered here too — Snap Shot is
+         an overwatch in everything but name. */
+      (u.abilities || []).filter(a => a.trigger === 'overwatch').forEach(function (a) {
+        if (a.usesPerGame && (a.used || 0) >= a.usesPerGame) return;
+        out.push({ unitId: u.id, abilityId: a.id, label: a.name,
+                   unitName: u.name, owner: u.owner, text: a.text });
+      });
     });
     return out;
   }
@@ -2374,13 +2387,16 @@ const Engine = (function () {
     return false;
   }
 
-  function flowToggleOverwatch(unitId, tokenId) {
+  /* `key` is a token id or, for an ability that waits on movement, its id. */
+  function flowToggleOverwatch(unitId, key, isAbility) {
     Store.commit('queue overwatch', function () {
       const f = S().flow;
       if (!f || f.kind !== 'owcheck') return;
-      const i = f.queue.findIndex(q => q.tokenId === tokenId);
+      const same = q => (isAbility ? q.abilityId === key : q.tokenId === key);
+      const i = f.queue.findIndex(same);
       if (i >= 0) f.queue.splice(i, 1);
-      else f.queue.push({ unitId: unitId, tokenId: tokenId });
+      else if (isAbility) f.queue.push({ unitId: unitId, abilityId: key });
+      else f.queue.push({ unitId: unitId, tokenId: key });
     });
   }
 
@@ -2400,7 +2416,16 @@ const Engine = (function () {
          queued are spent whether or not there was anything left to shoot at. */
       f.queue.forEach(function (q) {
         const owner = Store.unit(q.unitId);
-        const tok = owner && (owner.tokens || []).find(x => x.id === q.tokenId);
+        if (!owner) return;
+        if (q.abilityId) {
+          const ab = findAbility(q.unitId, q.abilityId);
+          if (!ab) return;
+          ab.used = (ab.used || 0) + 1;
+          chainEntry(owner.name + '\u2019s ' + ab.name + ' is wasted — ' + uname(f.moverId) +
+            ' was already down.', 'muted');
+          return;
+        }
+        const tok = (owner.tokens || []).find(x => x.id === q.tokenId);
         if (!tok) return;
         owner.tokens = owner.tokens.filter(x => x.id !== q.tokenId);
         chainEntry(owner.name + '\u2019s [' + tok.label + '] is wasted — ' + uname(f.moverId) +
@@ -2417,6 +2442,28 @@ const Engine = (function () {
     const next = f.queue.shift();
     const parked = JSON.parse(JSON.stringify(f));
     const u = Store.unit(next.unitId);
+
+    /* An overwatch-triggered ability: resolve its free attack against whoever
+       moved, and spend the use. */
+    if (next.abilityId) {
+      const ab = u && findAbility(next.unitId, next.abilityId);
+      if (!ab) { runOverwatchQueue(); return; }
+      ab.used = (ab.used || 0) + 1;
+      chainEntry(u.name + ' interrupts with “' + ab.name + '” against ' + mover.name + '.', 'token');
+      const ctx = { sourceUnitId: next.unitId, sourcePlayer: u.owner, targets: {}, label: ab.name };
+      applyEffects(ab.effects, ctx);
+      openFreeAttack(next.unitId, ctx.freeAttack ||
+        { weapon: 'ranged', noRP: true, hitMod: 0, label: ab.name });
+      if (S().flow) {
+        S().flow.targetId = f.moverId;
+        S().flow.step = S().flow.weaponId ? 'hit' : 'weapon';
+        S().flow.resumeFlow = parked;
+      } else {
+        runOverwatchQueue();
+      }
+      return;
+    }
+
     const t = u && (u.tokens || []).find(x => x.id === next.tokenId);
     if (!t) { runOverwatchQueue(); return; }
 

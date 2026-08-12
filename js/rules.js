@@ -365,6 +365,7 @@ const RULES = (function () {
 
   return {
     version: '1.0',
+    build: '2026-08-12a',
     defaultVPTarget: 10,
     actions, rangedReactions, meleeReactions, missions,
     woundTarget, woundLabel, applyMod, actionById, reactionById, missionById,
@@ -378,6 +379,7 @@ const RULES = (function () {
       { id: 'passive', label: 'PASSIVE',                   hint: 'Always on. Shown on the card as a chip; hover or tap it for the text.' },
       { id: 'gamestart', label: 'AT THE START OF THE GAME', hint: 'Resolves itself before the first turn. The app asks for any choice it needs.' },
       { id: 'onkill',  label: 'WHEN THIS UNIT KILLS',       hint: 'Fires by itself the moment this unit destroys an enemy — optionally only with one named weapon.' },
+      { id: 'overwatch', label: 'WHEN AN ENEMY MOVES NEARBY', hint: 'Behaves like OVERWATCH: the app offers it every time an enemy moves, and you decide whether it was close enough.' },
       { id: 'free',    label: 'FREE / manual',             hint: 'A button on the unit card you may press at any time.' }
     ],
 

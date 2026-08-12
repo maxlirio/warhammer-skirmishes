@@ -1849,6 +1849,65 @@ console.log('\n== the app scores what it can see, and asks only what it cannot =
   check('in their own deployment zone the card pays 2', vp(1), 2);
 })();
 
+
+console.log('\n== Snap Shot is an overwatch in all but name ==');
+(function () {
+  const guard = buildPreset(astra, 0);
+  const foes = [mkUnit(1, 'Runner', 3, 4,
+    [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], [])];
+  Engine.startGame({ playerNames: ['Guard', 'Chaos'], vpTarget: 10, firstPlayer: 1,
+                     mission: { id: null } }, guard.concat(foes));
+  Engine.confirmStartPhase();
+  Engine.adjustAP(1, 3);
+
+  const fred = U('Guardsman "Fred" 434-436');
+  check('nobody has placed a token', Store.allTokens().length, 0);
+  Engine.beginAction('move');
+  Engine.flowPickUnit(U('Runner').id);
+  Engine.confirmSimple();
+  check('moving still opens the check', G().flow.kind, 'owcheck');
+  const opts = Engine.overwatchCandidates(U('Runner').id);
+  check('and Snap Shot is offered even with no token on the table',
+    opts.map(o => o.label), ['Snap Shot']);
+  check('it is flagged as an ability, not a token', !!opts[0].abilityId, true);
+
+  Engine.flowToggleOverwatch(opts[0].unitId, opts[0].abilityId, true);
+  check('committing it queues it', G().flow.queue.length, 1);
+  Engine.flowFireOverwatch();
+  check('it resolves as an attack on the mover', G().flow.kind, 'attack');
+  check('against the unit that moved', G().flow.targetId, U('Runner').id);
+  check('the defender gets no RP', G().players[1].rp, 0);
+  Engine.flowHit(false);
+  check('and it is spent, once per game',
+    U('Guardsman "Fred" 434-436').abilities.find(a => a.name === 'Snap Shot').used, 1);
+  check('so it is not offered again',
+    Engine.overwatchCandidates(U('Runner').id).length, 0);
+})();
+
+console.log('\n== BACK never rewinds past the unit you already chose ==');
+(function () {
+  const us = [
+    mkUnit(0, 'A', 3, 4, [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 },
+                          { name: 'Blade', type: 'melee', hit: 3, strength: 4, damage: 1 }], []),
+    mkUnit(1, 'B', 3, 4, [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], [])
+  ];
+  Engine.startGame({ playerNames: ['One', 'Two'], vpTarget: 10, firstPlayer: 0,
+                     mission: { id: null } }, us);
+  Engine.confirmStartPhase();
+  Engine.adjustAP(0, 3);
+  Engine.beginAction('shoot', U('A').id);
+  check('it opens on the target, the unit being known', G().flow.step, 'target');
+  Engine.flowPickAttackTarget(U('B').id);
+  check('one ranged weapon, so it goes straight to the reaction', G().flow.step, 'reaction');
+  /* Walk BACK the whole way: every step must be one you could actually have
+     been on, and "which unit?" is never one of them. */
+  const seen = [];
+  for (let i = 0; i < 6 && G().flow; i++) { Engine.flowBack(); if (G().flow) seen.push(G().flow.step); }
+  check('BACK walks the real steps', seen, ['weapon', 'target']);
+  check('it never offers "which unit?" again', seen.indexOf('attacker'), -1);
+  check('and the last BACK closes the flow', G().flow, null);
+})();
+
 console.log('\n== summary ==');
 console.log((checks - fails) + '/' + checks + ' checks passed');
 process.exit(fails ? 1 : 0);
