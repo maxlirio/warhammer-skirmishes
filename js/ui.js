@@ -4,7 +4,8 @@
 
 const UI = (function () {
 
-  let modal = null;          // UI-only overlays: {acts} | 'menu' | 'log' | {unit:id}
+  let modal = null;
+  let chainOpen = false;      // the chain log folds away until you want it          // UI-only overlays: {acts} | 'menu' | 'log' | {unit:id}
   let damageDraft = null;
 
   const esc = s => String(s === null || s === undefined ? '' : s)
@@ -55,6 +56,7 @@ const UI = (function () {
   }
 
   function setModal(m) { modal = m; render(); }
+  function toggleChain() { chainOpen = !chainOpen; render(); }
 
   /* ================================================================ SHELL */
 
@@ -266,7 +268,7 @@ const UI = (function () {
     }
 
     const weapons = (u.weapons || []).map(function (w) {
-      const used = g.chain.weaponsUsed.indexOf(u.id + '|' + w.id) >= 0;
+
       /* A card may leave a weapon's line blank — show the gap rather than
          inventing a number for it. */
       const has = v => !(v === null || v === undefined || v === '');
@@ -274,7 +276,7 @@ const UI = (function () {
         ? (has(w.hit) ? w.hit + '+' : '—') + ' · S' + (has(w.strength) ? w.strength : '—') +
           ' · D' + (has(w.damage) ? esc(String(w.damage)) : '—')
         : '<span style="color:var(--warn)">no stats on the card</span>';
-      return '<div class="row' + (used ? ' used' : '') + '">' +
+      return '<div class="row">' +
         '<span class="tag">' + (w.type === 'melee' ? 'M' : 'R') + '</span>' +
         '<span class="nm">' + esc(w.name) + '</span>' +
         '<span>' + (w.range ? w.range + '" · ' : '') + stats + '</span>' +
@@ -390,14 +392,22 @@ const UI = (function () {
       '<div class="mfoot"><button class="btn ghost" data-act="close">CANCEL</button></div>';
   }
 
+  /* The running commentary is useful but it was eating the board, so it folds
+     down to its last line and opens on a tap. */
   function chainbox(g) {
     const entries = g.chain.entries.slice(-14);
-    return '<div class="chainbox" id="chainbox">' +
-      '<div class="chead">ACTION CHAIN' +
-        '<span class="st">' + (g.chain.active ? 'ACTIVE' : 'ENDED') + '</span></div>' +
-      (entries.length
-        ? entries.map(e => '<div class="centry ' + e.cls + '">' + esc(e.text) + '</div>').join('')
-        : '<div class="centry muted">No action chain running. The active player may spend AP.</div>') +
+    const last = entries.length ? entries[entries.length - 1] : null;
+    const body = entries.length
+      ? entries.map(e => '<div class="centry ' + e.cls + '">' + esc(e.text) + '</div>').join('')
+      : '<div class="centry muted">No action chain running. The active player may spend AP.</div>';
+    return '<div class="chainbox' + (chainOpen ? ' open' : '') + '" id="chainbox">' +
+      '<button class="chead" data-act="togglechain">' +
+        '<span class="cv">' + (chainOpen ? '▾' : '▸') + '</span>ACTION CHAIN' +
+        '<span class="st">' + (g.chain.active ? 'ACTIVE' : 'ENDED') + '</span></button>' +
+      (chainOpen
+        ? '<div class="clist">' + body + '</div>'
+        : '<div class="clast ' + (last ? last.cls : 'muted') + '">' +
+            esc(last ? last.text : 'Nothing has happened yet this chain.') + '</div>') +
     '</div>';
   }
 
@@ -1019,6 +1029,7 @@ const UI = (function () {
         '</div>' + footBack();
     }
     const ab = Engine.findAbility(f.unitId, f.abilityId);
+    if (f.step === 'roll') return rollFlow(g, f, esc(ab.name), '');
     if (f.step === 'pick') {
       const needs = Engine.effectsNeedingTarget(ab, { sourceUnitId: f.unitId });
       const e = needs[f.pickIndex] || needs.find(x => !f.targets[x.id]) || needs[0];
@@ -1244,6 +1255,33 @@ const UI = (function () {
     return out + '</div>';
   }
 
+  /* "Roll 1D6 and move that far." The app cannot roll for you, so it stops,
+     says what to roll and why, and takes the number for the record. */
+  function rollFlow(g, f, title, crumb) {
+    const die = f.rollDie || 6;
+    const pad = [];
+    for (let i = 1; i <= die; i++) pad.push('<button data-act="roll:' + i + '">' + i + '</button>');
+    const charge = f.kind === 'attack';
+    return head(title, 'ROLL THE DICE') + (crumb || '') +
+      '<div class="mbody">' +
+        '<div class="rollbox">' +
+          '<div class="lbl">ROLL</div>' +
+          '<div class="big">1D' + die + '</div>' +
+          '<div class="sub">for ' + esc(f.rollWhat || 'this action') + '</div>' +
+        '</div>' +
+        (f.rollNote ? '<div class="noteline">' + esc(f.rollNote) + '</div>' : '') +
+        '<div class="noteline tip">Roll it on the table and tap what you got — the app only ' +
+          'keeps it for the record.</div>' +
+        '<div class="numpad wide">' + pad.join('') + '</div>' +
+      '</div>' +
+      (charge
+        ? '<div class="mfoot">' +
+            '<button class="btn ghost sm" data-act="flowback">BACK</button>' +
+            '<button class="btn bad" data-act="chargefailed">COULD NOT REACH</button>' +
+          '</div>'
+        : '<div class="mfoot"><button class="btn ghost sm" data-act="flowback">BACK</button></div>');
+  }
+
   function attackFlow(g, f) {
     const action = RULES.actionById(f.actionId);
     const isOW = f.source === 'overwatch';
@@ -1269,9 +1307,11 @@ const UI = (function () {
       return head(title, 'SELECT ATTACKING UNIT') + crumb +
         '<div class="mbody">' + Engine.eligibleUnits().map(u =>
           unitChoice(u, 'pickunit:' + u.id,
-            Engine.weaponsFor(u.id, action.attackRange).filter(w => !w.used).length + ' ' +
+            Engine.weaponsFor(u.id, action.attackRange).length + ' ' +
             action.attackRange + ' weapon(s) ready')).join('') + '</div>' + footBack();
     }
+
+    if (f.step === 'roll') return rollFlow(g, f, title, crumb);
 
     if (f.step === 'target') {
       // A unit in RESERVE is not on the table, so it cannot be shot at.
@@ -1290,12 +1330,12 @@ const UI = (function () {
         '<div class="mbody">' +
           (list.length ? '' : '<div class="noteline warn">This unit has no ' + action.attackRange +
             ' weapons. Add one in the roster editor, or cancel.</div>') +
-          list.map(w => '<button class="choice' + (w.used ? ' disabled' : '') +
+          list.map(w => '<button class="choice' +
             '" data-act="pickweapon:' + w.id + '">' +
             '<div class="cmain"><div class="cname">' + esc(w.name) +
               (w.primary ? ' <span class="ctag">PRIMARY</span>' : '') + '</div>' +
             '<div class="cdesc">Hit ' + w.hit + '+ · Strength ' + w.strength + ' · Damage ' + w.damage +
-              (w.used ? ' · already used this action chain' : '') + '</div></div></button>').join('') +
+              '</div></div></button>').join('') +
         '</div>' + footBack();
     }
 
@@ -1672,5 +1712,5 @@ const UI = (function () {
 
   return { render, setModal, getModal: () => modal,
            setDamageDraft, clearDamageDraft, getDamageDraft,
-           esc };
+           toggleChain, esc };
 })();

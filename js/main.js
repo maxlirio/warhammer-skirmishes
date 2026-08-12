@@ -84,6 +84,7 @@
       case 'dismisswin':   UI.setModal('win-dismissed'); return;
       case 'menu':         UI.setModal('menu'); return;
       case 'showlog':      UI.setModal('log'); return;
+      case 'togglechain':  UI.toggleChain(); return;
       case 'showrules':    UI.setModal('rules'); return;
       case 'showhouserules': UI.setModal('houserules'); return;
       case 'togglelayout':
@@ -215,6 +216,8 @@
         return;
 
       /* ---- flow navigation ---- */
+      case 'roll':          Engine.flowRoll(Number(p[1])); return;
+      case 'chargefailed':  Engine.flowChargeFailed(); return;
       case 'flowback': UI.clearDamageDraft(); Engine.flowBack(); return;
       case 'owpick': Engine.flowToggleOverwatch(p[1], p[2], p[3] === 'a'); return;
       case 'owgo': UI.clearDamageDraft(); Engine.flowFireOverwatch(); return;

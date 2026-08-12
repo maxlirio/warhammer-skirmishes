@@ -37,7 +37,7 @@ const RULES = (function () {
       attackRange: 'ranged',
       short: 'Ranged attack. The defender gains 1 RP and picks a Ranged Reaction.',
       flavour: '“I think I got ‘em!”',
-      text: 'Resolve the shoot sequence: declare an unused weapon and an eligible ranged target, ' +
+      text: 'Resolve the shoot sequence: declare a weapon and an eligible ranged target, ' +
             'the defender gains 1 RP and may spend it on a Ranged Reaction, then Hit, Wound and ' +
             'damage. A survivor gains 1 AP; a kill scores 1 VP and ends the action chain. ' +
             'Shooting from higher elevation gives +1 to Hit.',
@@ -64,7 +64,7 @@ const RULES = (function () {
       attackRange: 'melee',
       short: 'Melee attack. The defender gains 1 RP and picks a Melee Reaction.',
       flavour: '“Finish the job.”',
-      text: 'Resolve the fight sequence: declare an unused weapon and an eligible melee target, ' +
+      text: 'Resolve the fight sequence: declare a weapon and an eligible melee target, ' +
             'the defender gains 1 RP and may spend it on a Melee Reaction, then Hit, Wound and ' +
             'damage. A survivor gains 1 AP; a kill scores 1 VP and ends the action chain.',
       endsChain: false, opponentGainsAP: 0,
@@ -368,7 +368,7 @@ const RULES = (function () {
 
   return {
     version: '1.0',
-    build: '2026-08-12d',
+    build: '2026-08-12e',
     defaultVPTarget: 10,
     actions, rangedReactions, meleeReactions, missions,
     woundTarget, woundLabel, applyMod, actionById, reactionById, missionById,

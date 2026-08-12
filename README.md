@@ -83,8 +83,9 @@ the action chain — stays put. Switchable mid-game from the menu.
    Actions and **its own Special Abilities by name**, in one list. There is no
    action list to open first, no "which unit?" step afterwards, and no SPECIAL
    ABILITY button to go through.
-3. The app walks the bookkeeping from there: defender → weapon → reaction → hit →
-   wound → damage.
+3. The app walks the bookkeeping from there: defender → weapon → **the dice the
+   action calls for** → reaction → hit → wound → damage. A weapon is never spent
+   — the same one can be used as often as you like in a chain.
 4. The app shows the **target number** for every roll (weapon Hit value and the
    S-vs-T wound table, with every modifier already folded in). You roll the dice
    and press HIT / MISS, WOUND / FAILED. **Damage, VP and AP then follow from the
@@ -99,6 +100,25 @@ the action chain — stays put. Switchable mid-game from the menu.
 
 Every number can be corrected by hand (±AP, ±VP, ±wounds), and **UNDO** rolls
 back the last 40 changes.
+
+## Dice the app stops for
+
+The app never rolls, but it will not pretend a roll did not happen either.
+Anything whose card says to roll gets its own screen — what die, what it is for,
+and what to do with the result — and a keypad to tap what you got, which goes
+into the chain log.
+
+**CHARGE** stops for its 1D6" before the attack begins, and offers
+**COULD NOT REACH** if the distance falls short: the AP is spent, nothing else
+comes of it, and the chain carries on. Any ability can do the same — Snitcherz's
+*Unpredictable* asks for its D6 before it moves him — by setting the die and
+what it is for in the unit editor.
+
+## The chain log folds away
+
+The running commentary sits at the bottom as a single line — the last thing that
+happened — and opens to the full history on a tap. It was taking a quarter of
+the screen before.
 
 ## Victory Points score themselves
 
@@ -300,7 +320,7 @@ The official line-ups ship with every ability wired up, not just written out.
 **Astra Militarum** — Guardsmen "Alfred", "Al", "Fred" and "Nick", and Commissar
 Briant. The Commissar's 6" aura and his WITHDRAW ban, Nick's Cloaked and Grenade,
 Fred's Choke Hold and his *Snap Shot* (which the app treats as an overwatch),
-Alfred's unlimited dagger, and Al's **Kill
+Alfred's Practiced Blade, and Al's **Kill
 Count**, which the app fires by itself the moment his Bayonet finishes somebody.
 
 **Orks** — Snitcherz, Boss Nob Blikker, Da Hunta, Riksnik and Mikaaaaghhh. The

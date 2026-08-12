@@ -322,7 +322,7 @@ const Engine = (function () {
     g.turn.player = playerId;
     g.turn.phase = 'start';
     g.control = { player: playerId, forcedUnitId: null, reason: 'start phase' };
-    g.chain = { active: false, id: g.chain.id, initiator: null, entries: [], weaponsUsed: [] };
+    g.chain = { active: false, id: g.chain.id, initiator: null, entries: [] };
     expireEffects('round', playerId);
     expireTokens('round', playerId);
     /* "…if this unit has not moved this turn" and "may not MOVE this turn" both
@@ -390,7 +390,7 @@ const Engine = (function () {
     const g = S();
     if (g.chain.active) return;
     g.chain = { active: true, id: g.chain.id + 1, initiator: initiator, entries: [],
-                weaponsUsed: [], passes: 0 };
+                passes: 0 };
     log('Action chain #' + g.chain.id + ' begins (' + pname(initiator) + ').', 'chain');
   }
 
@@ -398,7 +398,6 @@ const Engine = (function () {
     const g = S();
     if (!g.chain.active) return;
     g.chain.active = false;
-    g.chain.weaponsUsed = [];
     g.chain.passes = 0;
     expireEffects('chain', null);
     expireTokens('chain', null);
@@ -1125,7 +1124,7 @@ const Engine = (function () {
       const av = actionAvailability(a);
       if (av.hide) return false;
       if (a.flow === 'attack') {
-        if (!weaponsFor(unitId, a.attackRange).some(w => !w.used)) return false;
+        if (!weaponsFor(unitId, a.attackRange).length) return false;
       }
       if (a.id === 'overwatch') {
         if (!(u.weapons || []).some(w => w.type === 'ranged')) return false;
@@ -1187,13 +1186,7 @@ const Engine = (function () {
     if (!u) return [];
     return (u.weapons || [])
       .filter(w => (range === 'melee' ? w.type === 'melee' : w.type === 'ranged'))
-      .map(function (w, i) {
-        const key = unitId + '|' + w.id;
-        return Object.assign({}, w, {
-          used: !w.unlimited && g.chain.weaponsUsed.indexOf(key) >= 0,
-          primary: i === 0
-        });
-      });
+      .map((w, i) => Object.assign({}, w, { primary: i === 0 }));
   }
 
   /* ------------------------------------------------------- start an action */
@@ -1259,6 +1252,14 @@ const Engine = (function () {
                   abilityId: abilityId, targets: {}, pickIndex: 0, step: 'confirm' };
       const ab = findAbility(unitId, abilityId);
       if (effectsNeedingTarget(ab, { sourceUnitId: unitId }).length) st.flow.step = 'pick';
+      /* "Move this unit D6"." — the app stops and asks for the die first. */
+      if (ab.roll) {
+        st.flow.nextStep = st.flow.step;
+        st.flow.step = 'roll';
+        st.flow.rollDie = Number(String(ab.roll).replace(/\D/g, '')) || 6;
+        st.flow.rollWhat = ab.rollWhat || ab.name;
+        st.flow.rollNote = ab.rollNote || ab.text;
+      }
     });
   }
 
@@ -1652,6 +1653,11 @@ const Engine = (function () {
       ab.used = (ab.used || 0) + 1;
       ab.usedTurn = (ab.usedTurn || 0) + 1;
       chainEntry(pname(actor) + ': ' + uname(f.unitId) + ' → SPECIAL ABILITY “' + ab.name + '”.', 'action');
+      /* The die was rolled before the chain opened, so it is recorded here. */
+      if (f.rolled !== undefined && f.rolled !== true) {
+        chainEntry(uname(f.unitId) + ' rolled ' + f.rolled + ' for ' +
+          (ab.rollWhat || ab.name) + '.', 'note');
+      }
       const ctx = {
         sourceUnitId: f.unitId, sourcePlayer: actor, targets: f.targets,
         label: ab.name, opponent: responder
@@ -1780,9 +1786,44 @@ const Engine = (function () {
       f.targetId = unitId;
       const action = actionDef(f.actionId);
       const list = weaponsFor(f.attackerId, action ? action.attackRange : 'ranged');
-      const free = list.filter(w => !w.used);
-      if (free.length === 1) { f.weaponId = free[0].id; declareAttack(); }
+      if (list.length === 1) { f.weaponId = list[0].id; declareAttack(); }
       else f.step = 'weapon';
+    });
+  }
+
+  /* The number rolled on a step the app paused for. `n` may be null when the
+     roll only mattered on the table. */
+  function flowRoll(n) {
+    Store.commit('roll', function () {
+      const g = S();
+      const f = g.flow;
+      if (!f) return;
+      const rolled = Number(n);
+      if (f.kind === 'attack') {
+        f.rolled = true;
+        chainEntry(uname(f.attackerId) + ' rolls ' + (isFinite(rolled) ? rolled : '?') +
+          '" for ' + (f.rollWhat || 'the roll') + '.', 'note');
+        declareAttack();
+        return;
+      }
+      /* An ability that told you to roll: note it and carry on to the confirm. */
+      f.rolled = isFinite(rolled) ? rolled : true;
+      f.step = f.nextStep || 'confirm';
+    });
+  }
+
+  /* A charge that could not reach: nothing comes of it, per the rules on an
+     action that cannot be performed. */
+  function flowChargeFailed() {
+    Store.commit('charge failed', function () {
+      const g = S();
+      const f = g.flow;
+      if (!f || f.kind !== 'attack') return;
+      const actor = g.control.player;
+      chainEntry(uname(f.attackerId) + ' cannot reach ' + uname(f.targetId) +
+        ' — the charge is not made, and nothing comes of it.', 'note');
+      g.flow = null;
+      afterAction({ actor: actor, endsChain: false, forcedUnitId: null, reason: 'CHARGE' });
     });
   }
 
@@ -1808,10 +1849,18 @@ const Engine = (function () {
       if (action.expiresOverwatch) expireOnOwnerAction(f.attackerId);
       chainEntry(pname(actor) + ': ' + uname(f.attackerId) + ' → ' + action.name +
         ' → ' + uname(f.targetId) + '.', 'action');
-      if (action.isCharge) {
-        chainEntry('Tabletop: roll 1D6 and move that far — you must end in melee range or not move at all.', 'note');
-      }
       f.paid = true;
+    }
+    /* A charge is a dice roll before it is an attack: stop and ask for it
+       rather than assuming the distance was made. Outside the paid block, so
+       re-entering the declaration does not skip past it. */
+    if (actionDef(f.actionId).isCharge && !f.rolled) {
+      f.step = 'roll';
+      f.rollDie = 6;
+      f.rollWhat = 'the charge distance';
+      f.rollNote = 'Move up to that many inches toward the target. You must end in ' +
+                   'range of a melee weapon, or not move at all.';
+      return;
     }
     primeAttackMods();
     const defender = Store.unit(f.targetId);
@@ -2098,7 +2147,6 @@ const Engine = (function () {
   function flowHit(didHit) {
     Store.commit(didHit ? 'hit' : 'miss', function () {
       const f = S().flow;
-      markWeaponUsed(f);
       if (!didHit) {
         chainEntry(uname(f.attackerId) + ' MISSES ' + uname(f.targetId) + '.', 'miss');
         finishAttack({ hit: false });
@@ -2120,7 +2168,6 @@ const Engine = (function () {
       const f = S().flow;
       const total = attackDice(f).count;
       const n = Math.max(0, Math.min(total, Number(count) || 0));
-      markWeaponUsed(f);
       f.hits = n;
       if (!n) {
         chainEntry(uname(f.attackerId) + ' rolls ' + total + ' dice at ' + uname(f.targetId) +
@@ -2189,11 +2236,6 @@ const Engine = (function () {
     });
   }
 
-  function markWeaponUsed(f) {
-    const g = S();
-    const key = f.attackerId + '|' + f.weaponId;
-    if (g.chain.weaponsUsed.indexOf(key) < 0) g.chain.weaponsUsed.push(key);
-  }
 
   function finishAttack(result) {
     const g = S();
@@ -2817,7 +2859,7 @@ const Engine = (function () {
     abilityLetsThemReact,
     flowPickAbility, flowPickTarget, flowDoneTargets, confirmAbility,
     useFreeAbility, usePhaseAbility,
-    flowPickAttackTarget, flowPickWeapon, flowPickReaction,
+    flowPickAttackTarget, flowPickWeapon, flowPickReaction, flowRoll, flowChargeFailed,
     flowHit, flowWound, flowDamage, attackNumbers, setElevation,
     flowHits, flowWounds, diceOptions, toggleDice, unitMoveMod,
     cardAbilities, cardAbility, useCardAbility, confirmCard, adjustCardResource,

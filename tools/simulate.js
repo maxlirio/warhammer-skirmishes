@@ -163,9 +163,9 @@ check('Intercessor wounds', U('Intercessor').wounds, 1);
 check('survivor AP plus PARRY\u2019s own AP', ap(0), 2);
 check('P1 must act with the Intercessor', G().control.forcedUnitId, U('Intercessor').id);
 
-console.log('\n== weapon lockout inside one chain ==');
-const wep = Engine.weaponsFor(U('Ork Nob').id, 'melee');
-check('Big Choppa marked used', wep[0].used, true);
+console.log('\n== a weapon is never spent ==');
+check('the Big Choppa can be swung again in the same chain',
+  Engine.weaponsFor(U('Ork Nob').id, 'melee').every(w => w.used === undefined), true);
 
 console.log('\n== kill ends the chain and scores VP ==');
 /* The Power Fist deals a flat 2, so put the Nob within reach of it — the app
@@ -231,6 +231,14 @@ Engine.beginAction('charge');
 Engine.flowPickUnit(U('Intercessor').id);
 Engine.flowPickAttackTarget(U('Ork Boy').id);
 Engine.flowPickWeapon(U('Intercessor').weapons[1].id);
+/* A charge is a dice roll before it is an attack. */
+check('the charge stops to have its distance rolled', G().flow.step, 'roll');
+check('and says what to roll', G().flow.rollDie, 6);
+Engine.flowRoll(5);
+check('then it carries on to the reaction', G().flow.step, 'reaction');
+check('the roll is in the chain log',
+  /rolls 5" for the charge distance/.test(
+    G().chain.entries.map(e => e.text).join(' ')), true);
 Engine.flowPickReaction('none');
 Engine.setElevation(true);
 const n = Engine.attackNumbers();
@@ -369,8 +377,6 @@ console.log('\n== no AP does not end a chain — you are handed it and must PASS
   check('who is told they must pass', Engine.mustPass(), true);
   check('their only affordable action is PASS',
     Engine.actionList().filter(a => Engine.actionAvailability(a).ok).map(a => a.id), ['pass']);
-  check('the weapon lockout is still in force',
-    Engine.weaponsFor(U('Alpha').id, 'ranged')[0].used, true);
 
   const apLeft = ap(0);
   Engine.beginAction('pass');
@@ -536,6 +542,7 @@ function buildPreset(faction, owner) {
         text: a.text, usesPerGame: a.usesPerGame || 0, moves: !!a.moves,
         usesPerTurn: a.usesPerTurn || 0, weaponName: a.weaponName || '',
         reactRange: a.reactRange || 'any',
+        roll: a.roll || '', rollWhat: a.rollWhat || '', rollNote: a.rollNote || '',
         opponentReacts: a.opponentReacts !== false });
       ab.effects = (a.effects || []).map(function (e) {
         const row = Store.newEffectRow(e);
@@ -618,7 +625,7 @@ const blocked = Engine.blockedReactions(alfred.id);
 check('WITHDRAW is flagged for the squad', blocked.withdraw.indexOf('Commissar Briant') >= 0, true);
 check('and not for the enemy', Object.keys(Engine.blockedReactions(cultist.id)).length, 0);
 
-console.log('\n== Practiced Blade ignores the once-per-chain lock ==');
+console.log('\n== every weapon stays available all chain ==');
 Engine.forceEndChain();
 Engine.forceControl(0, null);
 Engine.adjustAP(0, 4);
@@ -628,8 +635,11 @@ Engine.flowPickAttackTarget(cultist.id);
 Engine.flowPickWeapon(alfred.weapons.find(w => w.name === 'Dagger').id);
 Engine.flowPickReaction('none');
 Engine.flowHit(false);
-check('the dagger is still available',
-  Engine.weaponsFor(alfred.id, 'melee').find(w => w.name === 'Dagger').used, false);
+check('the dagger is still on the list after being swung',
+  Engine.weaponsFor(alfred.id, 'melee').some(w => w.name === 'Dagger'), true);
+Engine.forceControl(0, null);           // the survivor's AP passed control away
+check('and FIGHT is still an option for that unit',
+  Engine.unitActions(alfred.id).some(a => a.id === 'fight'), true);
 
 console.log('\n== Kill Count fires itself on a Bayonet kill ==');
 check('it is an on-kill ability now',
@@ -1925,6 +1935,51 @@ console.log('\n== a reaction can be limited to one kind of attack ==');
     /melee target/i.test(RULES.rangedReactions.find(r => r.id === 'dive').text), true);
   check('which the tabletop note spells out',
     /melee range/i.test(RULES.rangedReactions.find(r => r.id === 'dive').tabletop), true);
+})();
+
+
+console.log('\n== a charge that cannot reach produces nothing ==');
+(function () {
+  const us = [
+    mkUnit(0, 'A', 3, 4, [{ name: 'Blade', type: 'melee', hit: 3, strength: 4, damage: 1 }], []),
+    mkUnit(1, 'B', 3, 4, [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], [])
+  ];
+  Engine.startGame({ playerNames: ['One', 'Two'], vpTarget: 10, firstPlayer: 0,
+                     mission: { id: null } }, us);
+  Engine.confirmStartPhase();
+  Engine.adjustAP(0, 4);
+  const mine = ap(0), theirs = ap(1);
+  Engine.beginAction('charge', U('A').id);
+  Engine.flowPickAttackTarget(U('B').id);
+  check('it asks for the distance first', G().flow.step, 'roll');
+  Engine.flowChargeFailed();
+  check('a charge that falls short ends there', G().flow, null);
+  check('the AP was still spent', ap(0), mine - 2);
+  check('the target gains nothing from an attack that never happened', ap(1), theirs);
+  check('and the chain carries on', G().chain.active, true);
+})();
+
+console.log('\n== an ability that says roll a dice stops and asks ==');
+(function () {
+  const mob = buildPreset(orks, 0);
+  const foes = [mkUnit(1, 'Foe', 3, 4,
+    [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], [])];
+  Engine.startGame({ playerNames: ['Orks', 'Guard'], vpTarget: 10, firstPlayer: 0,
+                     mission: { id: null } }, mob.concat(foes));
+  Engine.confirmStartPhase();
+  Engine.adjustAP(0, 4);
+  const snitch = U('Snitcherz');
+  const unpred = snitch.abilities.find(a => a.name === 'Unpredictable');
+  check('the card carries the die', unpred.roll, 'D6');
+  Engine.beginAbility(snitch.id, unpred.id);
+  check('so the app asks for it before anything happens', G().flow.step, 'roll');
+  check('and names what it is for', G().flow.rollWhat, 'how far it moves');
+  Engine.flowRoll(4);
+  check('then it goes on to the confirm', G().flow.step, 'confirm');
+  Engine.confirmAbility();
+  check('the ability resolved', G().flow, null);
+  check('and the roll is in the log',
+    /4/.test(G().chain.entries.map(e => e.text).join(' ')), true);
 })();
 
 console.log('\n== summary ==');

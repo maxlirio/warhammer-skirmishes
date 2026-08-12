@@ -495,10 +495,6 @@ const Setup = (function () {
         field('STRENGTH', '<input type="number" min="1" data-bind="weapon:' + u.id + ':' + w.id + ':strength" value="' + esc(w.strength) + '">') +
         field('DAMAGE', '<input type="text" data-bind="weapon:' + u.id + ':' + w.id + ':damage" value="' + esc(w.damage) + '" placeholder="1 or D3">') +
       '</div>' +
-      '<button class="toggle' + (w.unlimited ? ' on' : '') + '" data-act="togUnlimited:' +
-        u.id + ':' + w.id + '">' +
-        '<span class="box">' + (w.unlimited ? '✓' : '') + '</span>' +
-        '<span>Can be used any number of times in the same action chain</span></button>' +
     '</div>';
   }
 
@@ -547,6 +543,20 @@ const Setup = (function () {
         u.id + ':' + a.id + '">' +
         '<span class="box">' + (a.moves ? '✓' : '') + '</span>' +
         '<span>This moves a unit — check enemy overwatch afterwards</span></button>' +
+
+      field('DOES IT CALL FOR A DICE ROLL?',
+        '<select data-bind="ability:' + u.id + ':' + a.id + ':roll">' +
+          ['', 'D3', 'D6'].map(r => '<option value="' + r + '"' +
+            ((a.roll || '') === r ? ' selected' : '') + '>' +
+            (r || 'No — nothing to roll') + '</option>').join('') +
+        '</select>') +
+      (a.roll
+        ? field('WHAT IS THE ROLL FOR?',
+            '<input type="text" data-bind="ability:' + u.id + ':' + a.id + ':rollWhat" value="' +
+              esc(a.rollWhat || '') + '" placeholder="how far it moves">') +
+          '<div class="hint">The app stops and asks for the die before the ability resolves, ' +
+            'then keeps the number in the log.</div>'
+        : '') +
 
       (a.trigger === 'rp'
         ? field('WHICH ATTACKS CAN IT ANSWER?',
@@ -908,12 +918,6 @@ const Setup = (function () {
         if (a) a.moves = !a.moves;
         return true;
       }
-      case 'togUnlimited': {
-        const w = findWeapon(p[1], p[2]);
-        if (w) w.unlimited = !w.unlimited;
-        return true;
-      }
-
       case 'addUnit': {
         const owner = Number(p[1]);
         const u = Store.newUnit(owner, { name: 'New Unit' });
@@ -1057,6 +1061,7 @@ const Setup = (function () {
               usesPerGame: a.usesPerGame || 0, moves: !!a.moves,
               usesPerTurn: a.usesPerTurn || 0,
               reactRange: a.reactRange || 'any',
+              roll: a.roll || '', rollWhat: a.rollWhat || '', rollNote: a.rollNote || '',
               weaponName: a.weaponName || '',
               opponentReacts: a.opponentReacts !== false
             });

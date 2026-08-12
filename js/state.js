@@ -29,7 +29,8 @@ const Store = (function () {
       id: nextId('ab'), name: 'Ability', trigger: 'ap', cost: 1,
       text: '', effects: [], opponentReacts: true, moves: false,
       usesPerGame: 0, used: 0, usesPerTurn: 0, usedTurn: 0,
-      reactRange: 'any'   // an RP reaction may answer only shooting, or only melee
+      reactRange: 'any',  // an RP reaction may answer only shooting, or only melee
+      roll: '', rollWhat: '', rollNote: ''   // "Move this unit D6\"" — ask for the die
     }, patch || {});
   }
 
@@ -93,7 +94,7 @@ const Store = (function () {
       asks: [],
       turn: { number: 0, player: (config && config.firstPlayer) || 0, phase: 'start' },
       control: { player: 0, forcedUnitId: null, reason: '' },
-      chain: { active: false, id: 0, initiator: null, entries: [], weaponsUsed: [] },
+      chain: { active: false, id: 0, initiator: null, entries: [] },
       flow: null,
       pending: null,          // start/end phase modal
       log: [],
@@ -344,7 +345,7 @@ const PRESETS = [
       weapons: [
         { name: 'Lasgun', type: 'ranged', range: 18, hit: 2, strength: 4, damage: 1 },
         { name: 'Bolt Pistol', type: 'ranged', range: 12, hit: 3, strength: 3, damage: 1 },
-        { name: 'Dagger', type: 'melee', range: 1, hit: 3, strength: 3, damage: 1, unlimited: true }
+        { name: 'Dagger', type: 'melee', range: 1, hit: 3, strength: 3, damage: 1 }
       ],
       abilities: [
         { name: 'Practiced Blade', trigger: 'passive', cost: 0,
@@ -527,8 +528,10 @@ const PRESETS = [
                       weapon: 'any', mode: 'always',
                       text: 'Small: enemy units have -1 to hit this unit.' }] },
         { name: 'Unpredictable', trigger: 'ap', cost: 1, opponentReacts: false, moves: true,
+          roll: 'D6', rollWhat: 'how far it moves',
+          rollNote: 'Move this unit that many inches, in any direction.',
           text: 'Use only on your turn. Move this unit D6". End the action chain.',
-          effects: [{ kind: 'note', text: 'Roll a D6 and move this unit that far.' }] }
+          effects: [] }
       ]
     },
     {
