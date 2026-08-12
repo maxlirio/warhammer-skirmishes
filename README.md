@@ -379,6 +379,14 @@ only move.
   ground is +1 to Wound and +1 Damage. Both are a checkbox in the attack flow
   because only you can see the terrain.
 
+## How it looks
+
+Gunmetal and rust, brass and bone, stencilled condensed capitals, chamfered
+corners and hazard stripes — the fittings of a battered piece of Imperial
+equipment rather than a phone app. It is all system fonts, CSS gradients and one
+inline SVG, so there is still nothing to download and nothing to fetch: the app
+runs off a memory stick with the network switched off.
+
 ## Layout
 
 ```
