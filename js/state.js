@@ -348,9 +348,18 @@ const PRESETS = [
         { name: 'Dagger', type: 'melee', range: 1, hit: 3, strength: 3, damage: 1 }
       ],
       abilities: [
-        { name: 'Practiced Blade', trigger: 'passive', cost: 0,
-          text: 'This unit\'s dagger can be used any number of times in the same action chain.',
-          effects: [] },
+        { name: 'Smoke Bomb', trigger: 'ap', cost: 1,
+          roll: '2D6', rollWhat: 'how far the bomb is thrown',
+          rollNote: 'Place the SMOKE BOMB token that many inches from this unit.',
+          text: 'Place a smoke bomb token within 2D6" of this unit. Units within 3" of it ' +
+                'have -2 to hit for ranged attacks. Remove it at the end of this turn.',
+          effects: [{ kind: 'token', label: 'SMOKE BOMB', expiry: 'turn', noPress: true,
+                      text: 'Units within 3" of it have -2 to hit with ranged attacks. ' +
+                            'Removed at the end of this turn.',
+                      aura: { stat: 'hit', value: -2, side: 'any', weapon: 'ranged',
+                              range: 3, mode: 'within',
+                              text: 'Smoke Bomb: -2 to hit with ranged attacks within 3" ' +
+                                    'of the token.' } }] },
         { name: 'Cloaked', trigger: 'passive', cost: 0,
           text: 'Enemy units greater than 6" away have -1 to hit this unit.',
           effects: [{ kind: 'aura', stat: 'hit', value: -1, side: 'enemy', onlyVsOwner: true,

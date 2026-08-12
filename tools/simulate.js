@@ -1982,6 +1982,69 @@ console.log('\n== an ability that says roll a dice stops and asks ==');
     /4/.test(G().chain.entries.map(e => e.text).join(' ')), true);
 })();
 
+
+console.log('\n== Smoke Bomb: a roll, a marker, and an aura the marker owns ==');
+(function () {
+  const guard = buildPreset(astra, 0);
+  const foes = [mkUnit(1, 'Cultist', 3, 4,
+    [{ name: 'Autogun', type: 'ranged', hit: 3, strength: 4, damage: 1 },
+     { name: 'Knife', type: 'melee', hit: 3, strength: 4, damage: 1 }], [])];
+  Engine.startGame({ playerNames: ['Guard', 'Chaos'], vpTarget: 10, firstPlayer: 0,
+                     mission: { id: null } }, guard.concat(foes));
+  Engine.confirmStartPhase();
+  Engine.adjustAP(0, 6);
+  const alf = U('Guardsman "Alfred" 434-434');
+  const bomb = alf.abilities.find(a => a.name === 'Smoke Bomb');
+  check('Alfred has it as a 1 AP action', [bomb.trigger, bomb.cost], ['ap', 1]);
+  check('Practiced Blade is gone',
+    alf.abilities.some(a => a.name === 'Practiced Blade'), false);
+
+  Engine.beginAbility(alf.id, bomb.id);
+  check('it stops for the throw', G().flow.step, 'roll');
+  check('and it is 2D6', [G().flow.rollCount, G().flow.rollDie], [2, 6]);
+  Engine.flowRoll(9);
+  Engine.confirmAbility();
+  check('the marker is on the table', (U('Guardsman "Alfred" 434-434').tokens || [])
+    .filter(t => t.label === 'SMOKE BOMB').length, 1);
+  check('the throw is in the log',
+    /rolled 9 for how far the bomb is thrown/.test(
+      G().chain.entries.map(e => e.text).join(' ')), true);
+
+  /* The smoke sits on the table, so it hampers ANY ranged attack — including
+     the enemy's, and including one aimed at somebody else entirely. */
+  Engine.forceEndChain();
+  Engine.forceControl(1, null);
+  Engine.adjustAP(1, 4);
+  Engine.beginAction('shoot', U('Cultist').id);
+  Engine.flowPickAttackTarget(U('Guardsman "Nick" 847-832').id);
+  Engine.flowPickWeapon(U('Cultist').weapons[0].id);
+  Engine.flowPickReaction('none');
+  const smoke = Engine.applicableAuras(G().flow).find(a => /SMOKE/.test(a.unit));
+  check('the enemy is offered the smoke as a tick-box', !!smoke, true);
+  check('worth -2 to hit', smoke.value, -2);
+  check('and it is not applied until they tick it',
+    Engine.attackNumbers().hitTarget, 3);
+  Engine.toggleAura(smoke.key);
+  check('ticked, the shot is 2 harder', Engine.attackNumbers().hitTarget, 5);
+
+  /* Melee is untouched, and the marker goes at the end of the turn. */
+  Engine.cancelFlow();
+  Engine.forceEndChain();
+  Engine.beginAction('fight', U('Cultist').id);
+  Engine.flowPickAttackTarget(U('Guardsman "Nick" 847-832').id);
+  Engine.flowPickWeapon(U('Cultist').weapons[1].id);
+  Engine.flowPickReaction('none');
+  check('it does not touch a melee attack',
+    Engine.applicableAuras(G().flow).some(a => /SMOKE/.test(a.unit)), false);
+  Engine.cancelFlow();
+
+  Engine.forceEndTurn();
+  Engine.confirmEndPhase();
+  check('and it is cleared at the end of the turn',
+    (U('Guardsman "Alfred" 434-434').tokens || [])
+      .filter(t => t.label === 'SMOKE BOMB').length, 0);
+})();
+
 console.log('\n== summary ==');
 console.log((checks - fails) + '/' + checks + ' checks passed');
 process.exit(fails ? 1 : 0);

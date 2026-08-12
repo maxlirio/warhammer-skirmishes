@@ -111,7 +111,7 @@ into the chain log.
 **CHARGE** stops for its 1D6" before the attack begins, and offers
 **COULD NOT REACH** if the distance falls short: the AP is spent, nothing else
 comes of it, and the chain carries on. Any ability can do the same — Snitcherz's
-*Unpredictable* asks for its D6 before it moves him — by setting the die and
+*Unpredictable* asks for its D6 before it moves him, and a Smoke Bomb asks for 2D6" — by setting the die and
 what it is for in the unit editor.
 
 ## The chain log folds away
@@ -248,6 +248,11 @@ would change**, naming the unit it comes from. You look at the table and tick it
 or don't. Modifiers, the wound table, capping at the edge of the die: all handled
 from there.
 
+An aura does not have to belong to a unit at all: a **token can carry one**, so
+Alfred's SMOKE BOMB sits on the table hampering *anyone* who shoots through it,
+its own side included, and clears itself at the end of the turn. A marker like
+that shows as a chip rather than a button, because there is nothing to press.
+
 The same mechanism carries `Cloaked`-style defensive auras (enemies attacking
 *this* unit) via the "only when this unit is the one being attacked" switch, and
 an aura may modify the attacking weapon's **Strength**, which moves the whole
@@ -320,8 +325,10 @@ The official line-ups ship with every ability wired up, not just written out.
 **Astra Militarum** — Guardsmen "Alfred", "Al", "Fred" and "Nick", and Commissar
 Briant. The Commissar's 6" aura and his WITHDRAW ban, Nick's Cloaked and Grenade,
 Fred's Choke Hold and his *Snap Shot* (which the app treats as an overwatch),
-Alfred's Practiced Blade, and Al's **Kill
-Count**, which the app fires by itself the moment his Bayonet finishes somebody.
+Alfred's **Smoke Bomb** — 2D6" to throw it, then a marker
+that makes every ranged shot within 3" of it 2 harder until the end of the turn
+— and Al's **Kill Count**, which the app fires by itself the moment his Bayonet
+finishes somebody.
 
 **Orks** — Snitcherz, Boss Nob Blikker, Da Hunta, Riksnik and Mikaaaaghhh. The
 Boss's *Intimidating Presence* is a +1-to-wound aura anyone in 6" can tick;

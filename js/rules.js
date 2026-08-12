@@ -368,7 +368,7 @@ const RULES = (function () {
 
   return {
     version: '1.0',
-    build: '2026-08-12e',
+    build: '2026-08-12f',
     defaultVPTarget: 10,
     actions, rangedReactions, meleeReactions, missions,
     woundTarget, woundLabel, applyMod, actionById, reactionById, missionById,
@@ -419,7 +419,8 @@ const RULES = (function () {
        on the roll it would change and the player says whether it applies. */
     auraSides: [
       { id: 'friendly', label: 'Friendly units attacking' },
-      { id: 'enemy',    label: 'Enemy units attacking' }
+      { id: 'enemy',    label: 'Enemy units attacking' },
+      { id: 'any',      label: 'Anyone attacking' }
     ],
     auraModes: [
       { id: 'within', label: 'within' },

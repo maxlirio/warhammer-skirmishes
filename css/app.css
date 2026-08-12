@@ -1075,3 +1075,5 @@ h1, h2, h3, h4 {
   .screen.table .controlbar .why { display: none; }
   .screen.table .badge { margin-bottom: 2px; padding: 2px 7px; }
 }
+/* A marker that changes rolls rather than one you press. */
+.chip-s.marker { border-color: #5b6b7a; color: #a9bccd; background: #0c1116; }

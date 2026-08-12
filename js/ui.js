@@ -309,7 +309,12 @@ const UI = (function () {
        can always see who is firing and who is still waiting. */
     /* Overwatch fires from the movement check, so it is a status, not a button.
        Everything else still needs pressing when the table says so. */
-    const tokens = (u.tokens || []).filter(t => t.kind !== 'overwatch').map(function (t) {
+    const markers = (u.tokens || []).filter(t => t.noPress).map(t =>
+      '<span class="chip-s marker" title="' + esc(t.text) + '">◈ ' + esc(t.label) +
+        '<button data-act="rmtok:' + u.id + ':' + t.id + '">✕</button></span>').join('');
+
+    const tokens = (u.tokens || []).filter(t => t.kind !== 'overwatch' && !t.noPress)
+      .map(function (t) {
       return '<div class="tokrow">' +
         '<button class="tokfire" data-act="tok:' + u.id + ':' + t.id + '">' +
           '<span class="tf1">▸ ' + esc(t.label) + '</span>' +
@@ -344,7 +349,8 @@ const UI = (function () {
         (u.alive ? '' : '<span style="color:var(--bad)"><b>DESTROYED</b></span>') + '</div>' +
       '<div class="uwep">' + weapons + '</div>' +
       (u.notes ? '<div class="hint" style="margin:6px 0 0">' + esc(u.notes) + '</div>' : '') +
-      ((passives || effects) ? '<div class="chips">' + passives + effects + '</div>' : '') +
+      ((passives || effects || markers)
+        ? '<div class="chips">' + passives + effects + markers + '</div>' : '') +
       (tokens ? '<div class="toks">' + tokens + '</div>' : '') +
       (freeAbils ? '<div class="chips">' + freeAbils + '</div>' : '') +
       '<div class="urow">' +
@@ -1259,14 +1265,17 @@ const UI = (function () {
      says what to roll and why, and takes the number for the record. */
   function rollFlow(g, f, title, crumb) {
     const die = f.rollDie || 6;
+    const count = f.rollCount || 1;
     const pad = [];
-    for (let i = 1; i <= die; i++) pad.push('<button data-act="roll:' + i + '">' + i + '</button>');
+    for (let i = count; i <= count * die; i++) {
+      pad.push('<button data-act="roll:' + i + '">' + i + '</button>');
+    }
     const charge = f.kind === 'attack';
     return head(title, 'ROLL THE DICE') + (crumb || '') +
       '<div class="mbody">' +
         '<div class="rollbox">' +
           '<div class="lbl">ROLL</div>' +
-          '<div class="big">1D' + die + '</div>' +
+          '<div class="big">' + count + 'D' + die + '</div>' +
           '<div class="sub">for ' + esc(f.rollWhat || 'this action') + '</div>' +
         '</div>' +
         (f.rollNote ? '<div class="noteline">' + esc(f.rollNote) + '</div>' : '') +

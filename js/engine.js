@@ -592,6 +592,26 @@ const Engine = (function () {
     const attacker = Store.unit(f.attackerId);
     if (!attacker) return [];
     const out = [];
+    /* A token can carry an aura of its own — a smoke bomb belongs to the patch
+       of table it landed on, not to a unit. */
+    g.units.forEach(function (u) {
+      (u.tokens || []).forEach(function (t) {
+        if (!t.aura) return;
+        const e = t.aura;
+        if (e.weapon && e.weapon !== 'any' && e.weapon !== weaponType) return;
+        out.push({
+          key: 'tok:' + t.id,
+          unit: '[' + t.label + ']',
+          source: t.sourceAbility || t.label,
+          stat: e.stat === 'wound' ? 'wound' : e.stat === 'strength' ? 'strength' : 'hit',
+          value: Number(e.value) || 0,
+          always: e.mode === 'always',
+          label: auraLabel(e),
+          text: e.text || t.text || ''
+        });
+      });
+    });
+
     g.units.filter(u => u.alive).forEach(function (u) {
       unitAuras(u).forEach(function (a) {
         const e = a.e;
@@ -897,6 +917,9 @@ const Engine = (function () {
             kind: 'custom',
             expiry: e.expiry || 'chain',
             text: e.text || '',
+            /* A marker that changes rolls rather than one you press. */
+            aura: e.aura ? JSON.parse(JSON.stringify(e.aura)) : null,
+            noPress: !!e.noPress,
             isAttack: !!e.tokenAttack,
             attackOpts: e.tokenAttack
               ? { weapon: e.tokenWeapon || 'ranged', noRP: e.tokenNoRP !== false,
@@ -1254,9 +1277,11 @@ const Engine = (function () {
       if (effectsNeedingTarget(ab, { sourceUnitId: unitId }).length) st.flow.step = 'pick';
       /* "Move this unit D6"." — the app stops and asks for the die first. */
       if (ab.roll) {
+        const m = String(ab.roll).toUpperCase().match(/^(\d*)D(\d+)$/);
         st.flow.nextStep = st.flow.step;
         st.flow.step = 'roll';
-        st.flow.rollDie = Number(String(ab.roll).replace(/\D/g, '')) || 6;
+        st.flow.rollCount = m ? (Number(m[1]) || 1) : 1;
+        st.flow.rollDie = m ? Number(m[2]) : 6;
         st.flow.rollWhat = ab.rollWhat || ab.name;
         st.flow.rollNote = ab.rollNote || ab.text;
       }
