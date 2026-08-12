@@ -368,7 +368,7 @@ const RULES = (function () {
 
   return {
     version: '1.0',
-    build: '2026-08-12f',
+    build: '2026-08-12g',
     defaultVPTarget: 10,
     actions, rangedReactions, meleeReactions, missions,
     woundTarget, woundLabel, applyMod, actionById, reactionById, missionById,
@@ -425,7 +425,8 @@ const RULES = (function () {
     auraModes: [
       { id: 'within', label: 'within' },
       { id: 'beyond', label: 'further than' },
-      { id: 'always', label: 'always — no radius to check' }
+      { id: 'los',    label: 'when the line of sight passes through it' },
+      { id: 'always', label: 'always — nothing to check' }
     ],
     auraStats: [
       { id: 'hit',      label: 'Hit rolls' },

@@ -578,6 +578,7 @@ const Engine = (function () {
     const scope = e.weapon === 'ranged' ? ' (ranged only)'
                 : e.weapon === 'melee' ? ' (melee only)' : '';
     const where = e.mode === 'always' ? 'always'
+                : e.mode === 'los' ? 'through the line of sight'
                 : (e.mode === 'beyond' ? 'further than ' : 'within ') + (e.range || 6) + '"';
     return (e.value > 0 ? '+' : '') + (Number(e.value) || 0) + ' to ' + what +
       ' · ' + where + scope;

@@ -351,15 +351,16 @@ const PRESETS = [
         { name: 'Smoke Bomb', trigger: 'ap', cost: 1,
           roll: '2D6', rollWhat: 'how far the bomb is thrown',
           rollNote: 'Place the SMOKE BOMB token that many inches from this unit.',
-          text: 'Place a smoke bomb token within 2D6" of this unit. Units within 3" of it ' +
-                'have -2 to hit for ranged attacks. Remove it at the end of this turn.',
+          text: 'Place a smoke bomb token within 2D6" of this unit. Each line of sight ' +
+                'passing through it has -2 to hit for ranged attacks. Remove it at the end ' +
+                'of this turn.',
           effects: [{ kind: 'token', label: 'SMOKE BOMB', expiry: 'turn', noPress: true,
-                      text: 'Units within 3" of it have -2 to hit with ranged attacks. ' +
-                            'Removed at the end of this turn.',
+                      text: 'Any ranged attack whose line of sight passes through it has ' +
+                            '-2 to hit. Removed at the end of this turn.',
                       aura: { stat: 'hit', value: -2, side: 'any', weapon: 'ranged',
-                              range: 3, mode: 'within',
-                              text: 'Smoke Bomb: -2 to hit with ranged attacks within 3" ' +
-                                    'of the token.' } }] },
+                              mode: 'los',
+                              text: 'Smoke Bomb: -2 to hit if the line of sight passes ' +
+                                    'through the smoke.' } }] },
         { name: 'Cloaked', trigger: 'passive', cost: 0,
           text: 'Enemy units greater than 6" away have -1 to hit this unit.',
           effects: [{ kind: 'aura', stat: 'hit', value: -1, side: 'enemy', onlyVsOwner: true,

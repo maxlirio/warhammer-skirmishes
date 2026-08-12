@@ -2022,6 +2022,9 @@ console.log('\n== Smoke Bomb: a roll, a marker, and an aura the marker owns ==')
   const smoke = Engine.applicableAuras(G().flow).find(a => /SMOKE/.test(a.unit));
   check('the enemy is offered the smoke as a tick-box', !!smoke, true);
   check('worth -2 to hit', smoke.value, -2);
+  check('and it hangs on the line of sight, not a radius',
+    /line of sight/.test(smoke.label), true);
+  check('so it is never applied for you', smoke.always, false);
   check('and it is not applied until they tick it',
     Engine.attackNumbers().hitTarget, 3);
   Engine.toggleAura(smoke.key);

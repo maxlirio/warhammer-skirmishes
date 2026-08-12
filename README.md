@@ -248,9 +248,10 @@ would change**, naming the unit it comes from. You look at the table and tick it
 or don't. Modifiers, the wound table, capping at the edge of the die: all handled
 from there.
 
-An aura does not have to belong to a unit at all: a **token can carry one**, so
-Alfred's SMOKE BOMB sits on the table hampering *anyone* who shoots through it,
-its own side included, and clears itself at the end of the turn. A marker like
+An aura does not have to belong to a unit at all: a **token can carry one**, and
+it need not be a radius either — Alfred's SMOKE BOMB asks *"does the line of
+sight pass through it?"*, hampers *anyone* who shoots through it (his own side
+included), and clears itself at the end of the turn. A marker like
 that shows as a chip rather than a button, because there is nothing to press.
 
 The same mechanism carries `Cloaked`-style defensive auras (enemies attacking
@@ -326,8 +327,8 @@ The official line-ups ship with every ability wired up, not just written out.
 Briant. The Commissar's 6" aura and his WITHDRAW ban, Nick's Cloaked and Grenade,
 Fred's Choke Hold and his *Snap Shot* (which the app treats as an overwatch),
 Alfred's **Smoke Bomb** — 2D6" to throw it, then a marker
-that makes every ranged shot within 3" of it 2 harder until the end of the turn
-— and Al's **Kill Count**, which the app fires by itself the moment his Bayonet
+that makes any shot whose line of sight passes through it 2 harder until the end
+of the turn — and Al's **Kill Count**, which the app fires by itself the moment his Bayonet
 finishes somebody.
 
 **Orks** — Snitcherz, Boss Nob Blikker, Da Hunta, Riksnik and Mikaaaaghhh. The
