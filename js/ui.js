@@ -1304,8 +1304,11 @@ const UI = (function () {
       const list = range === 'melee' ? RULES.meleeReactions : RULES.rangedReactions;
       const defPlayer = target.owner;
       const rp = g.players[defPlayer].rp;
+      /* Some RP reactions only answer one kind of attack — Kwik Dakka shoots
+         back, which is no use with an enemy already in melee with you. */
       const specials = (target.abilities || []).filter(a => a.trigger === 'rp' &&
-        (Number(a.cost) || 0) <= rp);
+        (Number(a.cost) || 0) <= rp &&
+        (!a.reactRange || a.reactRange === 'any' || a.reactRange === range));
 
       const wpn = attacker && (attacker.weapons || []).find(w => w.id === f.weaponId);
       const blocked = Engine.blockedReactions(target.id, f.attackerId, wpn);

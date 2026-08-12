@@ -28,7 +28,8 @@ const Store = (function () {
     return Object.assign({
       id: nextId('ab'), name: 'Ability', trigger: 'ap', cost: 1,
       text: '', effects: [], opponentReacts: true, moves: false,
-      usesPerGame: 0, used: 0, usesPerTurn: 0, usedTurn: 0
+      usesPerGame: 0, used: 0, usesPerTurn: 0, usedTurn: 0,
+      reactRange: 'any'   // an RP reaction may answer only shooting, or only melee
     }, patch || {});
   }
 
@@ -607,7 +608,7 @@ const PRESETS = [
           text: 'Move a friendly unit within 3" up to 3". If that unit now is in the line of ' +
                 'fire, that unit is targeted by the attack instead.',
           effects: [{ kind: 'redirect' }] },
-        { name: 'Kwik Dakka', trigger: 'rp', cost: 1,
+        { name: 'Kwik Dakka', trigger: 'rp', cost: 1, reactRange: 'ranged',
           text: 'This unit makes an attack against the attacking enemy unit before their attack ' +
                 'resolves. The enemy unit gets no RP. If the enemy unit is defeated, they do not ' +
                 'get to resolve their attack.',

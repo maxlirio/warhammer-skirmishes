@@ -203,6 +203,19 @@ either, since it was never used.
 There is no button for this. The app is watching the overwatch check, so it sees
 the mover die and closes the action out by itself.
 
+## Which attacks a reaction answers
+
+An RP reaction can be limited to **one kind of incoming attack** — *any*, *only
+when shot at*, or *only when fought in melee*. Mikaaaaghhh's **Kwik Dakka**
+shoots back, which is no use against an enemy already in melee with him, so it
+answers shooting only and simply does not appear in a melee reaction list. It is
+a dropdown on any RP ability you build yourself.
+
+**DIVE** carries its own restriction now: the 3" move may not create a melee
+target — the diving unit cannot end in melee range of an enemy, and cannot drag
+an enemy into melee range — because a unit in melee cannot be shot at without
+hitting your own. Only you can see that, so the app prints it and you judge it.
+
 ## Auras — "+1 to hit within 6\""
 
 The app cannot measure 6", so it does not try. An aura is declared once on a

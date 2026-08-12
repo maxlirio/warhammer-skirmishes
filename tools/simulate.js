@@ -535,6 +535,7 @@ function buildPreset(faction, owner) {
       const ab = Store.newAbility({ name: a.name, trigger: a.trigger, cost: a.cost,
         text: a.text, usesPerGame: a.usesPerGame || 0, moves: !!a.moves,
         usesPerTurn: a.usesPerTurn || 0, weaponName: a.weaponName || '',
+        reactRange: a.reactRange || 'any',
         opponentReacts: a.opponentReacts !== false });
       ab.effects = (a.effects || []).map(function (e) {
         const row = Store.newEffectRow(e);
@@ -1906,6 +1907,22 @@ console.log('\n== BACK never rewinds past the unit you already chose ==');
   check('BACK walks the real steps', seen, ['weapon', 'target']);
   check('it never offers "which unit?" again', seen.indexOf('attacker'), -1);
   check('and the last BACK closes the flow', G().flow, null);
+})();
+
+
+console.log('\n== a reaction can be limited to one kind of attack ==');
+(function () {
+  const mob = buildPreset(orks, 0);
+  check('Kwik Dakka only answers a shot',
+    mob.find(u => u.name === 'Mikaaaaghhh').abilities
+      .find(a => a.name === 'Kwik Dakka').reactRange, 'ranged');
+  check('its other RP reaction answers anything',
+    mob.find(u => u.name === 'Mikaaaaghhh').abilities
+      .find(a => a.name === 'Get In Front of Me').reactRange, 'any');
+  check('and DIVE carries its new restriction',
+    /melee target/i.test(RULES.rangedReactions.find(r => r.id === 'dive').text), true);
+  check('which the tabletop note spells out',
+    /melee range/i.test(RULES.rangedReactions.find(r => r.id === 'dive').tabletop), true);
 })();
 
 console.log('\n== summary ==');

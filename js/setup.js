@@ -548,6 +548,17 @@ const Setup = (function () {
         '<span class="box">' + (a.moves ? '✓' : '') + '</span>' +
         '<span>This moves a unit — check enemy overwatch afterwards</span></button>' +
 
+      (a.trigger === 'rp'
+        ? field('WHICH ATTACKS CAN IT ANSWER?',
+            '<select data-bind="ability:' + u.id + ':' + a.id + ':reactRange">' +
+              RULES.reactRanges.map(r => '<option value="' + r.id + '"' +
+                ((a.reactRange || 'any') === r.id ? ' selected' : '') + '>' +
+                esc(r.label) + '</option>').join('') +
+            '</select>') +
+          '<div class="hint">A reaction that shoots back is no use with an enemy already in ' +
+            'melee with you — friendly fire prevents shooting at a melee target.</div>'
+        : '') +
+
       (a.trigger === 'ap'
         ? field('DOES YOUR OPPONENT GET TO REACT?',
             '<select data-bind="ability:' + u.id + ':' + a.id + ':opponentReacts">' +
@@ -1045,6 +1056,7 @@ const Setup = (function () {
               name: a.name, trigger: a.trigger, cost: a.cost, text: a.text,
               usesPerGame: a.usesPerGame || 0, moves: !!a.moves,
               usesPerTurn: a.usesPerTurn || 0,
+              reactRange: a.reactRange || 'any',
               weaponName: a.weaponName || '',
               opponentReacts: a.opponentReacts !== false
             });

@@ -144,8 +144,11 @@ const RULES = (function () {
 
     { id: 'dive', name: 'DIVE', cost: 1, moves: true,
       flavour: '“Who cares if your knees get dirty?!”',
-      text: 'Move 3".',
-      tabletop: 'Move the defender 3".' },
+      text: 'Move 3". This move cannot become or make any melee targets, as friendly ' +
+            'fire prevents shooting.',
+      tabletop: 'Move the defender 3". It may not end in melee range of an enemy, and may ' +
+                'not bring an enemy into melee range — a melee target cannot be shot at ' +
+                'without hitting your own.' },
 
     { id: 'distract', name: 'DISTRACT', cost: 1, hitMod: +1, grantAP: 1,
       freeChoice: true, chainLivesOnDeath: true,
@@ -365,7 +368,7 @@ const RULES = (function () {
 
   return {
     version: '1.0',
-    build: '2026-08-12b',
+    build: '2026-08-12c',
     defaultVPTarget: 10,
     actions, rangedReactions, meleeReactions, missions,
     woundTarget, woundLabel, applyMod, actionById, reactionById, missionById,
@@ -427,6 +430,12 @@ const RULES = (function () {
       { id: 'hit',      label: 'Hit rolls' },
       { id: 'wound',    label: 'Wound rolls' },
       { id: 'strength', label: 'the attacking weapon’s Strength' }
+    ],
+    /* An RP reaction may answer only one kind of incoming attack. */
+    reactRanges: [
+      { id: 'any',    label: 'any attack' },
+      { id: 'ranged', label: 'only when shot at' },
+      { id: 'melee',  label: 'only when fought in melee' }
     ],
     weaponScopes: [
       { id: 'any',    label: 'any attack' },
