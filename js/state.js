@@ -344,7 +344,6 @@ const PRESETS = [
              'thought they were alone.',
       weapons: [
         { name: 'Lasgun', type: 'ranged', range: 18, hit: 2, strength: 4, damage: 1 },
-        { name: 'Bolt Pistol', type: 'ranged', range: 12, hit: 3, strength: 3, damage: 1 },
         { name: 'Dagger', type: 'melee', range: 1, hit: 3, strength: 3, damage: 1 }
       ],
       abilities: [
@@ -404,7 +403,7 @@ const PRESETS = [
       weapons: [
         { name: 'Lasgun', type: 'ranged', range: 18, hit: 3, strength: 4, damage: 1 },
         { name: 'Bolt Pistol', type: 'ranged', range: 12, hit: 3, strength: 3, damage: 1 },
-        { name: 'Bayonet', type: 'melee', range: 2, hit: 4, strength: 4, damage: 1 }
+        { name: 'Dagger', type: 'melee', range: 1, hit: 3, strength: 3, damage: 1 }
       ],
       abilities: [
         { name: 'Cloaked', trigger: 'passive', cost: 0,

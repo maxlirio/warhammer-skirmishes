@@ -573,10 +573,14 @@ const cultist = U('Cultist');
 console.log('\n== the datasheets ==');
 check('Fred\u2019s Modded Lasgun', fred.weapons.map(w => w.name + ' ' + w.hit + '+/S' + w.strength + '/D' + w.damage),
   ['Modded Lasgun 5+/S4/D2', 'Leathered Fist 4+/S2/D1']);
-check('Alfred carries three weapons now',
-  alfred.weapons.map(w => w.name), ['Lasgun', 'Bolt Pistol', 'Dagger']);
+check('Alfred carries a Lasgun and a Dagger',
+  alfred.weapons.map(w => w.name), ['Lasgun', 'Dagger']);
 check('the Commissar\u2019s Bolt Pistol is 2+', commissar.weapons[0].hit, 2);
-check('Nick carries three too', nick.weapons.map(w => w.name), ['Lasgun', 'Bolt Pistol', 'Bayonet']);
+check('Nick carries three, with a Dagger in melee',
+  nick.weapons.map(w => w.name), ['Lasgun', 'Bolt Pistol', 'Dagger']);
+check('and the Bayonet is Al\u2019s alone — Kill Count keys off it',
+  G().units.filter(u => (u.weapons || []).some(w => w.name === 'Bayonet')).map(u => u.name),
+  ['Guardsman "Al" 434-435']);
 check('Al\u2019s Bayonet hits on 2+', al.weapons[1].hit, 2);
 
 console.log('\n== the Commissar\u2019s 6" aura ==');

@@ -368,7 +368,7 @@ const RULES = (function () {
 
   return {
     version: '1.0',
-    build: '2026-08-12g',
+    build: '2026-08-12h',
     defaultVPTarget: 10,
     actions, rangedReactions, meleeReactions, missions,
     woundTarget, woundLabel, applyMod, actionById, reactionById, missionById,
