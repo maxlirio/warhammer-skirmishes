@@ -47,13 +47,25 @@ The same slide asks how the two of you are sitting.
 
 **ONE WAY UP** is the normal phone layout: both rosters upright, passed back and
 forth. **ACROSS THE TABLE** is for a phone or tablet lying flat between you —
-each player's half of the board is rotated to face them, so you read your own
-units the right way up from your own side and nobody has to turn the device
-around.
+each player's half of the board turns to face them, so you read your own units
+the right way up from your own side and nobody has to turn the device around.
 
-**Every window turns to whoever it is talking to.** Open an action list and it
-faces the player acting; reach the reaction step and it turns to face the
-defender; the roll turns it back. Phase screens face the player whose phase it
+**It arranges itself from the shape of the device**, and re-arranges the moment
+you turn it. The two of you always sit at the two ends of the long axis:
+
+- **Held tall** — a phone lying between you — the halves stack **end to end**,
+  each getting the full width of the screen, and the far player's half is turned
+  upside down.
+- **Held wide** — a tablet on its side — the halves sit **side by side**, each
+  taking a quarter turn. On a device this shape the running commentary and the
+  token tray step aside so the units get the height.
+
+Each half keeps its own scroll position, so a tap at one end of the table never
+loses the other player's place.
+
+**Every window turns to whoever it is talking to**, the same way round as their
+half of the board. Open an action list and it faces the player acting; reach the
+reaction step and it turns to face the defender; the roll turns it back. Phase screens face the player whose phase it
 is, a faction card's powers face its owner, and the movement check faces the
 player whose triggers are waiting. Only the shared furniture — the phase bar,
 the action chain — stays put. Switchable mid-game from the menu.

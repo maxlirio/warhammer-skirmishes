@@ -19,7 +19,39 @@ const UI = (function () {
     const app = document.getElementById('app');
     const g = G();
     if (!g) { app.innerHTML = Setup.render(); return; }
+    const keep = captureScroll();
     app.innerHTML = playScreen(g) + overlay(g);
+    restoreScroll(keep);
+  }
+
+  /* Re-rendering replaces the whole screen, which would throw away where each
+     player had scrolled to — unbearable in the across-the-table layout, where
+     a roster is taller than its half. So the positions are carried over. */
+  const SCROLLERS = ['.tablehalf.p0 > .inner', '.tablehalf.p1 > .inner',
+                     '.rosters', '.chainbox'];
+
+  function captureScroll() {
+    const out = {};
+    SCROLLERS.forEach(function (sel) {
+      const el = document.querySelector(sel);
+      if (el) out[sel] = el.scrollTop;
+    });
+    return out;
+  }
+
+  function restoreScroll(keep) {
+    SCROLLERS.forEach(function (sel) {
+      const el = document.querySelector(sel);
+      if (!el) return;
+      if (keep[sel] !== undefined) { el.scrollTop = keep[sel]; return; }
+      /* First sight of an upside-down half: open it on its first unit, which
+         is at the far end of the box from where that player is sitting. */
+      const half = el.closest ? el.closest('.tablehalf') : null;
+      if (half && half.classList.contains('p0') &&
+          getComputedStyle(el).transform.indexOf('-1, 0, 0, -1') >= 0) {
+        el.scrollTop = el.scrollHeight;
+      }
+    });
   }
 
   function setModal(m) { modal = m; render(); }
@@ -27,7 +59,8 @@ const UI = (function () {
   /* ================================================================ SHELL */
 
   function playScreen(g) {
-    return '<div class="screen' + (g.settings.verbose === false ? ' lean' : '') + '">' +
+    return '<div class="screen' + (g.settings.verbose === false ? ' lean' : '') +
+      (g.settings.layout === 'table' ? ' table' : '') + '">' +
       topbar(g) +
       cardStrip(g) +
       controlbar(g) +

@@ -932,21 +932,43 @@ h1, h2, h3, h4 {
 .passcard.off { display: none; }
 
 /* ------------------------------------------------- across-the-table layout */
+/* The device decides how the two halves sit. Held tall — a phone lying between
+   you — the players are at the two ENDS, so each gets a full-width strip and the
+   far one is turned upside down. Held wide, they are at the two SIDES, so each
+   half takes a quarter turn. Rotating the device re-arranges it on the spot. */
 
 .board.table {
-  flex: 1; min-height: 0; display: grid;
-  grid-template-columns: 1fr auto 1fr; gap: 6px; padding: 6px;
+  flex: 1; min-height: 0; display: grid; gap: 6px; padding: 6px;
 }
-.tablehalf { container-type: size; position: relative; overflow: hidden; min-width: 0; }
-.tablehalf > .inner {
-  position: absolute; top: 50%; left: 50%;
-  width: 100cqh; height: 100cqw;
-  overflow-y: auto; -webkit-overflow-scrolling: touch;
-  transform: translate(-50%, -50%) rotate(90deg);
+.tablehalf { position: relative; overflow: hidden; min-width: 0; min-height: 0; }
+.tablemid { display: flex; align-items: center; justify-content: center; }
+
+/* --- players at the two ends (tall device) --- */
+@media (orientation: portrait) {
+  .board.table { grid-template-columns: 1fr; grid-template-rows: 1fr auto 1fr; }
+  .tablehalf > .inner {
+    position: absolute; inset: 0; overflow-y: auto; -webkit-overflow-scrolling: touch;
+    transform: rotate(180deg);
+  }
+  .tablehalf.p1 > .inner { transform: none; }
+  .tablemid { width: auto; padding: 0 2px; }
+  .tablemid .passcard { min-height: 58px; }
 }
-.tablehalf.p1 > .inner { transform: translate(-50%, -50%) rotate(-90deg); }
-.tablemid { display: flex; align-items: center; justify-content: center; width: 92px; }
-.tablemid .passcard { min-height: 96px; }
+
+/* --- players at the two sides (wide device) --- */
+@media (orientation: landscape) {
+  .board.table { grid-template-columns: 1fr auto 1fr; }
+  .tablehalf { container-type: size; }
+  .tablehalf > .inner {
+    position: absolute; top: 50%; left: 50%;
+    width: 100cqh; height: 100cqw;
+    overflow-y: auto; -webkit-overflow-scrolling: touch;
+    transform: translate(-50%, -50%) rotate(90deg);
+  }
+  .tablehalf.p1 > .inner { transform: translate(-50%, -50%) rotate(-90deg); }
+  .tablemid { width: 92px; }
+  .tablemid .passcard { min-height: 96px; }
+}
 
 /* ------------------------------------------------- end-of-turn scoring */
 
@@ -981,17 +1003,61 @@ h1, h2, h3, h4 {
 .scorerow .srfoot { font-size: 11px; color: var(--ink-mute); }
 
 /* ---------------------------------------- windows that face the right player */
-/* Across the table, a window is turned to whoever it is asking. Player 1 sits
-   on the left, player 2 on the right, matching their half of the board. */
+/* A window turns to whoever it is asking, the same way round as their half of
+   the board: upside down for the player at the far end, a quarter turn for the
+   player at the far side. */
 .overlay.table { align-items: center; }
-.overlay.table .modal {
-  /* Rotated, the box's width runs along the screen's height and vice versa —
-     and it must not be shrunk by the flex container it sits in. */
-  flex: 0 0 auto;
-  width: min(680px, 94vh);
-  height: 96vw; max-height: 96vw;
-  border-top-width: 1px;
-  transform: rotate(90deg);
-  transform-origin: 50% 50%;
+
+@media (orientation: portrait) {
+  .overlay.table { align-items: flex-end; }
+  .overlay.table.face-p0 { align-items: flex-start; }
+  .overlay.table .modal { transform: rotate(180deg); }
+  .overlay.table.face-p1 .modal { transform: none; }
+  /* Slid in from their own end, so the head of the window is nearest them. */
+  .overlay.table.face-p0 .modal { border-top-width: 1px; border-bottom: 2px solid var(--gold-dim); }
 }
-.overlay.table.face-p1 .modal { transform: rotate(-90deg); }
+
+@media (orientation: landscape) {
+  .overlay.table .modal {
+    /* Rotated, the box's width runs along the screen's height and vice versa —
+       and it must not be shrunk by the flex container it sits in. */
+    flex: 0 0 auto;
+    width: min(680px, 94vh);
+    height: 96vw; max-height: 96vw;
+    border-top-width: 1px;
+    transform: rotate(90deg);
+    transform-origin: 50% 50%;
+  }
+  .overlay.table.face-p1 .modal { transform: rotate(-90deg); }
+}
+
+/* Lying flat on its side there is very little height to go round, and the board
+   needs most of it — so the running commentary gives way to the units. */
+@media (orientation: landscape) {
+  /* The running commentary and the token tray are both readable elsewhere —
+     the log from the menu, the markers in the End Phase — so on a device lying
+     on its side they give way entirely and the units get the room. */
+  .screen.table .chainbox,
+  .screen.table .tray { display: none; }
+  .screen.table .cardstrip { padding-bottom: 5px; }
+  .screen.table .topbar { padding: 4px 8px; gap: 5px; }
+  .screen.table .actionbar { padding: 5px 8px calc(5px + env(safe-area-inset-bottom)); }
+
+  /* Every millimetre of header is a millimetre the units do not get. */
+  .screen.table .turnstrip { padding: 3px 10px 5px; font-size: 11px; }
+  .screen.table .turnstrip .tn { font-size: 13px; }
+  .screen.table .pplate { padding: 4px 8px 4px; gap: 3px; }
+  .screen.table .pplate .pname { font-size: 11px; }
+  .screen.table .stat { padding: 1px 5px 2px; }
+  .screen.table .stat .v { font-size: 17px; }
+  .screen.table .stat .k { font-size: 8px; letter-spacing: .14em; }
+  .screen.table .stat .nudge { margin-top: 1px; }
+  .screen.table .stat .nudge button { padding: 1px 0; font-size: 11px; }
+  .screen.table .fcard { padding: 4px 7px; }
+  .screen.table .fcres { padding: 1px 7px 2px; }
+  .screen.table .fcres .v { font-size: 16px; }
+  .screen.table .controlbar { padding: 4px 11px; }
+  .screen.table .controlbar .who { font-size: 15px; }
+  .screen.table .controlbar .why { display: none; }
+  .screen.table .badge { margin-bottom: 2px; padding: 2px 7px; }
+}
