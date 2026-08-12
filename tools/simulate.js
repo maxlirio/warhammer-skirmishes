@@ -1916,9 +1916,11 @@ console.log('\n== a reaction can be limited to one kind of attack ==');
   check('Kwik Dakka only answers a shot',
     mob.find(u => u.name === 'Mikaaaaghhh').abilities
       .find(a => a.name === 'Kwik Dakka').reactRange, 'ranged');
-  check('its other RP reaction answers anything',
+  check('and so does Get In Front of Me — it needs a line of fire',
     mob.find(u => u.name === 'Mikaaaaghhh').abilities
-      .find(a => a.name === 'Get In Front of Me').reactRange, 'any');
+      .find(a => a.name === 'Get In Front of Me').reactRange, 'ranged');
+  check('an ability with nothing set answers anything',
+    Store.newAbility({ trigger: 'rp' }).reactRange, 'any');
   check('and DIVE carries its new restriction',
     /melee target/i.test(RULES.rangedReactions.find(r => r.id === 'dive').text), true);
   check('which the tabletop note spells out',

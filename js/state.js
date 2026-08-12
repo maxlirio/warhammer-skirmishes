@@ -604,7 +604,7 @@ const PRESETS = [
         { name: 'Choppa', type: 'melee', range: 1, hit: 3, strength: 5, damage: 1 }
       ],
       abilities: [
-        { name: 'Get In Front of Me', trigger: 'rp', cost: 1, moves: true,
+        { name: 'Get In Front of Me', trigger: 'rp', cost: 1, moves: true, reactRange: 'ranged',
           text: 'Move a friendly unit within 3" up to 3". If that unit now is in the line of ' +
                 'fire, that unit is targeted by the attack instead.',
           effects: [{ kind: 'redirect' }] },

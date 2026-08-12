@@ -176,7 +176,8 @@ says move**:
 tick *"This moves a unit"* when you build it and the check runs afterwards,
 whether it fires from an AP action, a card button, a START:/END: phase, or an RP
 reaction. Something like *Get In Front of Me*, which moves whoever it shoves into
-the shot, checks for that unit once you have chosen them.
+the shot, checks for that unit once you have chosen them (and is only offered
+against shooting, since it needs a line of fire).
 
 At those points a **MOVEMENT — DOES ANYTHING FIRE?** screen lists every waiting
 trigger belonging to the moving unit's opponent, with its unit and owner. There
@@ -206,10 +207,11 @@ the mover die and closes the action out by itself.
 ## Which attacks a reaction answers
 
 An RP reaction can be limited to **one kind of incoming attack** — *any*, *only
-when shot at*, or *only when fought in melee*. Mikaaaaghhh's **Kwik Dakka**
-shoots back, which is no use against an enemy already in melee with him, so it
-answers shooting only and simply does not appear in a melee reaction list. It is
-a dropdown on any RP ability you build yourself.
+when shot at*, or *only when fought in melee* — and one that does not apply
+simply does not appear in the list. Both of Mikaaaaghhh's answer shooting only:
+**Kwik Dakka** shoots back, which is no use against an enemy already in melee
+with him, and **Get In Front of Me** needs a line of fire to step into. It is a
+dropdown on any RP ability you build yourself.
 
 **DIVE** carries its own restriction now: the 3" move may not create a melee
 target — the diving unit cannot end in melee range of an enemy, and cannot drag
