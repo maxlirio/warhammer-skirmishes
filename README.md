@@ -450,20 +450,29 @@ only move.
 
 ## How it looks
 
-Cold stone and soot, tarnished brass and dried blood, engraved capitals and
-chamfered iron — a reliquary rather than a readout. Candlelight pools at the
-bottom of the screen, grime and scratches sit over everything, wounds are wax
-and blood instead of a battery gauge, and a destroyed unit is not greyed out so
-much as bled out. The unit waiting to act breathes rather than blinks.
+Cold stone and soot, tarnished brass and dried blood — a reliquary rather than a
+readout. The panels are **photographed corroded steel**, the header and footer
+are riveted deck plate, and real blood is soaked into the corner of every unit's
+plate and down the head of every window. A skull-and-wings device hangs behind
+the board and presides over the score plates. Panels are bolted down with corner
+brackets, rosters are headed like a chapel roll, and section rules are broken by
+an Imperial cross.
 
-It is all system fonts, CSS gradients and one inline SVG, so there is still
-nothing to download and nothing to fetch: the app runs off a memory stick with
-the network switched off.
+Candlelight pools at the bottom of the screen, a fine mist of blood and grime
+lies over everything, wounds are wax and blood instead of a battery gauge, and a
+destroyed unit is not greyed out so much as bled out. The unit waiting to act
+breathes rather than blinks.
+
+The textures are **CC0** — ambientCG for the metal, OpenGameArt for the blood —
+downscaled, darkened and committed to the repository rather than fetched, so the
+app still opens from `file://` with the network switched off. All five come to
+132 KB. See `assets/CREDITS.md` for sources and what was done to them.
 
 ## Layout
 
 ```
 index.html        entry point, loads six classic scripts
+assets/           CC0 textures — see assets/CREDITS.md
 css/app.css       dark, mobile-first, touch-sized
 js/rules.js       actions, reactions, mission cards, wound table — house-rule here
 js/state.js       game state, persistence, undo, roster storage
