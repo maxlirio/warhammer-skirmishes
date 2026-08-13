@@ -77,7 +77,9 @@ const Store = (function () {
         /* false = experienced: labels, costs and flavour, no teaching. */
         verbose: (config && config.verbose) !== false,
         /* 'table' turns each player's half to face them. */
-        layout: (config && config.layout) || 'normal'
+        layout: (config && config.layout) || 'normal',
+        /* Sparks, blood and the jolt on an attack. */
+        fx: (config && config.fx) !== false
       },
       players: [0, 1].map(function (i) {
         const nm = (config && config.playerNames && config.playerNames[i]);

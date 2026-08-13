@@ -120,6 +120,19 @@ The running commentary sits at the bottom as a single line — the last thing th
 happened — and opens to the full history on a tap. It was taking a quarter of
 the screen before.
 
+## When a blow lands
+
+The app never rolls, but it does react. A hit throws **sparks** from where your
+finger was and gives the board a short jolt; a wound throws **blood** and leaves
+a real splatter at the point of impact; a kill flashes the whole screen red and
+shakes it hard. A miss gets a puff of dust and almost nothing else, which is the
+point.
+
+The effects are drawn straight onto the document and never touch the game state,
+so nothing replays when a screen redraws or when you UNDO. **Menu → EFFECTS OFF**
+turns the lot off, and anyone whose device asks for reduced motion gets none of
+it without having to ask.
+
 ## Victory Points score themselves
 
 The app knows what everything is worth, so it applies it. A kill scores the

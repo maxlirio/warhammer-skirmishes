@@ -56,6 +56,123 @@ const UI = (function () {
   }
 
   function setModal(m) { modal = m; render(); }
+
+  /* ================================================================ EFFECTS
+     Sparks off the plate, blood off the wound, and a jolt through the whole
+     board. Drawn straight onto the document, never into the game state, so
+     nothing replays on a re-render or an undo. */
+
+  let tapPoint = null;                 // where the player last put their finger
+  function noteTap(x, y) { tapPoint = { x: x, y: y }; }
+
+  const reducedMotion = () => window.matchMedia &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  function fxOn() {
+    const g = G();
+    if (reducedMotion()) return false;
+    return !(g && g.settings && g.settings.fx === false);
+  }
+
+  function fxLayer() {
+    let l = document.getElementById('fx');
+    if (!l) {
+      l = document.createElement('div');
+      l.id = 'fx';
+      document.body.appendChild(l);
+    }
+    return l;
+  }
+
+  /* Where the effect should come from: the finger if we have it, otherwise the
+     middle of whatever window is open, otherwise the middle of the screen. */
+  function fxOrigin() {
+    if (tapPoint) return tapPoint;
+    const m = document.querySelector('.modal') || document.querySelector('.board');
+    if (m) {
+      const r = m.getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    }
+    return { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+  }
+
+  function shake(kind) {
+    const app = document.getElementById('app');
+    if (!app) return;
+    app.classList.remove('jolt-sm', 'jolt-md', 'jolt-lg');
+    void app.offsetWidth;                       // restart the animation
+    app.classList.add('jolt-' + kind);
+    setTimeout(() => app.classList.remove('jolt-' + kind), 700);
+  }
+
+  /* A burst of particles thrown outward from a point. */
+  function burst(o, n, cls, spread, dist) {
+    const l = fxLayer();
+    const frag = document.createDocumentFragment();
+    const made = [];
+    for (let i = 0; i < n; i++) {
+      const p = document.createElement('i');
+      made.push(p);
+      p.className = 'fxp ' + cls;
+      const a = (-90 + (Math.random() - .5) * spread) * Math.PI / 180;
+      const d = dist * (.45 + Math.random() * .8);
+      p.style.left = o.x + 'px';
+      p.style.top = o.y + 'px';
+      p.style.setProperty('--dx', Math.cos(a) * d * (Math.random() < .5 ? -1 : 1) + 'px');
+      p.style.setProperty('--dy', (Math.sin(a) * d) + 'px');
+      p.style.setProperty('--r', (Math.random() * 360) + 'deg');
+      p.style.animationDelay = (Math.random() * 70) + 'ms';
+      p.style.animationDuration = (420 + Math.random() * 320) + 'ms';
+      frag.appendChild(p);
+    }
+    l.appendChild(frag);
+    /* Remove the particles this burst made, not the first n in the layer —
+       overlapping bursts would otherwise orphan each other's nodes. */
+    setTimeout(() => made.forEach(c => c.remove()), 900);
+  }
+
+  function flash(cls, ms) {
+    const l = fxLayer();
+    const f = document.createElement('div');
+    f.className = 'fxflash ' + cls;
+    l.appendChild(f);
+    setTimeout(() => f.remove(), ms);
+  }
+
+  function splat(o, scale) {
+    const l = fxLayer();
+    const d = document.createElement('div');
+    d.className = 'fxsplat';
+    d.style.left = o.x + 'px';
+    d.style.top = o.y + 'px';
+    d.style.setProperty('--s', scale);
+    d.style.setProperty('--rot', (Math.random() * 360) + 'deg');
+    l.appendChild(d);
+    setTimeout(() => d.remove(), 1100);
+  }
+
+  /* The engine says what happened; this decides how hard it lands. */
+  function playFx(kind, data) {
+    if (!fxOn()) return;
+    const o = fxOrigin();
+    if (kind === 'hit') {
+      shake('sm');
+      burst(o, 10 + Math.min(6, (data.count || 1) * 2), 'spark', 150, 90);
+    } else if (kind === 'miss' || kind === 'nowound') {
+      shake('sm');
+      burst(o, 5, 'dust', 120, 60);
+    } else if (kind === 'damage') {
+      shake(data.fatal ? 'lg' : 'md');
+      burst(o, 12, 'blood', 170, 105);
+      splat(o, data.fatal ? 1.5 : 1);
+      if (!data.fatal) flash('red', 260);
+    } else if (kind === 'kill') {
+      shake('lg');
+      flash('kill', 620);
+      burst(o, 20, 'blood', 200, 150);
+    }
+  }
+
   function toggleChain() { chainOpen = !chainOpen; render(); }
 
   /* ================================================================ SHELL */
@@ -1527,6 +1644,10 @@ const UI = (function () {
           '</div><div class="cdesc tip">Currently ' +
             (g.settings.layout === 'table' ? 'turned to face each player'
                                            : 'all one way up') + '. Tap to switch.</div></div></button>' +
+        '<button class="choice" data-act="togglefx"><div class="cmain">' +
+          '<div class="cname">' + (g.settings.fx === false ? 'EFFECTS ON' : 'EFFECTS OFF') +
+          '</div><div class="cdesc tip">Sparks, blood and the jolt when an attack lands. ' +
+            'Currently ' + (g.settings.fx === false ? 'off' : 'on') + '.</div></div></button>' +
         '<button class="choice" data-act="toggleverbose"><div class="cmain">' +
           '<div class="cname">' + (g.settings.verbose === false ? 'WALKTHROUGH MODE' : 'EXPERIENCED MODE') +
           '</div><div class="cdesc tip">Currently ' +
@@ -1721,5 +1842,5 @@ const UI = (function () {
 
   return { render, setModal, getModal: () => modal,
            setDamageDraft, clearDamageDraft, getDamageDraft,
-           toggleChain, esc };
+           toggleChain, noteTap, playFx, esc };
 })();

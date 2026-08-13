@@ -62,6 +62,13 @@
     if (el.hasAttribute('data-rerender') || el.tagName === 'SELECT') UI.render();
   });
 
+  /* Effects are thrown from wherever the player last touched. */
+  document.addEventListener('pointerdown', function (ev) {
+    UI.noteTap(ev.clientX, ev.clientY);
+  }, true);
+
+  Engine.onFx(function (kind, data) { UI.playFx(kind, data); });
+
   document.addEventListener('keydown', function (ev) {
     if (ev.key !== 'Escape') return;
     const g = Store.get();
@@ -91,6 +98,12 @@
         Store.commit('layout', function () {
           const st = Store.get();
           st.settings.layout = st.settings.layout === 'table' ? 'normal' : 'table';
+        });
+        return;
+      case 'togglefx':
+        Store.commit('effects', function () {
+          const st = Store.get();
+          st.settings.fx = st.settings.fx === false;
         });
         return;
       case 'toggleverbose':

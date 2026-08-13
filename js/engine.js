@@ -66,6 +66,16 @@ const Engine = (function () {
     return g.chain.active ? 'continuing' : 'turn';
   }
 
+  /* --------------------------------------------------------------- effects
+     The engine announces outcomes; whoever is listening decides what to draw.
+     Deliberately not state — an effect that lived in the game object would
+     replay on every re-render and every undo. */
+  let fxHandler = null;
+  function onFx(fn) { fxHandler = fn; }
+  function fx(kind, data) {
+    if (fxHandler) { try { fxHandler(kind, data || {}); } catch (e) { /* never break a turn */ } }
+  }
+
   /* ------------------------------------------------------------------ log */
 
   function log(text, cls) {
@@ -712,12 +722,14 @@ const Engine = (function () {
     if (!u || !u.alive) return false;
     const dmg = Math.max(0, Number(amount) || 0);
     u.wounds = Math.max(0, u.wounds - dmg);
+    if (dmg > 0) fx('damage', { unitId: unitId, amount: dmg, fatal: u.wounds <= 0 });
     chainEntry((describe || '') + u.name + ' takes ' + dmg + ' damage — ' +
       u.wounds + '/' + u.maxWounds + ' W remaining.', 'damage');
     if (u.wounds <= 0) {
       u.alive = false;
       u.tokens = [];
       u.effects = [];
+      fx('kill', { unitId: unitId, name: u.name });
       chainEntry(u.name + ' is DESTROYED and removed from the battlefield.', 'kill');
 
       // A destroyed relic carrier drops it where it fell.
@@ -2174,14 +2186,17 @@ const Engine = (function () {
     Store.commit(didHit ? 'hit' : 'miss', function () {
       const f = S().flow;
       if (!didHit) {
+        fx('miss', { unitId: f.targetId });
         chainEntry(uname(f.attackerId) + ' MISSES ' + uname(f.targetId) + '.', 'miss');
         finishAttack({ hit: false });
       } else if (f.skipWound) {
+        fx('hit', { unitId: f.targetId });
         // e.g. Choke Hold: a hit resolves without a Wound roll.
         chainEntry(uname(f.attackerId) + ' HITS ' + uname(f.targetId) +
           ' — no Wound roll for this attack.', 'hitline');
         finishAttack({ hit: true, wound: false });
       } else {
+        fx('hit', { unitId: f.targetId });
         chainEntry(uname(f.attackerId) + ' HITS ' + uname(f.targetId) + '.', 'hitline');
         f.step = 'wound';
       }
@@ -2196,11 +2211,13 @@ const Engine = (function () {
       const n = Math.max(0, Math.min(total, Number(count) || 0));
       f.hits = n;
       if (!n) {
+        fx('miss', { unitId: f.targetId });
         chainEntry(uname(f.attackerId) + ' rolls ' + total + ' dice at ' + uname(f.targetId) +
           ' — none of them hit.', 'miss');
         finishAttack({ hit: false });
         return;
       }
+      fx('hit', { unitId: f.targetId, count: n });
       chainEntry(uname(f.attackerId) + ': ' + n + ' of ' + total + ' shots hit ' +
         uname(f.targetId) + '.', 'hitline');
       if (f.skipWound) { finishAttack({ hit: true, wound: false }); return; }
@@ -2214,6 +2231,7 @@ const Engine = (function () {
       const n = Math.max(0, Math.min(f.hits || 1, Number(count) || 0));
       f.woundCount = n;
       if (!n) {
+        fx('nowound', { unitId: f.targetId });
         chainEntry('None of the hits wound ' + uname(f.targetId) + '.', 'miss');
         finishAttack({ hit: true, wound: false });
         return;
@@ -2233,6 +2251,7 @@ const Engine = (function () {
     Store.commit(didWound ? 'wound' : 'no wound', function () {
       const f = S().flow;
       if (!didWound) {
+        fx('nowound', { unitId: f.targetId });
         chainEntry('The attack fails to wound ' + uname(f.targetId) + '.', 'miss');
         finishAttack({ hit: true, wound: false });
       } else {
@@ -2895,6 +2914,6 @@ const Engine = (function () {
     overwatchCandidates, flowToggleOverwatch, flowFireOverwatch,
     adjustAP, adjustVP, adjustWounds, removeUnit, removeEffect,
     addManualEffect, addManualToken, forceControl, forceEndChain, forceEndTurn,
-    scoreVP, log, ask, answerAsk, answerMissionAsk, scoreEndOfTurn
+    scoreVP, log, onFx, ask, answerAsk, answerMissionAsk, scoreEndOfTurn
   };
 })();
