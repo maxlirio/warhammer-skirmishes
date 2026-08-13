@@ -450,11 +450,15 @@ only move.
 
 ## How it looks
 
-Gunmetal and rust, brass and bone, stencilled condensed capitals, chamfered
-corners and hazard stripes — the fittings of a battered piece of Imperial
-equipment rather than a phone app. It is all system fonts, CSS gradients and one
-inline SVG, so there is still nothing to download and nothing to fetch: the app
-runs off a memory stick with the network switched off.
+Cold stone and soot, tarnished brass and dried blood, engraved capitals and
+chamfered iron — a reliquary rather than a readout. Candlelight pools at the
+bottom of the screen, grime and scratches sit over everything, wounds are wax
+and blood instead of a battery gauge, and a destroyed unit is not greyed out so
+much as bled out. The unit waiting to act breathes rather than blinks.
+
+It is all system fonts, CSS gradients and one inline SVG, so there is still
+nothing to download and nothing to fetch: the app runs off a memory stick with
+the network switched off.
 
 ## Layout
 

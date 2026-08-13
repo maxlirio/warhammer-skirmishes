@@ -8,50 +8,59 @@
    ========================================================================= */
 
 :root {
-  /* Iron and soot. Everything is warm — there is no clean blue-grey here. */
-  --bg:        #0a0908;
-  --bg-2:      #100e0c;
-  --panel:     #17140f;
-  --panel-2:   #221c15;
+  /* Cold stone and soot. The warmth in this app is candlelight and blood. */
+  --bg:        #08070a;
+  --bg-2:      #0e0c10;
+  --panel:     #151214;
+  --panel-2:   #201a1c;
 
-  /* Rusted steel edges. */
-  --line:      #322a20;
-  --line-hot:  #55483a;
-  --rivet:     #0a0806;
+  /* Corroded iron, and the dried blood in the seams. */
+  --line:      #2e2622;
+  --line-hot:  #4c3f36;
+  --rivet:     #060506;
+  --blood:     #6d1a14;
+  --blood-hot: #a8352a;
 
-  /* Bone, parchment and old paper. Never pure white. */
-  --ink:       #ded3bd;
-  --ink-dim:   #a99b83;
-  --ink-mute:  #7b6f5d;
+  /* Bone, parchment, old candle wax. Never pure white. */
+  --ink:       #d9cfbc;
+  --ink-dim:   #a1937c;
+  --ink-mute:  #746754;
 
-  /* Imperial brass. */
-  --gold:      #c9a227;
-  --gold-dim:  #6f571a;
-  --gold-hot:  #e8c65c;
+  /* Tarnished brass, not polished gold. */
+  --gold:      #b8912f;
+  --gold-dim:  #63501c;
+  --gold-hot:  #dcb659;
 
-  /* The two armies: cold Imperial blue against blood. */
-  --p1:        #5b93c4;
-  --p1-dim:    #24405c;
-  --p2:        #b8412f;
-  --p2-dim:    #55211a;
+  /* The two armies. */
+  --p1:        #5687b4;
+  --p1-dim:    #22394f;
+  --p2:        #a8352a;
+  --p2-dim:    #4a1c16;
 
-  --good:      #7d9c46;      /* toxic olive, not mint */
-  --bad:       #b8412f;
-  --warn:      #c9832a;
+  --good:      #7d8f4a;      /* verdigris, not mint */
+  --bad:       #a8352a;
+  --warn:      #b8792a;
 
-  --radius:    0px;          /* nothing in the 41st millennium is rounded */
+  --radius:    0px;
   --tap:       46px;
 
+  /* Engraved plaque lettering for names and titles. */
+  --gothic: 'Copperplate', 'Copperplate Gothic Bold', 'Copperplate Gothic Light',
+            'Trajan Pro', 'Optima', 'Palatino Linotype', Georgia, serif;
+  /* Stencilled condensed capitals for numbers and labels. */
   --display: 'Impact', 'Haettenschweiler', 'Franklin Gothic Bold',
              'Arial Narrow Bold', 'Arial Narrow', sans-serif;
   --body: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
 
-  /* Rolled steel: a soft sheen with a hard top highlight. */
+  /* Damp, stained iron rather than clean brushed steel. */
   --plate:
-    repeating-linear-gradient(90deg, rgba(255,240,210,.014) 0 1px, transparent 1px 3px),
-    linear-gradient(180deg, #1d1913 0%, #16120d 55%, #120f0b 100%);
-  --plate-hot: linear-gradient(180deg, #2b2318 0%, #1d1811 100%);
-  --edge-top: inset 0 1px 0 rgba(255, 235, 190, .07);
+    radial-gradient(120% 140% at 78% -10%, rgba(109, 26, 20, .07), transparent 55%),
+    radial-gradient(90% 120% at 8% 110%, rgba(0, 0, 0, .5), transparent 60%),
+    linear-gradient(180deg, #1a1518 0%, #141013 55%, #100d10 100%);
+  --plate-hot:
+    radial-gradient(120% 140% at 78% -10%, rgba(184, 145, 47, .12), transparent 55%),
+    linear-gradient(180deg, #262019 0%, #1a1512 100%);
+  --edge-top: inset 0 1px 0 rgba(255, 232, 200, .055);
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -65,17 +74,25 @@ html, body {
   overscroll-behavior: none;
 }
 
-/* Grime: a fine noise wash and a vignette over everything, painted once on
-   the body so no component has to carry it. */
+/* The room: soot in the corners, a guttering candle somewhere below, and a
+   film of grime over everything. Painted once on the body. */
 body::before {
   content: ''; position: fixed; inset: 0; z-index: 0; pointer-events: none;
   background-image:
-    radial-gradient(120% 90% at 50% 0%, rgba(201, 162, 39, .035), transparent 55%),
-    radial-gradient(140% 100% at 50% 100%, rgba(0, 0, 0, .65), transparent 55%),
-    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/><feColorMatrix type='saturate' values='0'/></filter><rect width='120' height='120' filter='url(%23n)' opacity='.35'/></svg>");
-  background-size: auto, auto, 140px 140px;
+    radial-gradient(70% 45% at 50% 108%, rgba(184, 121, 42, .13), transparent 70%),
+    radial-gradient(150% 110% at 50% 45%, transparent 48%, rgba(0, 0, 0, .7) 100%),
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='4'/><feColorMatrix type='saturate' values='0'/></filter><rect width='160' height='160' filter='url(%23n)' opacity='.4'/></svg>");
+  background-size: auto, auto, 160px 160px;
   mix-blend-mode: soft-light;
-  opacity: .3;
+  opacity: .32;
+}
+/* Long scratches down the glass. */
+body::after {
+  content: ''; position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background-image: repeating-linear-gradient(
+    92deg, transparent 0 37px, rgba(255, 240, 220, .022) 37px 38px,
+    transparent 38px 96px, rgba(0, 0, 0, .3) 96px 97px);
+  opacity: .22;
 }
 
 body { display: flex; flex-direction: column; }
@@ -87,14 +104,14 @@ button { cursor: pointer; border: none; background: none; }
 .mono { font-family: 'SF Mono', 'JetBrains Mono', ui-monospace, Menlo, monospace; }
 
 h1, h2, h3, h4 {
-  margin: 0; font-family: var(--display); font-weight: 400;
-  letter-spacing: .05em; text-transform: uppercase;
+  margin: 0; font-family: var(--gothic); font-weight: 700;
+  letter-spacing: .12em; text-transform: uppercase;
 }
 
-/* A hazard strip — the app's one piece of ornament, used sparingly. */
+/* The one ornament: a thin bloodied rule where a hazard stripe used to be. */
 .hazard, .turnstrip::after, .wizhead::after, .actionbar::before {
-  background-image: repeating-linear-gradient(
-    -45deg, var(--gold-dim) 0 7px, transparent 7px 14px);
+  background-image: linear-gradient(90deg,
+    transparent, var(--blood) 12%, var(--gold-dim) 50%, var(--blood) 88%, transparent);
 }
 
 /* ------------------------------------------------------------------ shell */
@@ -158,7 +175,15 @@ h1, h2, h3, h4 {
 }
 .pplate.p0::after { background: var(--p1-dim); }
 .pplate.p1::after { background: var(--p2-dim); }
-.pplate.active { box-shadow: var(--edge-top), inset 0 0 22px -8px currentColor; }
+.pplate.active {
+  box-shadow: var(--edge-top), inset 0 0 26px -6px currentColor;
+  animation: votive 5.5s ease-in-out infinite;
+}
+@keyframes votive {
+  0%, 100% { box-shadow: var(--edge-top), inset 0 0 26px -6px currentColor; }
+  47%      { box-shadow: var(--edge-top), inset 0 0 34px -4px currentColor; }
+  62%      { box-shadow: var(--edge-top), inset 0 0 22px -8px currentColor; }
+}
 .pplate.p0.active {
   color: var(--p1);
   background:
@@ -269,21 +294,28 @@ h1, h2, h3, h4 {
 .unit.canact { border-color: var(--line-hot); }
 .unit.canact.p0 { box-shadow: var(--edge-top), inset 3px 0 0 var(--p1); }
 .unit.canact.p1 { box-shadow: var(--edge-top), inset 3px 0 0 var(--p2); }
-.unit.dead { opacity: .34; filter: grayscale(.85); }
+.unit.dead {
+  opacity: .55; filter: grayscale(.5) brightness(.8);
+  background:
+    radial-gradient(120% 90% at 50% 0%, rgba(109, 26, 20, .35), transparent 70%),
+    linear-gradient(180deg, #16090a, #0c0709);
+}
+.unit.dead .uname { color: #8a5b52; text-decoration: line-through; }
 
 .unit .uhead {
   display: flex; align-items: baseline; gap: 8px;
   border-bottom: 1px solid var(--line); padding-bottom: 5px;
 }
 .unit .uname {
-  font-family: var(--display); font-size: 19px; letter-spacing: .03em;
+  font-family: var(--gothic); font-weight: 700; font-size: 15px; letter-spacing: .1em;
   text-transform: uppercase; flex: 1; min-width: 0;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .unit .wtxt { font-family: var(--display); font-size: 16px; }
-.unit .wtxt .cur { color: var(--good); }
+/* Wounds are wax and blood, not a battery gauge. */
+.unit .wtxt .cur { color: #c4b184; }
 .unit .wtxt.hurt .cur { color: var(--warn); }
-.unit .wtxt.crit .cur { color: var(--bad); }
+.unit .wtxt.crit .cur { color: var(--blood-hot); text-shadow: 0 0 10px rgba(168,53,42,.6); }
 .unit .wtxt .max { color: var(--ink-mute); }
 
 .pips { display: flex; gap: 3px; margin: 7px 0 5px; flex-wrap: wrap; }
@@ -291,9 +323,10 @@ h1, h2, h3, h4 {
   height: 8px; flex: 1 1 8px; min-width: 6px; max-width: 26px;
   background: #0a0907; border: 1px solid var(--line);
 }
-.pip.on { background: var(--good); border-color: #4b6a26; }
+.pip.on { background: #c4b184; border-color: #ddc99a; }
 .pip.on.hurt { background: var(--warn); border-color: #8a5c14; }
-.pip.on.crit { background: var(--bad); border-color: #6e241a; }
+.pip.on.crit { background: var(--blood-hot); border-color: #6e241a;
+               box-shadow: 0 0 8px -1px rgba(168, 53, 42, .8); }
 
 .ustats {
   display: flex; gap: 12px; font-size: 12px; color: var(--ink-dim);
@@ -423,8 +456,8 @@ h1, h2, h3, h4 {
   background: linear-gradient(180deg, #1b1710, transparent);
 }
 .modal .mtitle {
-  font-family: var(--display); font-size: 21px; letter-spacing: .06em;
-  text-transform: uppercase; line-height: 1.05;
+  font-family: var(--gothic); font-weight: 700; font-size: 17px; letter-spacing: .14em;
+  text-transform: uppercase; line-height: 1.15; color: var(--ink);
 }
 .modal .mstep {
   font-size: 10px; color: var(--gold); letter-spacing: .2em; font-weight: 800;
@@ -454,7 +487,7 @@ h1, h2, h3, h4 {
 .choice.disabled { opacity: .34; pointer-events: none; }
 .choice .cmain { flex: 1; min-width: 0; }
 .choice .cname {
-  font-family: var(--display); font-size: 16px; letter-spacing: .05em;
+  font-family: var(--gothic); font-weight: 700; font-size: 13.5px; letter-spacing: .1em;
   text-transform: uppercase; color: var(--ink);
 }
 .choice .cdesc { font-size: 11.5px; color: var(--ink-dim); margin-top: 3px; line-height: 1.4; }
@@ -738,9 +771,11 @@ h1, h2, h3, h4 {
   content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 2px; opacity: .55;
 }
 .wiztitle {
-  font-family: var(--display); font-size: 24px; letter-spacing: .12em;
+  font-family: var(--gothic); font-weight: 700; font-size: 19px; letter-spacing: .22em;
   text-transform: uppercase;
 }
+.wiztitle:before, .wiztitle:after { content: '\2720'; color: var(--blood-hot);
+  margin: 0 .5em; font-size: .8em; vertical-align: .12em; }
 .wiztitle span { color: var(--gold); }
 .wizstep {
   font-size: 10px; letter-spacing: .2em; color: var(--ink-mute); font-weight: 800; margin-top: 4px;
@@ -757,7 +792,7 @@ h1, h2, h3, h4 {
 .wizfoot .bigbtn { min-height: 54px; font-size: 17px; }
 
 .lead {
-  font-family: var(--display); font-size: 24px; letter-spacing: .04em;
+  font-family: var(--gothic); font-weight: 700; font-size: 18px; letter-spacing: .12em;
   text-transform: uppercase; margin: 6px 0 12px;
 }
 .lead.p0 { color: var(--p1); } .lead.p1 { color: var(--p2); }
@@ -799,7 +834,8 @@ h1, h2, h3, h4 {
     var(--plate-hot);
 }
 .misscard.bad { opacity: .45; }
-.mcname { font-family: var(--display); font-size: 22px; letter-spacing: .07em; text-transform: uppercase; }
+.mcname { font-family: var(--gothic); font-weight: 700; font-size: 17px;
+          letter-spacing: .16em; text-transform: uppercase; }
 .mcflav { font-size: 11.5px; font-style: italic; color: var(--ink-mute); margin: 4px 0 8px; }
 .mcsec { font-size: 11.5px; color: var(--ink-dim); line-height: 1.5; margin-bottom: 5px; }
 .mcsec b {
@@ -1077,3 +1113,64 @@ h1, h2, h3, h4 {
 }
 /* A marker that changes rolls rather than one you press. */
 .chip-s.marker { border-color: #5b6b7a; color: #a9bccd; background: #0c1116; }
+
+/* ===================================================================== dread
+   The difference between a machine's readout and a reliquary. */
+
+/* Section headings get an Imperial cross rather than a bar. */
+.setup h2:before,
+.chainbox .chead:before { content: '\2720 '; color: var(--blood-hot); opacity: .85; }
+.chainbox .chead:before { margin-right: 2px; font-size: .85em; }
+
+/* The head of a window is stained where it meets the body. */
+.modal .mhead {
+  position: relative;
+  background:
+    radial-gradient(120% 160% at 22% -30%, rgba(109, 26, 20, .3), transparent 60%),
+    linear-gradient(180deg, #1c1518, transparent);
+}
+.modal .mhead:after {
+  content: ''; position: absolute; left: 0; right: 0; bottom: -1px; height: 3px;
+  background:
+    radial-gradient(circle at 19px 0, var(--blood) 1.6px, transparent 2.1px) repeat-x,
+    radial-gradient(circle at 71px 0, var(--blood) 1.1px, transparent 1.5px) repeat-x;
+  background-size: 97px 3px, 97px 2px;
+  opacity: .55;
+}
+.modal .mstep { color: var(--blood-hot); }
+
+/* The dice readout glows like a lit taper, and the target number is the one
+   thing on screen that should feel warm. */
+.rollbox .big { text-shadow: 0 0 30px rgba(184, 145, 47, .55), 0 0 6px rgba(109, 26, 20, .6); }
+.rollbox .lbl { color: var(--ink-mute); }
+
+/* A unit that must act is being watched by something. */
+.unit.acting.ready { animation: dread 3.4s ease-in-out infinite; }
+@keyframes dread {
+  0%, 100% { border-color: var(--gold-dim);
+             box-shadow: var(--edge-top), 0 0 22px -10px rgba(184, 145, 47, .9); }
+  50%      { border-color: var(--gold);
+             box-shadow: var(--edge-top), 0 0 30px -6px rgba(168, 53, 42, .75); }
+}
+
+/* Kills and losses read in blood. */
+.centry.kill, .clast.kill { text-shadow: 0 0 12px rgba(168, 53, 42, .5); }
+.badge.must { box-shadow: 0 0 14px -4px rgba(168, 53, 42, .9); }
+
+/* The brass buttons are struck metal, not plastic. */
+.bigbtn, .btn.primary {
+  text-shadow: 0 1px 0 rgba(255, 240, 200, .35);
+}
+.btn.bad, .bigbtn.must {
+  background: linear-gradient(180deg, var(--blood-hot), #5e1710);
+  border-color: #c05244; color: #f3ded9;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, .6);
+}
+
+/* The winner is not congratulated so much as recorded. */
+.winner {
+  background: linear-gradient(90deg, #1a1207, #120d0c);
+  border-color: var(--gold-dim); color: var(--gold);
+  font-family: var(--gothic); letter-spacing: .2em;
+}
+.winner:before { content: '\2720 '; color: var(--blood-hot); }
