@@ -716,7 +716,7 @@ const Engine = (function () {
   /* ------------------------------------------------------------- wounds */
 
   /* Returns true if the unit was destroyed. */
-  function dealDamage(unitId, amount, sourcePlayer, describe) {
+  function dealDamage(unitId, amount, sourcePlayer, describe, sourceUnitId) {
     const g = S();
     const u = Store.unit(unitId);
     if (!u || !u.alive) return false;
@@ -730,6 +730,8 @@ const Engine = (function () {
       u.tokens = [];
       u.effects = [];
       fx('kill', { unitId: unitId, name: u.name });
+      const slayer = sourceUnitId ? Store.unit(sourceUnitId) : null;
+      if (slayer && slayer.id !== u.id) slayer.kills = (slayer.kills || 0) + 1;
       chainEntry(u.name + ' is DESTROYED and removed from the battlefield.', 'kill');
 
       // A destroyed relic carrier drops it where it fell.
@@ -797,6 +799,38 @@ const Engine = (function () {
     chainEntry(pname(playerId) + ' scores ' + amount + ' VP' + (why ? ' (' + why + ')' : '') +
       ' — now ' + g.players[playerId].vp + ' VP.', 'vp');
     checkVictory();
+  }
+
+  /* Everything the closing screen needs to say something true about the game.
+     Read from the board, never guessed. */
+  function victoryReport() {
+    const g = S();
+    const w = g.winner;
+    if (w === null || w === undefined) return null;
+    const l = Store.opponentOf(w);
+    const real = p => Store.unitsOf(p, false).filter(u => !u.marker);
+    const alive = p => real(p).filter(u => u.alive && !u.reserve || (u.alive && u.reserve));
+    const lostBy = p => real(p).filter(u => !u.alive).length;
+
+    const deadliest = real(w).slice().sort((a, b) => (b.kills || 0) - (a.kills || 0))[0];
+    const m = missionCard();
+    return {
+      winner: g.players[w].name,
+      loser: g.players[l].name,
+      winnerVP: g.players[w].vp,
+      loserVP: g.players[l].vp,
+      turns: g.turn.number,
+      mission: m ? m.name : null,
+      missionId: m ? m.id : null,
+      why: (g.gameOver && g.gameOver.why) || null,
+      wipedOut: alive(l).length === 0,
+      losses: lostBy(w),
+      enemyLosses: lostBy(l),
+      force: real(w).length,
+      enemyForce: real(l).length,
+      deadliest: (deadliest && (deadliest.kills || 0) > 0)
+        ? { name: deadliest.name, kills: deadliest.kills } : null
+    };
   }
 
   function checkVictory() {
@@ -884,7 +918,7 @@ const Engine = (function () {
         case 'vp_opponent': scoreVP(opp, v, ctx.label); break;
         case 'damage': {
           const hit = asList(resolveEffectTarget(e, ctx));
-          hit.forEach(tid => dealDamage(tid, v, me, ctx.label + ': '));
+          hit.forEach(tid => dealDamage(tid, v, me, ctx.label + ': ', ctx.sourceUnitId));
           ctx.damaged = (ctx.damaged || 0) + hit.length;
           break;
         }
@@ -2294,7 +2328,7 @@ const Engine = (function () {
       const victim = uname(f.targetId);
       const wpn = (Store.unit(f.attackerId) || { weapons: [] }).weapons
         .find(w => w.id === f.weaponId);
-      killed = dealDamage(f.targetId, result.damage, attackerPlayer);
+      killed = dealDamage(f.targetId, result.damage, attackerPlayer, '', f.attackerId);
       if (killed) runOnKillAbilities(f.attackerId, wpn, victim);
     }
 
@@ -2899,7 +2933,7 @@ const Engine = (function () {
     beginAction, beginAbility, unitActions, abilityActions, cancelFlow, flowBack, flowPickUnit,
     flowPickControlPoint, confirmSecure, confirmRelic,
     missionCard, missionEndTurnItems, toggleUnitFlag, controlledCount,
-    relicCarrier, setRelicCarrier, killValue, endGameNow,
+    relicCarrier, setRelicCarrier, killValue, endGameNow, victoryReport,
     confirmSimple, confirmPass, confirmPassDirect, passOptions, confirmOverwatch,
     abilityLetsThemReact,
     flowPickAbility, flowPickTarget, flowDoneTargets, confirmAbility,

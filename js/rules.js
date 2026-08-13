@@ -362,16 +362,79 @@ const RULES = (function () {
     return { target: clamped, capped: clamped !== raw, raw };
   }
 
+  /* --------------------------------------------------------------------
+     THE CLOSING WORD
+     Assembled from what actually happened, so it can never congratulate you
+     on a rout you did not achieve. Grim about the field, not gleeful about
+     the dead.
+     -------------------------------------------------------------------- */
+  function epitaph(r) {
+    if (!r) return { headline: 'THE FIELD IS SILENT', lines: [] };
+    const lines = [];
+    let headline = 'VICTORY';
+
+    /* How it ended decides the headline. */
+    if (r.wipedOut) {
+      headline = 'NOTHING LEFT STANDING';
+      lines.push('Not one of ' + r.loser + '\u2019s number answers the muster. ' +
+                 'The line did not bend; it ended.');
+    } else if (r.missionId === 'relic') {
+      headline = 'THE RELIC IS BORNE HOME';
+      lines.push('It is carried back through the wreckage, and ' + r.loser +
+                 ' is left to explain the loss to whatever they answer to.');
+    } else if (r.missionId === 'sabotage') {
+      headline = 'THE OBJECTIVE IS ASH';
+      lines.push('One target, correctly chosen. Everything else on that field was noise.');
+    } else if (r.missionId === 'hill') {
+      headline = 'THE HIGH GROUND HOLDS';
+      lines.push('They came up the slope for it, and they are still on the slope.');
+    } else if (r.missionId === 'secure') {
+      headline = 'THE GROUND IS TAKEN';
+      lines.push('Held, marker by marker, while ' + r.loser + ' counted their own dead.');
+    } else if (r.missionId === 'assassination') {
+      headline = 'THE NAME IS STRUCK OUT';
+      lines.push('A single life, and the war around it rearranged itself.');
+    } else if (r.winnerVP - r.loserVP <= 1) {
+      headline = 'A NARROW THING';
+      lines.push('One more turn and this would be a different report. ' +
+                 'It is not. ' + r.winner + ' holds the field.');
+    } else {
+      headline = 'THE FIELD IS HELD';
+      lines.push(r.winner + ' took what mattered and would not be moved from it.');
+    }
+
+    /* What it cost. */
+    if (r.losses === 0) {
+      lines.push('Not a single loss. Let the armourers be told, and the enemy.');
+    } else if (r.losses >= Math.ceil(r.force * 0.6)) {
+      lines.push('Bought dearly: ' + r.losses + ' of ' + r.force +
+                 ' did not walk away from it. Victory is not the same as mercy.');
+    } else if (r.losses > 0) {
+      lines.push(r.losses + ' of ' + r.force + ' will not be answering the next muster.');
+    }
+
+    /* Who did the work. */
+    if (r.deadliest) {
+      lines.push(r.deadliest.name + ' accounted for ' + r.deadliest.kills +
+                 (r.deadliest.kills === 1 ? ' of them' : ' of them') +
+                 '. Record the name.');
+    }
+
+    lines.push('Turn ' + r.turns + '. ' + r.winner + ' ' + r.winnerVP + ' \u2014 ' +
+               r.loser + ' ' + r.loserVP + '.');
+    return { headline: headline, lines: lines };
+  }
+
   const actionById = id => actions.find(a => a.id === id) || null;
   const reactionById = (id, range) =>
     (range === 'melee' ? meleeReactions : rangedReactions).find(r => r.id === id) || null;
 
   return {
     version: '1.0',
-    build: '2026-08-13c',
+    build: '2026-08-13d',
     defaultVPTarget: 10,
     actions, rangedReactions, meleeReactions, missions,
-    woundTarget, woundLabel, applyMod, actionById, reactionById, missionById,
+    woundTarget, woundLabel, applyMod, actionById, reactionById, missionById, epitaph,
 
     /* Ability trigger slots offered by the unit editor. */
     abilityTriggers: [

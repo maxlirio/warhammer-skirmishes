@@ -120,6 +120,25 @@ The running commentary sits at the bottom as a single line — the last thing th
 happened — and opens to the full history on a tap. It was taking a quarter of
 the screen before.
 
+## The end of it
+
+When somebody wins, the board goes behind a curtain: sparks are thrown, the
+skull rises, the wings unfold, and **VICTORY** is struck across the screen in
+brass with a sheen dragged over it.
+
+Underneath it, the app writes a short report — and it is **assembled from what
+actually happened**, so it can never congratulate you on a rout you did not
+achieve. It knows whether anything of theirs was left standing, which mission
+you were playing and how it ended, what the win cost you, whether it was a
+one-point thing or a foregone conclusion, and **which of your units did the most
+killing** — because the app has been counting since the first blow.
+
+*"Not one of Player 2's number answers the muster. The line did not bend; it
+ended. 1 of 5 will not be answering the next muster. Guardsman "Fred" 434-436
+accounted for 3 of them. Record the name."*
+
+**KEEP PLAYING** puts it away if you agreed a higher target.
+
 ## When a blow lands
 
 The app never rolls, but it does react. A hit throws **sparks** from where your

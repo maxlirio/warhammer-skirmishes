@@ -1400,3 +1400,135 @@ h1, h2, h3, h4 {
   .fxp, .fxsplat, .fxflash { display: none; }
   .unit.acting.ready, .pplate.active { animation: none; }
 }
+
+/* ================================================================= victory
+   Sparks, then the skull, then the wings, then the word. Everything is on a
+   delay from the moment the scene mounts, so it plays as one shot. */
+
+.victory {
+  position: fixed; inset: 0; z-index: 150;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: 20px 18px calc(20px + env(safe-area-inset-bottom));
+  /* The board goes away entirely — a curtain, not a tint. */
+  background:
+    radial-gradient(90% 55% at 50% 34%, rgba(184, 145, 47, .13), transparent 72%),
+    radial-gradient(130% 95% at 50% 42%, #150806 0%, #080505 55%, #030202 100%);
+  backdrop-filter: blur(7px) saturate(.5);
+  animation: vfade 700ms ease-out both;
+  overflow-y: auto;
+}
+@keyframes vfade { from { opacity: 0; } to { opacity: 1; } }
+
+/* Embers drifting up behind it all. */
+.vsky {
+  position: absolute; inset: 0; pointer-events: none; opacity: .5;
+  background-image:
+    radial-gradient(2px 2px at 12% 82%, rgba(230, 150, 60, .9), transparent 60%),
+    radial-gradient(1.6px 1.6px at 34% 91%, rgba(230, 170, 70, .8), transparent 60%),
+    radial-gradient(2.2px 2.2px at 61% 86%, rgba(220, 140, 50, .85), transparent 60%),
+    radial-gradient(1.4px 1.4px at 79% 94%, rgba(240, 180, 90, .8), transparent 60%),
+    radial-gradient(1.8px 1.8px at 91% 78%, rgba(220, 150, 60, .8), transparent 60%);
+  animation: vembers 9s linear infinite;
+}
+@keyframes vembers {
+  from { transform: translateY(0); opacity: .5; }
+  to   { transform: translateY(-70vh); opacity: 0; }
+}
+
+.vstage { position: relative; text-align: center; max-width: 560px; width: 100%; }
+
+/* --- the device ------------------------------------------------------- */
+.vaquila { width: min(86vw, 430px); height: auto; display: block; margin: 0 auto 6px; }
+.vaquila g { fill: var(--gold); }
+.vaquila .skull {
+  opacity: 0; transform-box: view-box; transform-origin: 100px 48px;
+  animation: vskull 720ms cubic-bezier(.2, .9, .3, 1.2) 380ms both;
+  filter: drop-shadow(0 0 18px rgba(184, 145, 47, .55));
+}
+@keyframes vskull {
+  0%   { opacity: 0; transform: scale(.2) translateY(14px); }
+  60%  { opacity: 1; transform: scale(1.12); }
+  100% { opacity: 1; transform: scale(1); }
+}
+/* The wings unfold from the centre. */
+.vaquila .wing {
+  opacity: 0; transform-box: view-box; transform-origin: 100px 48px;
+  animation: vwing 760ms cubic-bezier(.16, .8, .28, 1.05) 900ms both;
+  filter: drop-shadow(0 0 14px rgba(184, 145, 47, .4));
+}
+.vaquila .wing.right { animation-delay: 980ms; }
+@keyframes vwing {
+  0%   { opacity: 0; transform: scaleX(.04) scaleY(.7); }
+  70%  { opacity: 1; transform: scaleX(1.06) scaleY(1.02); }
+  100% { opacity: 1; transform: scaleX(1) scaleY(1); }
+}
+
+/* --- the word, struck in brass ---------------------------------------- */
+.vword {
+  font-family: var(--gothic); font-weight: 700;
+  font-size: clamp(38px, 13vw, 76px); letter-spacing: .18em; text-indent: .18em;
+  line-height: 1; margin-top: 4px;
+  background: linear-gradient(178deg,
+    #6b5518 0%, #d9b45a 26%, #fff3cf 42%, #d9b45a 56%, #8a6c22 74%, #5a4614 100%);
+  -webkit-background-clip: text; background-clip: text;
+  color: transparent; -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 2px 0 rgba(0, 0, 0, .8)) drop-shadow(0 0 26px rgba(184, 145, 47, .45));
+  opacity: 0;
+  animation: vword 700ms cubic-bezier(.2, .8, .25, 1) 1500ms both;
+  position: relative;
+}
+@keyframes vword {
+  0%   { opacity: 0; transform: scale(1.5); letter-spacing: .6em; filter: blur(9px); }
+  100% { opacity: 1; transform: scale(1); letter-spacing: .18em; filter: blur(0); }
+}
+/* A sheen dragged across the metal once it has landed. */
+.vword:after {
+  content: ''; position: absolute; inset: 0;
+  background: linear-gradient(105deg, transparent 38%, rgba(255, 250, 235, .75) 50%, transparent 62%);
+  -webkit-background-clip: text; background-clip: text;
+  color: transparent;
+  animation: vsheen 1500ms ease-in-out 2250ms;
+}
+@keyframes vsheen {
+  from { transform: translateX(-115%); }
+  to   { transform: translateX(115%); }
+}
+
+.vwho {
+  font-family: var(--display); font-size: 20px; letter-spacing: .3em; margin-top: 10px;
+  opacity: 0; animation: vrise 600ms ease-out 1950ms both;
+}
+.vwho.p0 { color: var(--p1); } .vwho.p1 { color: var(--p2); }
+
+.vhead {
+  font-family: var(--gothic); font-weight: 700; font-size: 15px; letter-spacing: .2em;
+  color: var(--blood-hot); margin-top: 16px;
+  opacity: 0; animation: vrise 600ms ease-out 2050ms both;
+}
+.vhead:before, .vhead:after { content: '\2720'; margin: 0 .6em; opacity: .8; font-size: .85em; }
+
+.vlines { margin: 12px auto 0; max-width: 460px; }
+.vlines p {
+  font-size: 13px; line-height: 1.6; color: var(--ink-dim); margin: 0 0 9px;
+  opacity: 0; animation: vrise 620ms ease-out both;
+}
+.vlines p:last-child {
+  color: var(--ink-mute); font-family: var(--display); letter-spacing: .14em;
+  font-size: 12px; margin-top: 14px;
+}
+@keyframes vrise {
+  from { opacity: 0; transform: translateY(9px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.vfoot {
+  display: flex; gap: 9px; width: 100%; max-width: 460px; margin-top: 22px;
+  opacity: 0; animation: vrise 600ms ease-out 3400ms both;
+}
+
+/* Asked for less movement: the scene simply is, without the performance. */
+@media (prefers-reduced-motion: reduce) {
+  .victory, .vsky, .vaquila .skull, .vaquila .wing,
+  .vword, .vword:after, .vwho, .vhead, .vlines p, .vfoot { animation: none; opacity: 1; }
+  .vword { filter: none; }
+}

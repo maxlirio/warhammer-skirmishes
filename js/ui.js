@@ -23,6 +23,14 @@ const UI = (function () {
     const keep = captureScroll();
     app.innerHTML = playScreen(g) + overlay(g);
     restoreScroll(keep);
+
+    /* The victory scene plays once, not on every redraw behind it. */
+    const w = (g.winner === null || g.winner === undefined) ? null : g.winner;
+    if (w !== null && modal !== 'win-dismissed') {
+      if (victoryShownFor !== w) { victoryShownFor = w; playVictory(); }
+    } else if (w === null) {
+      victoryShownFor = null;
+    }
   }
 
   /* Re-rendering replaces the whole screen, which would throw away where each
@@ -570,7 +578,10 @@ const UI = (function () {
     if (modal === 'newbutton') return wrap(newButtonModal(g));
     if (modal && modal.unit) return wrap(unitModal(g, modal.unit));
     if (g.pending && modal !== 'phase-dismissed') return wrap(phaseModal(g));
-    if (g.winner !== null && g.winner !== undefined && modal !== 'win-dismissed') return wrap(winModal(g));
+    if (g.winner !== null && g.winner !== undefined && modal !== 'win-dismissed') {
+      return victoryScene(g);
+    }
+    if (g.gameOver && modal !== 'win-dismissed') return wrap(winModal(g));
     return '';
   }
 
@@ -1811,6 +1822,69 @@ const UI = (function () {
               '<div class="cdesc">Restores the unit at 1 wound. No VP is taken back.</div></div></button>') +
       '</div>' +
       '<div class="mfoot"><button class="btn ghost" data-act="close">CLOSE</button></div>';
+  }
+
+  /* ================================================================ VICTORY
+     Sparks, then the skull, then the wings open, then the word — and last, a
+     report assembled from what actually happened on the table. */
+
+  let victoryShownFor = null;
+
+  const AQUILA_SVG =
+    '<svg class="vaquila" viewBox="0 0 200 96" aria-hidden="true">' +
+      '<g class="wing left">' +
+        '<path d="M78 34 L10 20 L12 31 L76 44 Z"/>' +
+        '<path d="M78 46 L20 40 L22 51 L76 55 Z"/>' +
+        '<path d="M78 58 L34 60 L36 70 L76 67 Z"/>' +
+      '</g>' +
+      '<g class="wing right">' +
+        '<path d="M122 34 L190 20 L188 31 L124 44 Z"/>' +
+        '<path d="M122 46 L180 40 L178 51 L124 55 Z"/>' +
+        '<path d="M122 58 L166 60 L164 70 L124 67 Z"/>' +
+      '</g>' +
+      '<g class="skull">' +
+        '<path fill-rule="evenodd" d="M100 14 C86 14 75 25 75 40 c0 9 4 17 11 21 l-2 8 h32 ' +
+          'l-2-8 c7-4 11-12 11-21 0-15-11-26-25-26 Z M89 38 a6.5 6.5 0 1 0 0.01 0 Z ' +
+          'M111 38 a6.5 6.5 0 1 0 0.01 0 Z M100 50 l-4 9 h8 Z"/>' +
+        '<path d="M88 76 h24 v4 h-24 Z M92 82 h16 v3 h-16 Z"/>' +
+      '</g>' +
+    '</svg>';
+
+  function victoryScene(g) {
+    const w = g.players[g.winner];
+    const report = Engine.victoryReport();
+    const words = RULES.epitaph(report);
+    return '<div class="victory" data-overlay="1">' +
+      '<div class="vsky"></div>' +
+      '<div class="vstage">' +
+        AQUILA_SVG +
+        '<div class="vword">VICTORY</div>' +
+        '<div class="vwho p' + g.winner + '">' + esc(w.name) + '</div>' +
+        '<div class="vhead">' + esc(words.headline) + '</div>' +
+        '<div class="vlines">' +
+          words.lines.map((l, i) => '<p style="animation-delay:' +
+            (2150 + i * 420) + 'ms">' + esc(l) + '</p>').join('') +
+        '</div>' +
+      '</div>' +
+      '<div class="vfoot">' +
+        '<button class="btn ghost sm" data-act="dismisswin">KEEP PLAYING</button>' +
+        '<button class="btn primary" data-act="newgame">NEW GAME</button>' +
+      '</div>' +
+    '</div>';
+  }
+
+  /* Sparks thrown across the top of the scene, once, as it opens. */
+  function playVictory() {
+    if (!fxOn()) return;
+    const w = window.innerWidth, h = window.innerHeight;
+    [0, 140, 260, 380, 520].forEach(function (delay, i) {
+      setTimeout(function () {
+        burst({ x: w * (0.2 + Math.random() * 0.6), y: h * (0.22 + Math.random() * 0.18) },
+              14, 'spark', 240, 150);
+      }, delay);
+    });
+    setTimeout(() => shake('md'), 900);      // the wings snap open
+    setTimeout(() => shake('sm'), 1500);     // the word lands
   }
 
   function winModal(g) {

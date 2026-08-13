@@ -2052,6 +2052,49 @@ console.log('\n== Smoke Bomb: a roll, a marker, and an aura the marker owns ==')
       .filter(t => t.label === 'SMOKE BOMB').length, 0);
 })();
 
+
+console.log('\n== the closing word is assembled from the game, not guessed ==');
+(function () {
+  const us = [
+    mkUnit(0, 'A', 2, 4, [{ name: 'Blade', type: 'melee', hit: 2, strength: 8, damage: 4 }], []),
+    mkUnit(0, 'B', 2, 4, [{ name: 'Blade', type: 'melee', hit: 2, strength: 8, damage: 4 }], []),
+    mkUnit(1, 'X', 1, 4, [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], [])
+  ];
+  Engine.startGame({ playerNames: ['One', 'Two'], vpTarget: 10, firstPlayer: 0,
+                     mission: { id: null } }, us);
+  Engine.confirmStartPhase();
+  Engine.adjustAP(0, 4);
+  Engine.beginAction('fight', U('A').id);
+  Engine.flowPickAttackTarget(U('X').id);
+  Engine.flowPickReaction('none');
+  Engine.flowHit(true);
+  Engine.flowWound(true);
+  check('the kill is credited to the unit that struck', U('A').kills, 1);
+
+  Engine.endGameNow('every enemy destroyed');
+  const r = Engine.victoryReport();
+  check('the report knows who won', r.winner, 'One');
+  check('and that nothing of theirs is left', r.wipedOut, true);
+  check('and that we lost nobody', r.losses, 0);
+  check('and who did the work', r.deadliest.name, 'A');
+
+  const e = RULES.epitaph(r);
+  check('so the headline says as much', e.headline, 'NOTHING LEFT STANDING');
+  check('it mentions the loser by name',
+    /Two/.test(e.lines.join(' ')), true);
+  check('it notes the clean sheet',
+    /Not a single loss/.test(e.lines.join(' ')), true);
+
+  /* A different game gets a different word. */
+  const close = RULES.epitaph({ winner: 'One', loser: 'Two', winnerVP: 10, loserVP: 9,
+    turns: 12, missionId: null, wipedOut: false, losses: 3, force: 5, deadliest: null });
+  check('a one-point game is not a rout', close.headline, 'A NARROW THING');
+  check('and it counts the cost',
+    /3 of 5/.test(close.lines.join(' ')), true);
+  check('an empty report still says something',
+    RULES.epitaph(null).headline, 'THE FIELD IS SILENT');
+})();
+
 console.log('\n== summary ==');
 console.log((checks - fails) + '/' + checks + ' checks passed');
 process.exit(fails ? 1 : 0);
