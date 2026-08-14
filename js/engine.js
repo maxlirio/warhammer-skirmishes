@@ -2159,8 +2159,12 @@ const Engine = (function () {
          but the 3" still has to be walked first, and that can be shot at. */
       if (r.cancelsAttack) f.cancelsAttack = true;
 
-      /* A reaction that moves the defender can walk them into a waiting
-         trigger — DODGE 1", DIVE 3", WITHDRAW 3". */
+      /* WITHDRAW's 3" is taken after the attack, and only if the unit is still
+         standing — so it is remembered rather than walked now. */
+      if (r.movesAfter) f.movesAfter = true;
+
+      /* A reaction that moves the defender before the dice can walk them into
+         a waiting trigger — DODGE 1", DIVE 3". */
       if (r.moves) {
         noteMoved(f.targetId);
         const parkedR = JSON.parse(JSON.stringify(f));
@@ -2474,12 +2478,23 @@ const Engine = (function () {
       return;
     }
 
-    afterAction({
+    const finish = {
       actor: attackerPlayer,
       endsChain: endsChain,
       forcedUnitId: forcedUnitId,
       reason: killed ? 'target destroyed' : (f.endsChainOverride ? 'WITHDRAW' : null)
-    });
+    };
+
+    /* WITHDRAW: the survivor pulls back now, and that 3" can be shot at on the
+       way. A unit that did not survive never withdrew at all. */
+    if (f.movesAfter && !killed && !result.cancelled) {
+      const puller = f.targetId;
+      noteMoved(puller);
+      chainEntry(uname(puller) + ' pulls back 3".', 'reaction');
+      if (openOverwatchCheck(puller, Object.assign({ type: 'simple' }, finish))) return;
+    }
+
+    afterAction(finish);
   }
 
   /* A free attack: no AP, no RP for the defender, optional roll modifier, and

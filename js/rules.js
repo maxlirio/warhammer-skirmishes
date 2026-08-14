@@ -29,7 +29,7 @@ const RULES = (function () {
       flavour: '“Positioning is everything.”',
       text: 'Move a friendly unit up to its Move characteristic. The action chain ends.',
       prompt: 'Move the unit up to its Move characteristic on the tabletop.',
-      endsChain: true, opponentGainsAP: 0, onlyOnYourTurn: true,
+      endsChain: true, opponentGainsAP: 0,
       movesUnit: true, expiresOverwatch: true
     },
     {
@@ -182,7 +182,9 @@ const RULES = (function () {
       selfEffect: { label: '+1 to hit', duration: 'chain', hitBonus: 1,
                     detail: 'This unit has +1 to hit until the end of this action chain (EVADE).' } },
 
-    { id: 'withdraw', name: 'WITHDRAW', cost: 1, endsChain: true, moves: true,
+    /* The 3" happens AFTER the attack, and only if the unit is still there —
+       so it is `movesAfter`, not `moves`. */
+    { id: 'withdraw', name: 'WITHDRAW', cost: 1, endsChain: true, movesAfter: true,
       flavour: '“Courage isn’t always wise.”',
       text: 'If your unit survives this attack, it moves 3". End the action chain.',
       onSurviveTabletop: 'Move the defender 3".' },
@@ -228,7 +230,7 @@ const RULES = (function () {
       flavour: '“The high ground belongs to whoever can hold it.”',
       battlefield: ['Place the tallest terrain near the center of the battlefield. It’s highest ' +
                     'point is called the HIGH GROUND.'],
-      objective: ['At the end of each turn, the player with a unit on the HIGH GROUND gains 1 VP.',
+      objective: ['At the end of your turn, you gain 1 VP if you have a unit on the HIGH GROUND.',
                   'The unit on the HIGH GROUND is worth 2 VP instead of 1 VP when destroyed.',
                   'The game ends when a player reaches 10 VP.'],
       special: ['None.'],
@@ -242,7 +244,7 @@ const RULES = (function () {
       },
       endTurn: [{ id: 'hill-vp', name: 'The HIGH GROUND', mode: 'auto',
                   score: 'unitFlag', flag: 'highground', vp: 1,
-                  text: 'At the end of each turn, the player with a unit on the HIGH GROUND gains 1 VP.' }]
+                  text: 'At the end of your turn, you gain 1 VP if you have a unit on the HIGH GROUND.' }]
     },
     {
       id: 'ambush', name: 'AMBUSH',
@@ -289,14 +291,14 @@ const RULES = (function () {
       endTurn: [{ id: 'assn-obj', name: 'The centre objective', mode: 'ask', ask: 'who', vp: 1,
                   question: 'Who has the most OC at the objective in the centre?',
                   text: 'Standard scoring of objectives: 1 VP for the objective in the centre of ' +
-                        'the battlefield, to whoever has the most OC there.' }]
+                        'the battlefield, to you if you have the most OC there.' }]
     },
     {
       id: 'secure', name: 'SECURE THE AREA',
       flavour: '“Hold the ground.”',
       battlefield: ['Place three objective markers: one in the center and one on each side of the ' +
                     'battlefield.'],
-      objective: ['At the end of each turn, a player gains 1 VP for each objective they control.',
+      objective: ['At the end of your turn, you gain 1 VP for each objective you control.',
                   'The game ends when a player reaches 10 VP.'],
       special: ['A unit may spend 1 AP to SECURE an objective if it is within 3" of it and ' +
                 'has the most OC within 3" of it.',
@@ -309,15 +311,15 @@ const RULES = (function () {
       extraActions: ['secure'],
       endTurn: [{ id: 'secure-vp', name: 'Objectives controlled', mode: 'auto',
                   score: 'controlPoints', vp: 1,
-                  text: 'At the end of each turn, a player gains 1 VP for each objective they ' +
+                  text: 'At the end of your turn, you gain 1 VP for each objective you ' +
                         'control. The app counts the ones it watched being SECURED.' }]
     },
     {
       id: 'relic', name: 'THE RELIC',
       flavour: '“Dat’s MY shiny, ya hear me?”',
       battlefield: ['Place one RELIC marker in the center of the battlefield.'],
-      objective: ['At the end of each turn, the player carrying the RELIC scores 1 VP.',
-                  'If the carrier ends a turn in their own deployment zone, that player scores ' +
+      objective: ['At the end of your turn, you score 1 VP if you are carrying the RELIC.',
+                  'If your carrier ends your turn in your own deployment zone, you score ' +
                   '3 VP and the RELIC is returned to the center of the battlefield.',
                   'The game ends when a player reaches 10 VP.'],
       special: ['A unit can spend 1 AP to pick up the RELIC if they are within 3" of it.',
@@ -335,8 +337,8 @@ const RULES = (function () {
       endTurn: [
         { id: 'relic-hold', name: 'The RELIC is carried', mode: 'auto',
           score: 'relicHeld', vp: 1,
-          text: 'At the end of each turn, the player carrying the RELIC scores 1 VP. The app ' +
-                'knows who has it.' },
+          text: 'At the end of your turn, you score 1 VP if you are carrying the RELIC. The ' +
+                'app knows who has it.' },
         { id: 'relic-home', name: 'The RELIC brought home', mode: 'ask', ask: 'yesno',
           vp: 3, onlyIfCarried: true, scorer: 'relicCarrier', returnsRelic: true,
           question: 'Did the carrier end this turn in their own deployment zone?',
@@ -451,7 +453,7 @@ const RULES = (function () {
 
   return {
     version: '1.0',
-    build: '2026-08-14a',
+    build: '2026-08-14b',
     defaultVPTarget: 10,
     actions, rangedReactions, meleeReactions, missions,
     woundTarget, woundLabel, applyMod, actionById, reactionById, missionById, epitaph,

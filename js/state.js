@@ -312,7 +312,7 @@ const PRESETS = [
       notes: '434-434 almost removed him from his squad after an unpleasant incident involving ' +
              'his quick trigger.',
       weapons: [
-        { name: 'Modded Lasgun', type: 'ranged', range: 12, hit: 5, strength: 4, damage: 2 },
+        { name: 'Modded Lasgun', type: 'ranged', range: 12, hit: 4, strength: 4, damage: 2 },
         { name: 'Leathered Fist', type: 'melee', range: 1, hit: 4, strength: 2, damage: 1 }
       ],
       abilities: [

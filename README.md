@@ -275,6 +275,13 @@ simply does not appear in the list. Both of Mikaaaaghhh's answer shooting only:
 with him, and **Get In Front of Me** needs a line of fire to step into. It is a
 dropdown on any RP ability you build yourself.
 
+**MOVE** may be taken on anybody's turn now, not only your own.
+
+**WITHDRAW**'s 3" is taken *after* the attack and only if the unit survived, so
+it is never asked the line-of-sight question — the attack is already over by
+then, and a unit that died never withdrew at all. That pull-back is what a
+waiting enemy overwatch gets to shoot at.
+
 **DIVE** is only available when it *ends* the attack: "you may not do this
 Reaction if it still allows your opponent to resolve the attack." So taking it at
 all means the attack produces nothing — though the 3" is still walked first, and
@@ -369,7 +376,8 @@ The official line-ups ship with every ability wired up, not just written out.
 
 **Astra Militarum** — Guardsmen "Alfred", "Al", "Fred" and "Nick", and Commissar
 Briant. The Commissar's 6" aura and his WITHDRAW ban, Nick's Cloaked and Grenade,
-Fred's Choke Hold and his *Snap Shot* (which the app treats as an overwatch),
+Fred's Modded Lasgun (12" / 4+ / S4 / D2 after playtesting), his Choke Hold and
+his *Snap Shot* (which the app treats as an overwatch),
 Alfred's **Smoke Bomb** — 2D6" to throw it, then a marker
 that makes any shot whose line of sight passes through it 2 harder until the end
 of the turn — and Al's **Kill Count**, which the app fires by itself the moment his Bayonet

@@ -663,7 +663,7 @@ const cultist = U('Cultist');
 
 console.log('\n== the datasheets ==');
 check('Fred\u2019s Modded Lasgun', fred.weapons.map(w => w.name + ' ' + w.hit + '+/S' + w.strength + '/D' + w.damage),
-  ['Modded Lasgun 5+/S4/D2', 'Leathered Fist 4+/S2/D1']);
+  ['Modded Lasgun 4+/S4/D2', 'Leathered Fist 4+/S2/D1']);
 check('Alfred carries a Lasgun and a Dagger',
   alfred.weapons.map(w => w.name), ['Lasgun', 'Dagger']);
 check('the Commissar\u2019s Bolt Pistol is 2+', commissar.weapons[0].hit, 2);
@@ -800,7 +800,7 @@ check('with no RP for the defender', G().flow.noReaction, true);
 check('and no to-hit penalty', G().flow.sourceHitMod, 0);
 Engine.flowPickAttackTarget(cultist.id);
 Engine.flowPickWeapon(fred.weapons[0].id);
-check('Modded Lasgun hits on 5+', Engine.attackNumbers().hitTarget, 5);
+check('Modded Lasgun hits on 4+', Engine.attackNumbers().hitTarget, 4);
 Engine.flowHit(false);
 check('the button is spent for the game',
   Engine.usableFreeAbilities(U('Guardsman "Fred" 434-436')).map(a => a.name), ['Kill Count'].slice(0, 0));
@@ -2270,6 +2270,92 @@ console.log('\n== DUCK can end an attack before the dice ==');
   check('and the target gains nothing from an attack that never resolved',
     ap(1), before.theirs);
   check('but the chain carries on', G().chain.active, true);
+})();
+
+
+console.log('\n== WITHDRAW pulls back after the attack, and only if it survived ==');
+(function () {
+  const us = [
+    /* WITHDRAW is a melee reaction, so the attacker needs a blade. */
+    mkUnit(0, 'Shooter', 3, 4,
+      [{ name: 'Blade', type: 'melee', hit: 3, strength: 4, damage: 1 }], []),
+    mkUnit(0, 'Watcher', 3, 4,
+      [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], []),
+    mkUnit(1, 'Runner', 3, 4,
+      [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], [])
+  ];
+  Engine.startGame({ playerNames: ['One', 'Two'], vpTarget: 10, firstPlayer: 0,
+                     mission: { id: null } }, us);
+  Engine.confirmStartPhase();
+  Engine.adjustAP(0, 6);
+  Engine.beginAction('overwatch');
+  Engine.flowPickUnit(U('Watcher').id);
+  Engine.confirmOverwatch();
+
+  /* It survives: the attack resolves first, THEN it pulls back — and that 3"
+     is what the waiting overwatch gets to shoot at. */
+  Engine.forceControl(0, null);
+  Engine.adjustAP(0, 6);
+  Engine.beginAction('fight', U('Shooter').id);
+  Engine.flowPickAttackTarget(U('Runner').id);
+  Engine.flowPickReaction('withdraw');
+  check('choosing it does not move anybody yet', G().flow.kind, 'attack');
+  check('it goes straight to the roll', G().flow.step, 'hit');
+  check('and nothing is waiting to fire', G().flow.kind !== 'owcheck', true);
+  Engine.flowHit(false);
+  check('once the shot is done, the pull-back is checked', G().flow.kind, 'owcheck');
+  check('and it is the withdrawing unit that moved', G().flow.moverId, U('Runner').id);
+  Engine.flowFireOverwatch();
+  check('declining lets the withdrawal stand', G().flow, null);
+  check('and WITHDRAW ended the chain', G().chain.active, false);
+
+  /* It does not survive: it never withdrew, so nothing is checked. */
+  Engine.forceControl(0, null);
+  Engine.adjustAP(0, 6);
+  Engine.beginAction('overwatch');
+  Engine.flowPickUnit(U('Watcher').id);
+  Engine.confirmOverwatch();
+  Engine.forceControl(0, null);
+  Engine.adjustAP(0, 6);
+  deathsDoor(U('Runner').id);
+  Engine.beginAction('fight', U('Shooter').id);
+  Engine.flowPickAttackTarget(U('Runner').id);
+  Engine.flowPickReaction('withdraw');
+  Engine.flowHit(true);
+  Engine.flowWound(true);
+  check('the runner is down', U('Runner').alive, false);
+  check('a unit that died never withdrew, so nothing is checked', G().flow, null);
+  check('and the watcher still has its token waiting',
+    (U('Watcher').tokens || []).length, 1);
+})();
+
+
+console.log('\n== MOVE is available on anybody’s turn ==');
+(function () {
+  const us = [
+    mkUnit(0, 'A', 3, 4, [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], []),
+    mkUnit(1, 'B', 3, 4, [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], [])
+  ];
+  Engine.startGame({ playerNames: ['One', 'Two'], vpTarget: 10, firstPlayer: 0,
+                     mission: { id: null } }, us);
+  Engine.confirmStartPhase();
+  check('no action is restricted to its own turn any more',
+    RULES.actions.filter(a => a.onlyOnYourTurn).map(a => a.id), []);
+
+  /* Shoot at them so they are the ones responding inside our chain. */
+  Engine.adjustAP(0, 4);
+  Engine.beginAction('shoot', U('A').id);
+  Engine.flowPickAttackTarget(U('B').id);
+  Engine.flowPickReaction('none');
+  Engine.flowHit(false);
+  check('the responder is up, and it is not their turn', Engine.controlMode(), 'reacting');
+  Engine.adjustAP(1, 2);
+  check('MOVE is on their list all the same',
+    Engine.unitActions(U('B').id).some(a => a.id === 'move'), true);
+  Engine.beginAction('move', U('B').id);
+  Engine.confirmSimple();
+  check('and it goes through', G().flow, null);
+  check('ending the chain as MOVE does', G().chain.active, false);
 })();
 
 console.log('\n== summary ==');
