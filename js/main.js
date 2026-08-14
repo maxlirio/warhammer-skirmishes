@@ -230,6 +230,7 @@
 
       /* ---- flow navigation ---- */
       case 'roll':          Engine.flowRoll(Number(p[1])); return;
+      case 'los':           Engine.flowLoS(p[1] === '1'); return;
       case 'chargefailed':  Engine.flowChargeFailed(); return;
       case 'flowback': UI.clearDamageDraft(); Engine.flowBack(); return;
       case 'owpick': Engine.flowToggleOverwatch(p[1], p[2], p[3] === 'a'); return;

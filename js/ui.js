@@ -1073,8 +1073,9 @@ const UI = (function () {
     if (f.step === 'point') {
       return head('SECURE', 'WHICH OBJECTIVE?') +
         '<div class="mbody">' +
-          '<div class="noteline">You have checked on the table that ' + esc(Store.unit(f.unitId).name) +
-            ' can secure it. The app just remembers who holds it.</div>' +
+          '<div class="noteline warn">Two things only you can see: ' +
+            esc(Store.unit(f.unitId).name) + ' must be <b>within 3"</b> of it, and your side ' +
+            'must have the <b>most OC within 3"</b> of it.</div>' +
           cps.map(c => '<button class="choice" data-act="pickcp:' + c.id + '">' +
             '<div class="cmain"><div class="cname">' + esc(c.label) + '</div>' +
             '<div class="cdesc">' + (c.controller === null || c.controller === undefined
@@ -1087,6 +1088,7 @@ const UI = (function () {
         '<div class="rollbox"><div class="lbl">' + esc(Store.unit(f.unitId).name) + '</div>' +
           '<div class="big" style="font-size:20px">' + esc(cp ? cp.label : '') + '</div>' +
           '<div class="sub">It stays yours until an enemy SECURES it.</div></div>' +
+        '<div class="noteline warn">Within 3", and the most OC within 3". You have checked both.</div>' +
         '<div class="noteline tip">Costs 1 AP. At the end of each turn you score 1 VP for every ' +
           'objective you hold — the app will count them for you.</div>' +
       '</div>' +
@@ -1449,6 +1451,27 @@ const UI = (function () {
     }
 
     if (f.step === 'roll') return rollFlow(g, f, title, crumb);
+
+    /* DUCK: the one attack that can end before the dice, and only the two of
+       you can see whether it does. */
+    if (f.step === 'los') {
+      return head(title, 'CAN THEY STILL BE SEEN?') + crumb +
+        '<div class="mbody">' +
+          '<div class="rollbox">' +
+            '<div class="lbl">' + esc((attacker || {}).name || '').toUpperCase() + ' LOOKS FOR</div>' +
+            '<div class="big" style="font-size:22px">' + esc((target || {}).name || '') + '</div>' +
+            '<div class="sub">DUCK is already worth -1 to the Wound roll. But if you cannot ' +
+              'see this unit\u2019s base, the attack cannot be resolved at all.</div>' +
+          '</div>' +
+          '<div class="noteline tip">Nothing comes of an attack that cannot be resolved — no ' +
+            'damage, no VP, and not even the AP the target would have gained. The action chain ' +
+            'carries on.</div>' +
+        '</div>' +
+        '<div class="mfoot">' +
+          '<button class="btn bad" data-act="los:0">OUT OF SIGHT</button>' +
+          '<button class="btn good" data-act="los:1">STILL IN SIGHT</button>' +
+        '</div>';
+    }
 
     if (f.step === 'target') {
       // A unit in RESERVE is not on the table, so it cannot be shot at.

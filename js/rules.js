@@ -93,20 +93,26 @@ const RULES = (function () {
     {
       id: 'secure', name: 'SECURE', cost: 1, kind: 'passive', flow: 'secure',
       mission: 'secure',
-      short: 'Take control of an objective marker. It stays yours until an enemy SECURES it.',
+      short: 'Within 3" of an objective and holding the most OC there, take it. ' +
+             'It stays yours until an enemy SECURES it.',
       flavour: '“Ours now.”',
-      text: 'A unit may spend 1 AP to SECURE an objective. A SECURED objective remains controlled ' +
-            'by the player that SECURED it until an enemy SECURES it.',
+      text: 'A unit may spend 1 AP to SECURE an objective if it is within 3" of that objective ' +
+            'and its side has the most OC within 3" of it. A SECURED objective remains ' +
+            'controlled by the player that SECURED it until an enemy SECURES it.',
+      prompt: 'Check it on the table: within 3" of the objective, and the most OC within 3" of it.',
       endsChain: false, opponentGainsAP: 0
     },
     {
       id: 'relic', name: 'PICK UP THE RELIC', cost: 1, kind: 'passive', flow: 'relic',
       mission: 'relic',
-      short: 'Take the RELIC. Its carrier cannot use OVERWATCH.',
+      short: 'Take the RELIC. It costs you 2" of Move, OVERWATCH and CHARGE — and any ' +
+             'damage makes you drop it.',
       flavour: '“Mine.”',
-      text: 'A unit can spend 1 AP to pick up the RELIC if they are within 3" of it. Units with ' +
-            'the RELIC cannot use OVERWATCH. If the carrier is destroyed, place the RELIC within ' +
-            '1" of where it was destroyed.',
+      text: 'A unit can spend 1 AP to pick up the RELIC if they are within 3" of it. A unit ' +
+            'carrying the RELIC has -2" to its Move characteristic and cannot use OVERWATCH or ' +
+            'CHARGE. If it takes any damage it drops the RELIC where it stands; if it is ' +
+            'destroyed, place the RELIC within 1" of where it fell.',
+      prompt: 'You are within 3" of it. From here it slows this unit, and it will drop it if hurt.',
       endsChain: false, opponentGainsAP: 0
     },
     {
@@ -136,11 +142,12 @@ const RULES = (function () {
       text: 'Subtract 1 from the attacker\'s Hit roll. Move 1".',
       tabletop: 'Move the defender 1".' },
 
-    { id: 'duck', name: 'DUCK', cost: 1, woundMod: -1,
+    { id: 'duck', name: 'DUCK', cost: 1, woundMod: -1, losCheck: true,
       flavour: '“GET DOWN YOU IDIOT!”',
-      text: 'Subtract 1 from the attacker\'s Wound roll. This unit cannot move for your next AP.',
-      selfEffect: { label: 'Cannot move', duration: 'nextAP',
-                    detail: 'This unit cannot move for your next AP (DUCK).' } },
+      text: 'Subtract 1 from the attacker\'s Wound roll. If your opponent cannot see this ' +
+            'unit\u2019s base with their LOS, the attack cannot be resolved.',
+      tabletop: 'Get down behind whatever there is. If the attacker cannot see this unit\u2019s ' +
+                'base from where they are, the attack is over before it starts.' },
 
     { id: 'dive', name: 'DIVE', cost: 1, moves: true,
       flavour: '“Who cares if your knees get dirty?!”',
@@ -291,7 +298,8 @@ const RULES = (function () {
                     'battlefield.'],
       objective: ['At the end of each turn, a player gains 1 VP for each objective they control.',
                   'The game ends when a player reaches 10 VP.'],
-      special: ['A unit may spend 1 AP to SECURE an objective.',
+      special: ['A unit may spend 1 AP to SECURE an objective if it is within 3" of it and ' +
+                'has the most OC within 3" of it.',
                 'A SECURED objective remains controlled by the player that SECURED it until an ' +
                 'enemy SECURES it.'],
       vpTarget: 10,
@@ -308,21 +316,33 @@ const RULES = (function () {
       id: 'relic', name: 'THE RELIC',
       flavour: '“Dat’s MY shiny, ya hear me?”',
       battlefield: ['Place one RELIC marker in the center of the battlefield.'],
-      objective: ['If a carrier of the RELIC reaches their side of the battlefield, that player ' +
-                  'scores 3 VP and the game ends.'],
-      special: ['Units with the RELIC cannot use OVERWATCH.',
-                'A unit can spend 1 AP to pick up the RELIC if they are within 3" of it.',
-                'If the carrier is destroyed, place the RELIC within 1" where it was destroyed.'],
-      vpTarget: null,
-      endsWhen: 'a RELIC carrier reaches their own side of the battlefield',
-      endsShort: 'RELIC CARRIED HOME',
+      objective: ['At the end of each turn, the player carrying the RELIC scores 1 VP.',
+                  'If the carrier ends a turn in their own deployment zone, that player scores ' +
+                  '3 VP and the RELIC is returned to the center of the battlefield.',
+                  'The game ends when a player reaches 10 VP.'],
+      special: ['A unit can spend 1 AP to pick up the RELIC if they are within 3" of it.',
+                'A unit carrying the RELIC has -2" to its Move characteristic, and cannot use ' +
+                'OVERWATCH or CHARGE.',
+                'If the carrier takes any damage, it drops the RELIC where it stands.',
+                'If the carrier is destroyed, place the RELIC within 1" of where it was ' +
+                'destroyed.'],
+      vpTarget: 10,
+      endsWhen: 'a player reaches 10 VP',
+      endsShort: 'FIRST TO 10 VP',
       relic: true,
+      relicCarrierMoveMod: -2,
       extraActions: ['relic'],
-      endTurn: [{ id: 'relic-home', name: 'Relic carried home', mode: 'ask', ask: 'yesno',
-                  vp: 3, endsGame: true, onlyIfCarried: true, scorer: 'relicCarrier',
-                  question: 'Has the RELIC carrier reached their own side of the battlefield?',
-                  text: 'If a carrier of the RELIC reaches their side of the battlefield, that ' +
-                        'player scores 3 VP and the game ends.' }]
+      endTurn: [
+        { id: 'relic-hold', name: 'The RELIC is carried', mode: 'auto',
+          score: 'relicHeld', vp: 1,
+          text: 'At the end of each turn, the player carrying the RELIC scores 1 VP. The app ' +
+                'knows who has it.' },
+        { id: 'relic-home', name: 'The RELIC brought home', mode: 'ask', ask: 'yesno',
+          vp: 3, onlyIfCarried: true, scorer: 'relicCarrier', returnsRelic: true,
+          question: 'Did the carrier end this turn in their own deployment zone?',
+          text: 'Worth 3 VP, and the RELIC goes back to the center — carrying it home wins ' +
+                'you the ground, not the game.' }
+      ]
     }
   ];
 
@@ -431,7 +451,7 @@ const RULES = (function () {
 
   return {
     version: '1.0',
-    build: '2026-08-13d',
+    build: '2026-08-13e',
     defaultVPTarget: 10,
     actions, rangedReactions, meleeReactions, missions,
     woundTarget, woundLabel, applyMod, actionById, reactionById, missionById, epitaph,

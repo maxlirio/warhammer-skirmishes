@@ -180,8 +180,8 @@ asks about **the table**, never about the score:
 | **King of the Hill** | Mark whoever is standing up there; at the end of every turn the app awards the 1 VP itself, and that unit is worth 2 VP when killed |
 | **Ambush** | Attacker and defender chosen at setup, a BAIT worth 4 VP to the attacker, -1 Wound across both rosters, and the game ends when one side is wiped out. The defender's kills ask **one** question — *was it in your deployment zone?* — because that is 2 VP instead of 1 and only you can see where it happened |
 | **Assassination** | Each TARGET gains +1 Wound and is worth 3 VP. At the end of the turn the app asks who has the most OC at the centre objective and awards the 1 VP itself |
-| **Secure the Area** | It watched every SECURE, so it knows who holds what and pays out 1 VP per marker with nobody touching anything |
-| **The Relic** | It knows who is carrying it and blocks their OVERWATCH; each End Phase it asks whether the carrier got home, and awards the 3 VP and ends the game if so |
+| **Secure the Area** | SECURE needs you within 3" of the marker **and** holding the most OC within 3" of it — the app puts both in front of you and then remembers who holds what, paying out 1 VP per marker with nobody touching anything |
+| **The Relic** | A 10 VP race, not a dash: it pays the carrier 1 VP a turn by itself, knows carrying it costs 2" of Move and rules out OVERWATCH and CHARGE, drops it the moment the carrier takes a wound, and asks each End Phase whether the carrier got home — worth 3 VP, after which the RELIC goes back to the centre |
 
 Each carries its own win condition: 10 VP for Sabotage, King of the Hill,
 Assassination and Secure the Area; last one standing for Ambush; relic carried
@@ -248,13 +248,16 @@ A token you did not commit stays on the table.
 
 ## Interrupted actions
 
-If a unit is shot off the board mid-move, the action it was performing ends: the
-chain carries on and nothing it would have produced happens — no damage, no VP,
-and **not even the AP** the target would have gained. The weapon is not spent
-either, since it was never used.
+An action can fail to happen at all, and when it does nothing it would have
+produced happens — no damage, no VP, and **not even the AP** the target would
+have gained. The weapon is not spent either, since it was never used, and the
+chain carries on.
 
-There is no button for this. The app is watching the overwatch check, so it sees
-the mover die and closes the action out by itself.
+There is no button for this; the app asks at exactly the two moments it can
+arise. A unit **shot off the board mid-move** is closed out automatically, because
+the app is already watching the overwatch check. And **DUCK** stops to ask the one
+thing it cannot see — *can the attacker still see this unit's base?* — because if
+not, the attack is over before the dice come out.
 
 ## Which attacks a reaction answers
 

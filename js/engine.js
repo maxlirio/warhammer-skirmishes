@@ -540,7 +540,10 @@ const Engine = (function () {
   function unitMoveMod(unitId) {
     const u = Store.unit(unitId);
     if (!u) return 0;
-    return (u.effects || []).reduce((n, e) => n + (Number(e.moveMod) || 0), 0);
+    let n = (u.effects || []).reduce((t, e) => t + (Number(e.moveMod) || 0), 0);
+    const m = missionCard();
+    if (m && m.relicCarrierMoveMod && relicCarrier() === unitId) n += m.relicCarrierMoveMod;
+    return n;
   }
 
   /* "+1 damage against a MARKED unit": a passive on the attacker that only
@@ -723,6 +726,11 @@ const Engine = (function () {
     const dmg = Math.max(0, Number(amount) || 0);
     u.wounds = Math.max(0, u.wounds - dmg);
     if (dmg > 0) fx('damage', { unitId: unitId, amount: dmg, fatal: u.wounds <= 0 });
+    /* Hurt while carrying it: the RELIC goes down where they stand. */
+    if (dmg > 0 && u.wounds > 0 && relicCarrier() === unitId) {
+      setRelicCarrier(null);
+      chainEntry('Tabletop: ' + u.name + ' drops the RELIC where it stands.', 'note');
+    }
     chainEntry((describe || '') + u.name + ' takes ' + dmg + ' damage — ' +
       u.wounds + '/' + u.maxWounds + ' W remaining.', 'damage');
     if (u.wounds <= 0) {
@@ -1200,6 +1208,8 @@ const Engine = (function () {
         if (!(u.weapons || []).some(w => w.type === 'ranged')) return false;
         if (relicCarrier() === unitId) return false;
       }
+      // Hands full: the carrier cannot charge either.
+      if (a.id === 'charge' && relicCarrier() === unitId) return false;
       if (a.flow === 'ability') return false;   // listed one by one, below
       return true;
     }).map(a => Object.assign({}, a, { available: actionAvailability(a) }))
@@ -2140,6 +2150,10 @@ const Engine = (function () {
       primeAttackMods();
       f.step = 'hit';
 
+      /* DUCK can put the target out of sight entirely, and only the players
+         can see that — so the app asks before the dice come out. */
+      if (r.losCheck) { f.step = 'los'; return; }
+
       /* A reaction that moves the defender can walk them into a waiting
          trigger — DODGE 1", DIVE 3", WITHDRAW 3". */
       if (r.moves) {
@@ -2214,6 +2228,27 @@ const Engine = (function () {
       dice: dice.count, diceSources: dice.applied,
       hits: f.hits || 0, wounds: f.woundCount || 0
     };
+  }
+
+  /* "If your opponent cannot see this unit's base with their LOS, the attack
+     cannot be resolved." Nothing comes of it — not the damage, not the AP, and
+     the weapon was never used. The chain carries on. */
+  function flowLoS(canSee) {
+    Store.commit(canSee ? 'still in sight' : 'out of sight', function () {
+      const g = S();
+      const f = g.flow;
+      if (!f || f.kind !== 'attack') return;
+      if (canSee) {
+        chainEntry(uname(f.attackerId) + ' can still see ' + uname(f.targetId) + '.', 'note');
+        f.step = 'hit';
+        return;
+      }
+      chainEntry(uname(f.targetId) + ' is out of sight — the attack cannot be resolved, and ' +
+        'nothing comes of it.', 'reaction');
+      const actor = g.control.player;
+      f.cancelled = true;
+      finishAttack({ hit: false, cancelled: true });
+    });
   }
 
   function flowHit(didHit) {
@@ -2770,6 +2805,11 @@ const Engine = (function () {
     const g = S();
     const vp = Number(o.vp) || 1;
     if (o.score === 'controlPoints') return g.players.map(p => controlledCount(p.id) * vp);
+    if (o.score === 'relicHeld') {
+      const c = relicCarrier();
+      const owner = c ? Store.owner(c) : null;
+      return g.players.map(p => (p.id === owner ? vp : 0));
+    }
     if (o.score === 'unitFlag') {
       return g.players.map(p => Store.unitsOf(p.id, true)
         .some(u => u.flags && u.flags[o.flag]) ? vp : 0);
@@ -2815,6 +2855,12 @@ const Engine = (function () {
       const who = o.scorer === 'relicCarrier' ? Store.owner(relicCarrier()) : Number(a);
       if (who === null || who === undefined || isNaN(who)) return;
       scoreVP(who, Number(o.vp) || 1, o.name);
+      /* Carrying it home wins the ground, not the game: it goes back to the
+         middle and both sides go again. */
+      if (o.returnsRelic) {
+        setRelicCarrier(null);
+        log('The RELIC is returned to the centre of the battlefield.', 'note');
+      }
       if (o.endsGame) ended = o.name;
     });
     if (ended) {
@@ -2939,7 +2985,7 @@ const Engine = (function () {
     flowPickAbility, flowPickTarget, flowDoneTargets, confirmAbility,
     useFreeAbility, usePhaseAbility,
     flowPickAttackTarget, flowPickWeapon, flowPickReaction, flowRoll, flowChargeFailed,
-    flowHit, flowWound, flowDamage, attackNumbers, setElevation,
+    flowHit, flowWound, flowDamage, flowLoS, attackNumbers, setElevation,
     flowHits, flowWounds, diceOptions, toggleDice, unitMoveMod,
     cardAbilities, cardAbility, useCardAbility, confirmCard, adjustCardResource,
     applicableAuras, toggleAura, blockedReactions, flowRedirect, openFreeAttack,

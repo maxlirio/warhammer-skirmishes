@@ -469,19 +469,84 @@ check('SECURING it takes it from the holder', G().mission.controlPoints[0].contr
   check('the End Phase scores it by itself', [vp(0) - before[0], vp(1) - before[1]], [0, 1]);
 })();
 
-console.log('\n== MISSION: THE RELIC ==');
+console.log('\n== MISSION: THE RELIC — slow, fragile and never an instant win ==');
 freshGame({ id: 'relic' });
+check('it is won on points now, not on one dash', G().settings.vpTarget, 10);
 check('the relic starts unclaimed', Engine.relicCarrier(), null);
-Engine.adjustAP(0, 3);
+Engine.adjustAP(0, 4);
 Engine.beginAction('relic');
 Engine.flowPickUnit(U('Alpha').id);
 Engine.confirmRelic();
 check('Alpha carries the relic', Engine.relicCarrier(), U('Alpha').id);
+check('carrying it costs 2" of Move', Engine.unitMoveMod(U('Alpha').id), -2);
+/* Picking it up handed the chain over, so take control back before asking
+   what the carrier may do — otherwise the list is empty for the wrong reason. */
+Engine.forceControl(0, null);
+Engine.adjustAP(0, 4);
 check('a carrier cannot go on OVERWATCH',
-  Engine.actionAvailability(RULES.actionById('overwatch')).ok, false);
+  Engine.unitActions(U('Alpha').id).some(a => a.id === 'overwatch'), false);
+check('nor CHARGE with its hands full',
+  Engine.unitActions(U('Alpha').id).some(a => a.id === 'charge'), false);
+check('but it can still MOVE and FIGHT',
+  ['move', 'fight'].every(id => Engine.unitActions(U('Alpha').id).some(a => a.id === id)), true);
 check('and it cannot be picked up twice',
   Engine.actionAvailability(RULES.actionById('relic')).ok, false);
-// Killing the carrier drops it.
+
+/* Holding it is the scoring engine. */
+Engine.forceEndChain();
+(function () {
+  const before = vp(0);
+  Engine.beginEndPhase('test');
+  check('the app knows who is carrying it',
+    Engine.missionEndTurnItems().find(o => o.id === 'relic-hold').award, [1, 0]);
+  Engine.confirmEndPhase();
+  check('so holding it pays 1 VP a turn', vp(0) - before, 1);
+})();
+
+/* Any damage at all shakes it loose — no more untouchable sprint. */
+Engine.confirmStartPhase();          // the End Phase rolled us into a new turn
+Engine.forceControl(1, null);
+Engine.adjustAP(1, 4);
+Engine.beginAction('shoot');
+Engine.flowPickUnit(U('Bravo').id);
+Engine.flowPickAttackTarget(U('Alpha').id);
+Engine.flowPickWeapon(U('Bravo').weapons[0].id);
+Engine.flowPickReaction('none');
+Engine.flowHit(true); Engine.flowWound(true);
+check('Alpha is hurt but alive', U('Alpha').alive, true);
+check('and has dropped the relic', Engine.relicCarrier(), null);
+check('so its Move is its own again', Engine.unitMoveMod(U('Alpha').id), 0);
+
+/* Carrying it home is worth a lot — and puts it back in the middle. */
+Engine.forceEndChain();
+Engine.forceControl(0, null);
+Engine.adjustAP(0, 3);
+Engine.beginAction('relic');
+Engine.flowPickUnit(U('Alpha').id);
+Engine.confirmRelic();
+Engine.forceEndChain();
+(function () {
+  const before = vp(0);
+  Engine.beginEndPhase('test');
+  const home = Engine.missionEndTurnItems().find(o => o.id === 'relic-home');
+  check('and it only asks while somebody has it', !!home, true);
+  check('it asks whether the carrier got home', home.ask, 'yesno');
+  Engine.answerMissionAsk(home.id, true);
+  Engine.confirmEndPhase();
+  check('worth 3 VP on top of the 1 for holding it', vp(0) - before, 4);
+  check('and the relic goes back to the centre', Engine.relicCarrier(), null);
+  check('the game is NOT over', G().winner === null || G().winner === undefined, true);
+})();
+
+/* Killing the carrier still drops it where they fell. */
+Engine.confirmStartPhase();
+Engine.forceControl(0, null);
+Engine.adjustAP(0, 3);
+Engine.beginAction('relic');
+Engine.flowPickUnit(U('Alpha').id);
+Engine.confirmRelic();
+check('picked up again', Engine.relicCarrier(), U('Alpha').id);
+Engine.forceEndChain();
 Engine.forceControl(1, null);
 Engine.adjustAP(1, 3);
 deathsDoor(U('Alpha').id);
@@ -1098,7 +1163,9 @@ console.log('\n== a MOVE interrupted by a fatal overwatch yields nothing ==');
 
 console.log('\n== each card carries its own win condition ==');
 (function () {
-  const expect = { sabotage: 10, hill: 10, ambush: null, assassination: 10, secure: 10, relic: null };
+  /* AMBUSH is the only card that cannot be won on points now — THE RELIC was
+     rebuilt around a VP race so it could not be taken with one long dash. */
+  const expect = { sabotage: 10, hill: 10, ambush: null, assassination: 10, secure: 10, relic: 10 };
   Object.keys(expect).forEach(function (id) {
     check(id + ' VP target', RULES.missionById(id).vpTarget, expect[id]);
   });
@@ -1108,19 +1175,20 @@ console.log('\n== each card carries its own win condition ==');
     RULES.missions.every(m => Array.isArray(m.battlefield) && Array.isArray(m.objective) &&
       Array.isArray(m.special)), true);
 
-  // A mission with no VP target must never be won on points.
+  // A mission with no VP target must never be won on points. AMBUSH is the
+  // only one left: it ends when a force is wiped out, not on the scoreboard.
   const us = [
     mkUnit(0, 'A', 3, 4, [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], []),
     mkUnit(1, 'B', 3, 4, [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], [])
   ];
   Engine.startGame({ playerNames: ['One', 'Two'], firstPlayer: 0,
-                     vpTarget: RULES.missionById('relic').vpTarget,
-                     endsWhen: RULES.missionById('relic').endsWhen,
-                     mission: { id: 'relic' } }, us);
+                     vpTarget: RULES.missionById('ambush').vpTarget,
+                     endsWhen: RULES.missionById('ambush').endsWhen,
+                     mission: { id: 'ambush', roles: { attacker: 0, defender: 1 } } }, us);
   Engine.confirmStartPhase();
   check('the card overrode the target', G().settings.vpTarget, null);
   check('and recorded how it ends', G().settings.endsWhen,
-    'a RELIC carrier reaches their own side of the battlefield');
+    'all of a player\u2019s units are dead');
   Engine.adjustVP(0, 50, 'test');
   check('50 VP wins nothing here', G().winner, null);
 
@@ -1827,17 +1895,24 @@ console.log('\n== the app scores what it can see, and asks only what it cannot =
   Engine.startGame({ playerNames: ['A', 'B'], firstPlayer: 0, mission: { id: 'relic' } }, us);
   Engine.confirmStartPhase();
   Engine.beginEndPhase('test');
-  check('nobody is carrying it, so it is not even asked',
-    Engine.missionEndTurnItems().length, 0);
+  check('with nobody carrying it, only the automatic line is listed',
+    Engine.missionEndTurnItems().map(o => o.id), ['relic-hold']);
+  check('and it awards nothing',
+    Engine.missionEndTurnItems()[0].award, [0, 0]);
   Engine.confirmEndPhase();
+  Engine.confirmStartPhase();
   Engine.setRelicCarrier(U('Alpha').id);
   Engine.beginEndPhase('test');
-  const item = Engine.missionEndTurnItems()[0];
-  check('now it asks', item.ask, 'yesno');
-  Engine.answerMissionAsk(item.id, true);
+  const items = Engine.missionEndTurnItems();
+  check('once somebody has it, both lines appear',
+    items.map(o => o.id), ['relic-hold', 'relic-home']);
+  check('the app pays the 1 VP for holding it by itself', items[0].award, [1, 0]);
+  check('and asks only about getting it home', items[1].ask, 'yesno');
+  Engine.answerMissionAsk(items[1].id, true);
   Engine.confirmEndPhase();
-  check('3 VP to the carrier’s player', vp(0), 3);
-  check('and the game is over', G().winner !== null && G().winner !== undefined, true);
+  check('4 VP in all — 1 for holding, 3 for the run home', vp(0), 4);
+  check('the relic is back in the middle', Engine.relicCarrier(), null);
+  check('and the game carries on', G().winner === null || G().winner === undefined, true);
 })();
 
 (function () {
@@ -2093,6 +2168,46 @@ console.log('\n== the closing word is assembled from the game, not guessed ==');
     /3 of 5/.test(close.lines.join(' ')), true);
   check('an empty report still says something',
     RULES.epitaph(null).headline, 'THE FIELD IS SILENT');
+})();
+
+
+console.log('\n== DUCK can end an attack before the dice ==');
+(function () {
+  const us = [
+    mkUnit(0, 'A', 3, 4, [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 2 }], []),
+    mkUnit(1, 'B', 3, 4, [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], [])
+  ];
+  Engine.startGame({ playerNames: ['One', 'Two'], vpTarget: 10, firstPlayer: 0,
+                     mission: { id: null } }, us);
+  Engine.confirmStartPhase();
+  Engine.adjustAP(0, 6);
+
+  /* Still visible: it is an ordinary attack at -1 to wound. */
+  Engine.beginAction('shoot', U('A').id);
+  Engine.flowPickAttackTarget(U('B').id);
+  Engine.flowPickReaction('duck');
+  check('DUCK stops to ask about the line of sight', G().flow.step, 'los');
+  check('and is already worth -1 to wound', Engine.attackNumbers().woundMod, -1);
+  Engine.flowLoS(true);
+  check('still in sight, so the dice come out', G().flow.step, 'hit');
+  Engine.flowHit(true); Engine.flowWound(true);
+  check('and it wounds as normal', U('B').wounds < 3, true);
+
+  /* Out of sight: nothing comes of it at all. */
+  Engine.forceEndChain();
+  Engine.forceControl(0, null);
+  Engine.adjustAP(0, 6);
+  const before = { mine: ap(0), theirs: ap(1), wounds: U('B').wounds };
+  Engine.beginAction('shoot', U('A').id);
+  Engine.flowPickAttackTarget(U('B').id);
+  Engine.flowPickReaction('duck');
+  Engine.flowLoS(false);
+  check('the attack is over', G().flow, null);
+  check('no damage was dealt', U('B').wounds, before.wounds);
+  check('the AP was still spent', ap(0), before.mine - 1);
+  check('and the target gains nothing from an attack that never resolved',
+    ap(1), before.theirs);
+  check('but the chain carries on', G().chain.active, true);
 })();
 
 console.log('\n== summary ==');
