@@ -1532,3 +1532,5 @@ h1, h2, h3, h4 {
   .vword, .vword:after, .vwho, .vhead, .vlines p, .vfoot { animation: none; opacity: 1; }
   .vword { filter: none; }
 }
+/* An objective the other side holds: shown, but it pays them nothing today. */
+.scorerow .sraward.idle { opacity: .45; }

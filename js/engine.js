@@ -2861,16 +2861,22 @@ const Engine = (function () {
   }
 
   /* Applied when the End Phase is confirmed, so END: abilities land first. */
+  /* Whose End Phase this is. Only they score from objectives — kills and
+     anything that pays out the moment it happens are unaffected. */
+  const endTurnScorer = () => {
+    const g = S();
+    return g.pending && g.pending.type === 'end' ? g.pending.player : g.turn.player;
+  };
+
   function scoreEndOfTurn() {
     const g = S();
+    const me = endTurnScorer();
     let ended = null;
     missionEndTurnItems().forEach(function (o) {
       if (o.mode === 'auto') {
-        let any = false;
-        (o.award || []).forEach(function (n, i) {
-          if (n > 0) { scoreVP(i, n, o.name); any = true; }
-        });
-        if (!any) log('No VP from ' + o.name + ' this turn.', 'muted');
+        const mine = (o.award || [])[me] || 0;
+        if (mine > 0) scoreVP(me, mine, o.name);
+        else log('No VP from ' + o.name + ' this turn.', 'muted');
         return;
       }
       const a = missionAnswer(o.id);
@@ -2880,6 +2886,12 @@ const Engine = (function () {
       }
       const who = o.scorer === 'relicCarrier' ? Store.owner(relicCarrier()) : Number(a);
       if (who === null || who === undefined || isNaN(who)) return;
+      /* You only score at the end of YOUR turn. */
+      if (who !== me) {
+        log(pname(who) + ' holds it, but only ' + pname(me) +
+          ' scores at the end of their own turn.', 'muted');
+        return;
+      }
       scoreVP(who, Number(o.vp) || 1, o.name);
       /* Carrying it home wins the ground, not the game: it goes back to the
          middle and both sides go again. */
@@ -3020,6 +3032,6 @@ const Engine = (function () {
     overwatchCandidates, flowToggleOverwatch, flowFireOverwatch,
     adjustAP, adjustVP, adjustWounds, removeUnit, removeEffect,
     addManualEffect, addManualToken, forceControl, forceEndChain, forceEndTurn,
-    scoreVP, log, onFx, ask, answerAsk, answerMissionAsk, scoreEndOfTurn
+    scoreVP, log, onFx, endTurnScorer, ask, answerAsk, answerMissionAsk, scoreEndOfTurn
   };
 })();

@@ -94,6 +94,18 @@ Engine.startGame = function (cfg, units) { rawStartGame(cfg, units); settleSetup
    unless the app is actually waiting for one. */
 /* Several tests need a guaranteed kill. They used to type a huge damage
    number; now the card's damage applies, so soften the target instead. */
+/* Objectives only pay the player whose turn is ending, so tests that check a
+   score have to be standing in the right turn first. */
+function turnOf(player) {
+  let guard = 0;
+  while (G().turn.player !== player && guard++ < 4) {
+    if (G().pending && G().pending.type === 'start') Engine.confirmStartPhase();
+    Engine.forceEndTurn();
+    Engine.confirmEndPhase();
+  }
+  if (G().pending && G().pending.type === 'start') Engine.confirmStartPhase();
+}
+
 function deathsDoor(unitId) {
   const u = Store.unit(unitId);
   if (u && u.wounds > 1) Engine.adjustWounds(unitId, -(u.wounds - 1));
@@ -462,12 +474,24 @@ Engine.flowPickUnit(U('Bravo').id);
 Engine.flowPickControlPoint(cps[0].id);
 Engine.confirmSecure();
 check('SECURING it takes it from the holder', G().mission.controlPoints[0].controller, 1);
-/* And the End Phase pays it out with nobody typing a number. */
+/* And the End Phase pays it out with nobody typing a number — but only to the
+   player whose turn is ending. */
 (function () {
-  const before = [vp(0), vp(1)];
+  let before = [vp(0), vp(1)];
   Engine.beginEndPhase('test');
+  check('player 1 holds the marker', Engine.missionEndTurnItems()[0].award, [0, 1]);
+  check('but this is player 0\u2019s End Phase', Engine.endTurnScorer(), 0);
   Engine.confirmEndPhase();
-  check('the End Phase scores it by itself', [vp(0) - before[0], vp(1) - before[1]], [0, 1]);
+  check('so nobody scores it yet', [vp(0) - before[0], vp(1) - before[1]], [0, 0]);
+
+  /* Come round to player 1's own End Phase and it pays. */
+  Engine.confirmStartPhase();
+  before = [vp(0), vp(1)];
+  Engine.beginEndPhase('test');
+  check('now it is theirs to score', Engine.endTurnScorer(), 1);
+  Engine.confirmEndPhase();
+  check('and the End Phase scores it by itself',
+    [vp(0) - before[0], vp(1) - before[1]], [0, 1]);
 })();
 
 console.log('\n== MISSION: THE RELIC — slow, fragile and never an instant win ==');
@@ -527,6 +551,7 @@ Engine.flowPickUnit(U('Alpha').id);
 Engine.confirmRelic();
 Engine.forceEndChain();
 (function () {
+  turnOf(0);                       // only the turn player scores objectives
   const before = vp(0);
   Engine.beginEndPhase('test');
   const home = Engine.missionEndTurnItems().find(o => o.id === 'relic-home');
@@ -1884,12 +1909,19 @@ console.log('\n== the app scores what it can see, and asks only what it cannot =
   Engine.startGame({ playerNames: ['A', 'B'], firstPlayer: 0, mission: { id: 'hill' } }, us);
   Engine.confirmStartPhase();
   Engine.toggleUnitFlag(U('Bravo').id, 'highground');
-  const before = [vp(0), vp(1)];
+  let before = [vp(0), vp(1)];
   Engine.beginEndPhase('test');
-  check('it shows what it will score before you commit',
+  check('it shows what each side would score',
     Engine.missionEndTurnItems()[0].award, [0, 1]);
   Engine.confirmEndPhase();
-  check('and pays it out with no keypad', [vp(0) - before[0], vp(1) - before[1]], [0, 1]);
+  check('but only the player whose turn it is takes it',
+    [vp(0) - before[0], vp(1) - before[1]], [0, 0]);
+  Engine.confirmStartPhase();
+  before = [vp(0), vp(1)];
+  Engine.beginEndPhase('test');
+  Engine.confirmEndPhase();
+  check('and on their own turn it pays out with no keypad',
+    [vp(0) - before[0], vp(1) - before[1]], [0, 1]);
 })();
 
 (function () {
@@ -1925,6 +1957,8 @@ console.log('\n== the app scores what it can see, and asks only what it cannot =
     Engine.missionEndTurnItems()[0].award, [0, 0]);
   Engine.confirmEndPhase();
   Engine.confirmStartPhase();
+  Engine.setRelicCarrier(U('Alpha').id);
+  turnOf(0);
   Engine.setRelicCarrier(U('Alpha').id);
   Engine.beginEndPhase('test');
   const items = Engine.missionEndTurnItems();

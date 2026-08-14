@@ -828,18 +828,29 @@ const UI = (function () {
 
   /* The app worked this one out: it says what it will score, and why. */
   function autoScoreRow(g, o) {
-    const any = (o.award || []).some(n => n > 0);
-    return '<div class="scorerow' + (any ? ' scoring' : '') + '">' +
+    /* Only the player whose turn is ending takes anything from an objective. */
+    const me = Engine.endTurnScorer();
+    const mine = (o.award || [])[me] || 0;
+    const theirs = (o.award || [])[Store.opponentOf(me)] || 0;
+    return '<div class="scorerow' + (mine > 0 ? ' scoring' : '') + '">' +
       '<div class="srhead"><span class="srname">' + esc(o.name) + '</span>' +
         '<span class="srtag auto">COUNTED FOR YOU</span></div>' +
       (o.text ? '<div class="srtext tip">' + esc(o.text) + '</div>' : '') +
       '<div class="srawards">' +
-        g.players.map((pl, i) => '<div class="sraward p' + i + ((o.award[i] || 0) > 0 ? ' on' : '') +
-          '"><span class="v">+' + (o.award[i] || 0) + '</span> VP · ' + esc(pl.name) +
-          '</div>').join('') +
+        g.players.map(function (pl, i) {
+          const n = o.award[i] || 0;
+          const counts = i === me;
+          return '<div class="sraward p' + i + (counts && n > 0 ? ' on' : '') +
+            (counts ? '' : ' idle') + '"><span class="v">+' + (counts ? n : 0) + '</span> VP · ' +
+            esc(pl.name) + '</div>';
+        }).join('') +
       '</div>' +
-      '<div class="srfoot">' + (any ? 'Scored when you end the turn.'
-        : 'Nobody scores this one this turn.') + '</div>' +
+      '<div class="srfoot">' + (mine > 0
+        ? 'Scored when you end the turn.'
+        : (theirs > 0
+            ? esc(g.players[Store.opponentOf(me)].name) + ' holds it, but only ' +
+              esc(g.players[me].name) + ' scores at the end of their own turn.'
+            : 'Nobody scores this one this turn.')) + '</div>' +
     '</div>';
   }
 
@@ -848,6 +859,7 @@ const UI = (function () {
     const a = o.answer;
     const answered = a !== null && a !== undefined;
     const live = answered && a !== 'none' && a !== false;
+    const me = Engine.endTurnScorer();
     const btn = (val, label, on) =>
       '<button class="btn sm' + (on ? ' primary' : '') + '" style="flex:1 1 30%" ' +
         'data-act="objans:' + o.id + ':' + val + '">' + label + '</button>';
@@ -860,6 +872,8 @@ const UI = (function () {
         (answered ? 'ANSWERED' : 'ONLY YOU CAN SEE THIS') + '</span></div>' +
       (o.text ? '<div class="srtext tip">' + esc(o.text) + '</div>' : '') +
       '<div class="srq">' + esc(o.question) + (who ? ' <b>' + who + '.</b>' : '') + '</div>' +
+      '<div class="srtext tip">Only ' + esc(g.players[me].name) + ' scores at the end of ' +
+        'their own turn — answer it truthfully either way.</div>' +
       '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
         (o.ask === 'yesno'
           ? btn('yes', 'YES — ' + o.vp + ' VP', a === true) + btn('no', 'NOT YET', a === false)

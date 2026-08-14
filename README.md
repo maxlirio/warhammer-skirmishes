@@ -154,6 +154,12 @@ it without having to ask.
 
 ## Victory Points score themselves
 
+**Only the player whose turn is ending scores from objectives.** Kills and
+anything that pays out the moment it happens are unaffected — they land whenever
+they happen, on anybody's turn. The End Phase shows what each side would take
+and greys out the one that does not count today, so an objective the enemy holds
+is visible without quietly paying them.
+
 The app knows what everything is worth, so it applies it. A kill scores the
 number on the datasheet — 1 by default, 2 for a Grey Knight, 3 for an
 Assassination TARGET, 4 for the Ambush BAIT — and the mission's end-of-turn
@@ -253,11 +259,12 @@ produced happens — no damage, no VP, and **not even the AP** the target would
 have gained. The weapon is not spent either, since it was never used, and the
 chain carries on.
 
-There is no button for this; the app asks at exactly the two moments it can
+There is no button for this; the app deals with it at exactly the moments it can
 arise. A unit **shot off the board mid-move** is closed out automatically, because
-the app is already watching the overwatch check. And **DUCK** stops to ask the one
-thing it cannot see — *can the attacker still see this unit's base?* — because if
-not, the attack is over before the dice come out.
+the app is already watching the overwatch check. **DODGE** and **DUCK** stop and
+ask the one thing the app cannot see — *can the attack still be resolved?* — and
+**DIVE** does not need asking, because a DIVE that leaves the attack resolvable
+is not a legal DIVE.
 
 ## Which attacks a reaction answers
 
@@ -268,10 +275,12 @@ simply does not appear in the list. Both of Mikaaaaghhh's answer shooting only:
 with him, and **Get In Front of Me** needs a line of fire to step into. It is a
 dropdown on any RP ability you build yourself.
 
-**DIVE** carries its own restriction now: the 3" move may not create a melee
-target — the diving unit cannot end in melee range of an enemy, and cannot drag
-an enemy into melee range — because a unit in melee cannot be shot at without
-hitting your own. Only you can see that, so the app prints it and you judge it.
+**DIVE** is only available when it *ends* the attack: "you may not do this
+Reaction if it still allows your opponent to resolve the attack." So taking it at
+all means the attack produces nothing — though the 3" is still walked first, and
+can be shot at on the way. **DODGE** and **DUCK** are the softer versions: both
+stop and ask *can the attack still be resolved?*, because a 1" step or a duck
+behind cover might end it and only you can see whether it did.
 
 ## Auras — "+1 to hit within 6\""
 
