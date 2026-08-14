@@ -1455,21 +1455,25 @@ const UI = (function () {
     /* DUCK: the one attack that can end before the dice, and only the two of
        you can see whether it does. */
     if (f.step === 'los') {
-      return head(title, 'CAN THEY STILL BE SEEN?') + crumb +
+      const why = f.losReaction === 'DUCK'
+        ? 'If your opponent cannot see this unit\u2019s base with their LOS, the attack ' +
+          'cannot be resolved.'
+        : 'If that move takes this unit out of it, the attack cannot be resolved.';
+      return head(title, 'CAN THE ATTACK STILL BE RESOLVED?') + crumb +
         '<div class="mbody">' +
           '<div class="rollbox">' +
-            '<div class="lbl">' + esc((attacker || {}).name || '').toUpperCase() + ' LOOKS FOR</div>' +
+            '<div class="lbl">' + esc(f.losReaction || 'THE REACTION') + ' \u2014 ' +
+              esc((attacker || {}).name || '').toUpperCase() + ' LOOKS FOR</div>' +
             '<div class="big" style="font-size:22px">' + esc((target || {}).name || '') + '</div>' +
-            '<div class="sub">DUCK is already worth -1 to the Wound roll. But if you cannot ' +
-              'see this unit\u2019s base, the attack cannot be resolved at all.</div>' +
+            '<div class="sub">' + esc(why) + '</div>' +
           '</div>' +
           '<div class="noteline tip">Nothing comes of an attack that cannot be resolved — no ' +
             'damage, no VP, and not even the AP the target would have gained. The action chain ' +
             'carries on.</div>' +
         '</div>' +
         '<div class="mfoot">' +
-          '<button class="btn bad" data-act="los:0">OUT OF SIGHT</button>' +
-          '<button class="btn good" data-act="los:1">STILL IN SIGHT</button>' +
+          '<button class="btn bad" data-act="los:0">NO — IT IS OVER</button>' +
+          '<button class="btn good" data-act="los:1">YES — CARRY ON</button>' +
         '</div>';
     }
 

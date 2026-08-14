@@ -280,20 +280,21 @@ check('because this ability lets them', Engine.abilityLetsThemReact(
   U('Intercessor').abilities[0]), true);
 check('+1 to hit effect on the Intercessor', U('Intercessor').effects.length, 1);
 
-console.log('\n== DIVE moves the defender and the shot goes ahead ==');
+console.log('\n== DIVE is only taken when it ends the attack ==');
 Engine.forceControl(0, null);
 Engine.adjustAP(0, 2);
 Engine.beginAction('shoot');
 Engine.flowPickUnit(U('Scout').id);
 Engine.flowPickAttackTarget(U('Ork Boy').id);
-const oppAP = ap(1);
+const oppAP = ap(1), diveBoy = U('Ork Boy').wounds, myAP = ap(0);
 Engine.flowPickReaction('dive');
-check('DIVE goes straight to the roll', G().flow.step, 'hit');
-check('the dive itself no longer forfeits the AP', G().flow.apGrant, true);
-Engine.flowHit(false);
-check('a miss still hands over the survivor AP', ap(1), oppAP + 1);
-check('the action chain carries on', G().chain.active, true);
-check('with the targeted unit owed the response', G().control.forcedUnitId, U('Ork Boy').id);
+/* "You may not do this Reaction if it still allows your opponent to resolve
+   the attack" — so taking it at all means the attack is over. */
+check('the attack is finished there and then', G().flow, null);
+check('no damage was dealt', U('Ork Boy').wounds, diveBoy);
+check('nothing comes of it, not even the AP', ap(1), oppAP);
+check('the attacker still paid for the action', ap(0), myAP);
+check('but the action chain carries on', G().chain.active, true);
 
 console.log('\n== DISTRACT: extra AP and a free unit choice ==');
 Engine.forceEndChain();
@@ -1106,7 +1107,7 @@ console.log('\n== an ability decides whether they react ==');
   check('and AP only moved because the ability said so', ap(1), oppBefore + 1);
 })();
 
-console.log('\n== a DIVE that stays in sight still earns its AP ==');
+console.log('\n== DODGE asks whether the attack still stands ==');
 (function () {
   const us = [
     mkUnit(0, 'A', 3, 4, [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], []),
@@ -1115,14 +1116,35 @@ console.log('\n== a DIVE that stays in sight still earns its AP ==');
   Engine.startGame({ playerNames: ['One', 'Two'], vpTarget: 10, firstPlayer: 0,
                      mission: { id: null } }, us);
   Engine.confirmStartPhase();
-  Engine.adjustAP(0, 2);
-  const before = ap(1);
-  Engine.beginAction('shoot');
-  Engine.flowPickUnit(U('A').id);
+  Engine.adjustAP(0, 6);
+
+  /* The inch was not enough: the shot goes ahead at -1 to hit. */
+  let before = ap(1);
+  Engine.beginAction('shoot', U('A').id);
   Engine.flowPickAttackTarget(U('B').id);
-  Engine.flowPickReaction('dive');
-  Engine.flowHit(false);                       // the shot happens and misses
-  check('the survivor gains its AP as normal', ap(1), before + 1);
+  Engine.flowPickReaction('dodge');
+  check('DODGE stops to ask', G().flow.step, 'los');
+  check('and says which reaction is asking', G().flow.losReaction, 'DODGE');
+  check('the -1 to hit is already in', Engine.attackNumbers().hitMod, -1);
+  Engine.flowLoS(true);
+  check('carrying on puts us at the roll', G().flow.step, 'hit');
+  Engine.flowHit(false);
+  check('and the survivor gains its AP as normal', ap(1), before + 1);
+
+  /* The inch was enough: nothing comes of the attack. */
+  Engine.forceEndChain();
+  Engine.forceControl(0, null);
+  Engine.adjustAP(0, 6);
+  before = ap(1);
+  const wounds = U('B').wounds;
+  Engine.beginAction('shoot', U('A').id);
+  Engine.flowPickAttackTarget(U('B').id);
+  Engine.flowPickReaction('dodge');
+  Engine.flowLoS(false);
+  check('out of it, and the attack is over', G().flow, null);
+  check('no damage', U('B').wounds, wounds);
+  check('and no AP for the target', ap(1), before);
+  check('the chain carries on', G().chain.active, true);
 })();
 
 console.log('\n== a MOVE interrupted by a fatal overwatch yields nothing ==');
@@ -1239,11 +1261,13 @@ console.log('\n== a DIVE into overwatch: the move is what triggers it ==');
   check('the overwatch shot takes over', G().flow.attackerId, U('Watcher').id);
   check('aimed at the mover', G().flow.targetId, U('Diver').id);
   check('at -1 to hit', G().flow.sourceHitMod, -1);
+  const diverWounds = U('Diver').wounds;
   Engine.flowHit(false);
-  check('the original shot resumes', G().flow.attackerId, U('Shooter').id);
-  check('at its Hit roll', G().flow.step, 'hit');
-  Engine.flowHit(false);
-  check('and finishes', G().flow, null);
+  /* The dive survived the overwatch — and the shot it was answering still
+     does not resolve, because taking DIVE at all means it cannot. */
+  check('the original shot does not resume', G().flow, null);
+  check('the diver is untouched', U('Diver').wounds, diverWounds);
+  check('and the chain carries on', G().chain.active, true);
 })();
 
 console.log('\n== two overwatches fire in the order chosen ==');
@@ -1281,9 +1305,9 @@ console.log('\n== two overwatches fire in the order chosen ==');
   Engine.flowHit(false);
   check('then A', G().flow.attackerId, U('Watcher A').id);
   Engine.flowHit(false);
-  check('then the original shot', G().flow.attackerId, U('Shooter').id);
-  Engine.flowHit(false);
-  check('all unwound', G().flow, null);
+  /* Both watchers had their shot; the dive still ends the attack it answered. */
+  check('and the original shot never resolves', G().flow, null);
+  check('all unwound', G().chain.active, true);
 })();
 
 console.log('\n== committing two and the first one kills: the second is wasted ==');
@@ -2010,10 +2034,14 @@ console.log('\n== a reaction can be limited to one kind of attack ==');
       .find(a => a.name === 'Get In Front of Me').reactRange, 'ranged');
   check('an ability with nothing set answers anything',
     Store.newAbility({ trigger: 'rp' }).reactRange, 'any');
-  check('and DIVE carries its new restriction',
-    /melee target/i.test(RULES.rangedReactions.find(r => r.id === 'dive').text), true);
-  check('which the tabletop note spells out',
-    /melee range/i.test(RULES.rangedReactions.find(r => r.id === 'dive').tabletop), true);
+  const dive = RULES.rangedReactions.find(r => r.id === 'dive');
+  check('DIVE may only be taken when it ends the attack',
+    /may not do this Reaction if it still allows/i.test(dive.text), true);
+  check('and the engine knows to cancel on it', dive.cancelsAttack, true);
+  const dodge = RULES.rangedReactions.find(r => r.id === 'dodge');
+  const duck = RULES.rangedReactions.find(r => r.id === 'duck');
+  check('DODGE and DUCK both stop to ask instead',
+    [dodge.losCheck, duck.losCheck], [true, true]);
 })();
 
 

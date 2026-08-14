@@ -137,10 +137,11 @@ const RULES = (function () {
      endsChain         : force the chain to end after this attack
      -------------------------------------------------------------------- */
   const rangedReactions = [
-    { id: 'dodge', name: 'DODGE', cost: 1, hitMod: -1, moves: true,
+    { id: 'dodge', name: 'DODGE', cost: 1, hitMod: -1, moves: true, losCheck: true,
       flavour: '“Thought you had me, didn’t ya?”',
       text: 'Subtract 1 from the attacker\'s Hit roll. Move 1".',
-      tabletop: 'Move the defender 1".' },
+      tabletop: 'Move the defender 1". If that inch takes them out of it, the attack cannot ' +
+                'be resolved.' },
 
     { id: 'duck', name: 'DUCK', cost: 1, woundMod: -1, losCheck: true,
       flavour: '“GET DOWN YOU IDIOT!”',
@@ -149,13 +150,12 @@ const RULES = (function () {
       tabletop: 'Get down behind whatever there is. If the attacker cannot see this unit\u2019s ' +
                 'base from where they are, the attack is over before it starts.' },
 
-    { id: 'dive', name: 'DIVE', cost: 1, moves: true,
+    { id: 'dive', name: 'DIVE', cost: 1, moves: true, cancelsAttack: true,
       flavour: '“Who cares if your knees get dirty?!”',
-      text: 'Move 3". This move cannot become or make any melee targets, as friendly ' +
-            'fire prevents shooting.',
-      tabletop: 'Move the defender 3". It may not end in melee range of an enemy, and may ' +
-                'not bring an enemy into melee range — a melee target cannot be shot at ' +
-                'without hitting your own.' },
+      text: 'Move 3". You may not do this Reaction if it still allows your opponent to ' +
+            'resolve the attack.',
+      tabletop: 'Move the defender 3". Only take it if that move puts the attack beyond ' +
+                'resolving — otherwise this Reaction is not available to you.' },
 
     { id: 'distract', name: 'DISTRACT', cost: 1, hitMod: +1, grantAP: 1,
       freeChoice: true, chainLivesOnDeath: true,

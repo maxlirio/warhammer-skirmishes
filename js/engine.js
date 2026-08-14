@@ -2152,7 +2152,12 @@ const Engine = (function () {
 
       /* DUCK can put the target out of sight entirely, and only the players
          can see that — so the app asks before the dice come out. */
-      if (r.losCheck) { f.step = 'los'; return; }
+      if (r.losCheck) { f.step = 'los'; f.losReaction = r.name; return; }
+
+      /* "You may not do this Reaction if it still allows your opponent to
+         resolve the attack." Taking DIVE at all means the attack is over —
+         but the 3" still has to be walked first, and that can be shot at. */
+      if (r.cancelsAttack) f.cancelsAttack = true;
 
       /* A reaction that moves the defender can walk them into a waiting
          trigger — DODGE 1", DIVE 3", WITHDRAW 3". */
@@ -2160,6 +2165,11 @@ const Engine = (function () {
         noteMoved(f.targetId);
         const parkedR = JSON.parse(JSON.stringify(f));
         if (openOverwatchCheck(f.targetId, { type: 'attack', flow: parkedR })) return;
+      }
+
+      if (f.cancelsAttack) {
+        cancelAttackUnresolved(uname(f.targetId) + ' dives clear — the attack cannot be ' +
+          'resolved, and nothing comes of it.');
       }
     });
   }
@@ -2233,21 +2243,29 @@ const Engine = (function () {
   /* "If your opponent cannot see this unit's base with their LOS, the attack
      cannot be resolved." Nothing comes of it — not the damage, not the AP, and
      the weapon was never used. The chain carries on. */
+  /* An attack that cannot be resolved produces nothing at all — no damage, no
+     VP, not even the AP the target would have gained, and the weapon was never
+     used. The chain carries on regardless. */
+  function cancelAttackUnresolved(note) {
+    const g = S();
+    const f = g.flow;
+    if (!f || f.kind !== 'attack') return;
+    chainEntry(note, 'reaction');
+    f.cancelled = true;
+    finishAttack({ hit: false, cancelled: true });
+  }
+
   function flowLoS(canSee) {
     Store.commit(canSee ? 'still in sight' : 'out of sight', function () {
-      const g = S();
-      const f = g.flow;
+      const f = S().flow;
       if (!f || f.kind !== 'attack') return;
       if (canSee) {
         chainEntry(uname(f.attackerId) + ' can still see ' + uname(f.targetId) + '.', 'note');
         f.step = 'hit';
         return;
       }
-      chainEntry(uname(f.targetId) + ' is out of sight — the attack cannot be resolved, and ' +
-        'nothing comes of it.', 'reaction');
-      const actor = g.control.player;
-      f.cancelled = true;
-      finishAttack({ hit: false, cancelled: true });
+      cancelAttackUnresolved(uname(f.targetId) + ' is out of sight — the attack cannot be ' +
+        'resolved, and nothing comes of it.');
     });
   }
 
@@ -2676,6 +2694,14 @@ const Engine = (function () {
     if (after.type === 'none') { checkVictory(); return; }
     if (after.type === 'attack') {
       g.flow = after.flow;
+      /* The dive survived whatever was waiting for it — the attack it was
+         answering still does not resolve. */
+      if (g.flow && g.flow.cancelsAttack) {
+        cancelAttackUnresolved(uname(g.flow.targetId) + ' dives clear — the attack cannot be ' +
+          'resolved, and nothing comes of it.');
+        checkVictory();
+        return;
+      }
       checkVictory();
       return;
     }
