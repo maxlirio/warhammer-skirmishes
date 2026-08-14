@@ -462,7 +462,8 @@ remember: green *"Your opponent gains no AP"*, amber *"Your opponent gains 1
 AP"*, grey *"The target gains 1 AP if it survives — nothing otherwise"* for the
 Aggressive ones.
 
-No Standard Action hands over a flat AP. Attacks pay through the survivor rule,
+No Standard Action hands over a flat AP at all. Attacks pay through the survivor
+rule,
 and a **Special Ability states for itself** whether the opponent gets to react —
 if it should also hand over AP, that is an explicit *"Opponent gains AP"* effect
 on that ability. If any of it is wrong for your table, Menu → **ACTIONS & AP**
@@ -493,9 +494,10 @@ only move.
   a card button first.
 - **DISTRACT** grants its 1 AP immediately, on top of the standard survivor AP,
   and **PARRY** likewise grants its own AP on top.
-- **CHARGE** hands the opponent 1 AP in its own right, on top of the survivor AP
-  from the fight sequence — both are stated explicitly, and the golden rule says
-  do what is written.
+- **CHARGE** hands over nothing of its own. Its card is "move up to 1D6\" toward
+  an enemy unit, you must end within range of at least one of your melee weapons
+  or not make the move at all, resolve the fight sequence against that unit" —
+  so the only AP that changes hands is the fight sequence's survivor rule.
 - **Elevation.** Shooting from higher ground is +1 to Hit; charging from higher
   ground is +1 to Wound and +1 Damage. Both are a checkbox in the attack flow
   because only you can see the terrain.

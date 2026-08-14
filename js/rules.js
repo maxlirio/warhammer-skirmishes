@@ -48,15 +48,16 @@ const RULES = (function () {
     {
       id: 'charge', name: 'CHARGE', cost: 2, kind: 'aggressive', flow: 'attack',
       attackRange: 'melee', isCharge: true,
-      short: 'Move 1D6" then fight. Opponent gains 1 AP. From high ground: +1 Wound, +1 Damage.',
+      short: 'Move 1D6" then fight. From high ground: +1 Wound, +1 Damage.',
       flavour: '“Close the distance.”',
       text: 'Move up to 1D6" toward an enemy unit. You must end within range of at least one of ' +
             'your melee weapons, or not make the move at all. Resolve the fight sequence against ' +
-            'that unit. Your opponent gains 1 AP. Charging from higher elevation gives +1 to ' +
-            'Wound and +1 Damage.',
+            'that unit.',
       prompt: 'Roll 1D6 and move that far toward the target. You must end in melee range or not move at all.',
       elevation: 'charge',
-      endsChain: false, opponentGainsAP: 1,
+      /* Nothing of its own: the fight sequence's survivor rule is the only AP
+         a charge hands over. */
+      endsChain: false, opponentGainsAP: 0,
       movesUnit: true, expiresOverwatch: true
     },
     {
@@ -453,7 +454,7 @@ const RULES = (function () {
 
   return {
     version: '1.0',
-    build: '2026-08-14b',
+    build: '2026-08-14c',
     defaultVPTarget: 10,
     actions, rangedReactions, meleeReactions, missions,
     woundTarget, woundLabel, applyMod, actionById, reactionById, missionById, epitaph,

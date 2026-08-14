@@ -2395,6 +2395,14 @@ const Engine = (function () {
     // Standing "this attack" modifiers are done.
     expireEffects('attack', null);
 
+    /* CHARGE hands over 1 AP in its own right, on top of the survivor rule —
+       but only if the charge actually happened. An attack that could not be
+       resolved produces nothing, this included. */
+    if (!result.cancelled && f.source === 'action') {
+      const act = actionDef(f.actionId);
+      if (act && act.opponentGainsAP) grantAP(defenderPlayer, act.opponentGainsAP, act.name);
+    }
+
     if (!killed && f.onSurviveTabletop) chainEntry('Tabletop: ' + f.onSurviveTabletop, 'note');
 
     const isOverwatch = f.source === 'overwatch';

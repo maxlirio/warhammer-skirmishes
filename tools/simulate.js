@@ -993,8 +993,11 @@ console.log('\n== which actions hand over AP ==');
 
   const flat = {};
   Engine.actionList().forEach(a => { flat[a.id] = a.opponentGainsAP || 0; });
-  check('only CHARGE hands over a flat AP, as its card says',
-    Object.keys(flat).filter(k => flat[k] > 0), ['charge']);
+  check('no Standard Action hands over a flat AP any more',
+    Object.keys(flat).filter(k => flat[k] > 0), []);
+  check('CHARGE included — its AP comes from the fight sequence alone',
+    Engine.apConsequence(Engine.actionDef('charge')),
+    'The target gains 1 AP if it survives — nothing otherwise.');
   check('an ability says so for itself', Engine.apConsequence(Engine.actionDef('ability')),
     'Your opponent gains no AP.');
   check('two players, always', Store.get().players.length, 2);
@@ -2356,6 +2359,36 @@ console.log('\n== MOVE is available on anybody’s turn ==');
   Engine.confirmSimple();
   check('and it goes through', G().flow, null);
   check('ending the chain as MOVE does', G().chain.active, false);
+})();
+
+
+console.log('\n== an attack action can still be house-ruled to hand over AP ==');
+(function () {
+  const us = [
+    mkUnit(0, 'A', 3, 4, [{ name: 'Blade', type: 'melee', hit: 3, strength: 4, damage: 1 }], []),
+    mkUnit(1, 'B', 3, 4, [{ name: 'Gun', type: 'ranged', hit: 3, strength: 4, damage: 1 }], [])
+  ];
+  Engine.startGame({ playerNames: ['One', 'Two'], vpTarget: 10, firstPlayer: 0,
+                     mission: { id: null } }, us);
+  Engine.confirmStartPhase();
+  Engine.adjustAP(0, 8);
+  check('CHARGE grants nothing of its own by default',
+    Engine.actionDef('charge').opponentGainsAP, 0);
+
+  /* Menu → ACTIONS & AP offers this on every action; it used to be silently
+     ignored on the attacking ones. */
+  Engine.setActionOverride('charge', 'opponentGainsAP', 1);
+  const before = ap(1);
+  Engine.beginAction('charge', U('A').id);
+  Engine.flowPickAttackTarget(U('B').id);
+  Engine.flowRoll(5);
+  Engine.flowPickReaction('none');
+  Engine.flowHit(false);
+  check('set to 1, an attack action now actually hands it over',
+    ap(1) - before, 2);            // 1 from the override, 1 from surviving
+  Engine.setActionOverride('charge', 'opponentGainsAP', 0);
+  check('and putting it back leaves the survivor rule alone',
+    Engine.actionDef('charge').opponentGainsAP, 0);
 })();
 
 console.log('\n== summary ==');
