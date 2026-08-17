@@ -29,14 +29,29 @@ const Board = (function () {
   const inside = (b, p) => p.x >= 0 && p.y >= 0 && p.x <= b.w && p.y <= b.h;
   const inBox = (t, p) => p.x >= t.x && p.x <= t.x + t.w && p.y >= t.y && p.y <= t.y + t.h;
 
-  /* How high the table is under a point — the tallest platform covering it. */
+  /* How high you stand at a point. All terrain is climbable, so anything whose
+     footprint you are inside is something you are standing on top of. */
   function heightAt(b, p) {
     let top = 0;
     for (let i = 0; i < b.terrain.length; i++) {
       const t = b.terrain[i];
-      if (!t.blocks && inBox(t, p) && t.top > top) top = t.top;
+      if (inBox(t, p) && t.top > top) top = t.top;
     }
     return top;
+  }
+
+  /* Anything taller than this above where you stand has to be climbed rather
+     than walked over. */
+  const STEP_OVER = 0.6;
+
+  /* The pieces that are in your way from the level you are standing at. What
+     you are already stood on is not one of them. */
+  function wallsFor(b, from, level) {
+    return b.terrain.filter(function (t) {
+      if (t.top <= level + STEP_OVER) return false;
+      if (from && inBox(t, from)) return false;      /* you are on top of it */
+      return true;
+    });
   }
 
   /* Shortest distance from a point to a box; 0 if the point is inside it. */
@@ -46,11 +61,23 @@ const Board = (function () {
     return Math.hypot(dx, dy);
   }
 
-  /* Can a base of this radius stand here without overlapping anything? */
-  function standable(b, p, radius) {
+  /* Somewhere a base of this radius can actually be put down: on the ground
+     clear of everything, or squarely enough on top of a piece to balance. */
+  function standable(b, p, radius, level) {
     if (p.x < radius || p.y < radius || p.x > b.w - radius || p.y > b.h - radius) return false;
-    for (let i = 0; i < b.walls.length; i++) {
-      if (distToBox(b.walls[i], p) < radius - EPS) return false;
+    const lvl = level === undefined ? heightAt(b, p) : level;
+    const perch = radius * 0.6;
+    for (let i = 0; i < b.terrain.length; i++) {
+      const t = b.terrain[i];
+      if (t.top <= lvl + EPS) continue;              /* at or below your feet */
+      if (distToBox(t, p) < radius - EPS) return false;   /* half inside its side */
+    }
+    /* if you are up on something, you have to be far enough in to balance */
+    for (let i = 0; i < b.terrain.length; i++) {
+      const t = b.terrain[i];
+      if (Math.abs(t.top - lvl) > EPS || !inBox(t, p)) continue;
+      if (p.x < t.x + perch || p.x > t.x + t.w - perch ||
+          p.y < t.y + perch || p.y > t.y + t.h - perch) return false;
     }
     return true;
   }
@@ -106,10 +133,12 @@ const Board = (function () {
 
      `field` is reusable: build it once per unit per action, then ask it how far
      any point is or what path leads there. */
-  function moveField(b, from, radius, blockedBy) {
+  function moveField(b, from, radius, blockedBy, level) {
+    const lvl = level === undefined ? heightAt(b, from) : level;
     const pad = radius + 0.02;
-    const obstacles = b.walls.map(t => ({
-      x: t.x - pad, y: t.y - pad, w: t.w + pad * 2, h: t.h + pad * 2
+    const walls = wallsFor(b, from, lvl);
+    const obstacles = walls.map(t => ({
+      x: t.x - pad, y: t.y - pad, w: t.w + pad * 2, h: t.h + pad * 2, box: t
     }));
     /* Other models are obstacles too — you cannot walk over a base. */
     (blockedBy || []).forEach(function (o) {
@@ -119,8 +148,6 @@ const Board = (function () {
 
     const blocked = (a, c) => obstacles.some(t => segHitsBox(t, a, c));
 
-    /* Nodes: where we started, plus every obstacle corner that is not buried
-       inside another obstacle or off the table. */
     const nodes = [{ x: from.x, y: from.y }];
     obstacles.forEach(function (t) {
       [[t.x, t.y], [t.x + t.w, t.y], [t.x, t.y + t.h], [t.x + t.w, t.y + t.h]]
@@ -133,8 +160,6 @@ const Board = (function () {
         });
     });
 
-    /* Dijkstra over the visibility graph. A dozen boxes is fifty-odd nodes, so
-       the all-pairs visibility test is cheap and exact. */
     const n = nodes.length;
     const cost = new Float64Array(n).fill(Infinity);
     const prev = new Int32Array(n).fill(-1);
@@ -154,8 +179,8 @@ const Board = (function () {
     }
 
     return {
-      board: b, from: { x: from.x, y: from.y }, radius: radius,
-      nodes: nodes, cost: cost, prev: prev, obstacles: obstacles,
+      board: b, from: { x: from.x, y: from.y }, radius: radius, level: lvl,
+      walls: walls, nodes: nodes, cost: cost, prev: prev, obstacles: obstacles,
       blockedSeg: blocked
     };
   }
@@ -163,7 +188,7 @@ const Board = (function () {
   /* How far is it, really, to walk to this point? Infinity if it cannot be
      reached at all. */
   function costTo(field, p) {
-    if (!standable(field.board, p, field.radius)) return Infinity;
+    if (!standable(field.board, p, field.radius, field.level)) return Infinity;
     if (field.obstacles.some(o => o.round !== undefined &&
         Math.hypot(p.x - o.cx, p.y - o.cy) < o.round - EPS)) return Infinity;
     let best = Infinity;
@@ -178,7 +203,6 @@ const Board = (function () {
 
   const canReach = (field, p, inches) => costTo(field, p) <= inches + 1e-6;
 
-  /* The corners to walk round on the way there, ending at the point itself. */
   function pathTo(field, p) {
     let bestI = -1, best = Infinity;
     for (let i = 0; i < field.nodes.length; i++) {
@@ -193,6 +217,56 @@ const Board = (function () {
     back.reverse();
     back.push({ x: p.x, y: p.y });
     return { points: back, length: best };
+  }
+
+  /* ---------------------------------------------------------------- climbing
+     All terrain is climbable. Walk your base into a piece and you go up it: you
+     end on the lowest part of it you can balance on, nearest to where you
+     touched, and that is the end of your move.
+
+     So for every piece in your way, find the cheapest place you can touch it
+     from, and where on top that puts you. */
+  function climbSpots(field, inches) {
+    const b = field.board, r = field.radius;
+    const out = [];
+    field.walls.forEach(function (t) {
+      const perch = r * 0.6 + 0.02;
+      if (t.w < perch * 2 || t.h < perch * 2) return;    /* too narrow to stand on */
+
+      let bestCost = Infinity, bestTouch = null;
+      const step = 0.35, ring = [];
+      for (let x = t.x - r - 0.05; x <= t.x + t.w + r + 0.05; x += step) {
+        ring.push({ x: x, y: t.y - r - 0.05 }, { x: x, y: t.y + t.h + r + 0.05 });
+      }
+      for (let y = t.y - r - 0.05; y <= t.y + t.h + r + 0.05; y += step) {
+        ring.push({ x: t.x - r - 0.05, y: y }, { x: t.x + t.w + r + 0.05, y: y });
+      }
+      ring.forEach(function (p) {
+        if (p.x < r || p.y < r || p.x > b.w - r || p.y > b.h - r) return;
+        const c = costTo(field, p);
+        if (c < bestCost && c <= inches + 1e-6) { bestCost = c; bestTouch = p; }
+      });
+      if (!bestTouch) return;
+
+      const land = {
+        x: Math.min(Math.max(bestTouch.x, t.x + perch), t.x + t.w - perch),
+        y: Math.min(Math.max(bestTouch.y, t.y + perch), t.y + t.h - perch)
+      };
+      if (!standable(b, land, r, t.top)) return;
+      out.push({ x: land.x, y: land.y, top: t.top, cost: bestCost, from: bestTouch, box: t });
+    });
+    return out;
+  }
+
+  /* Where a click on a piece of terrain actually puts you. */
+  function climbFor(field, inches, p) {
+    let best = null, bestD = Infinity;
+    climbSpots(field, inches).forEach(function (s) {
+      if (!inBox(s.box, p)) return;
+      const d = dist(s, p);
+      if (d < bestD) { bestD = d; best = s; }
+    });
+    return best;
   }
 
   /* ------------------------------------------------------- drawing the areas
@@ -247,8 +321,8 @@ const Board = (function () {
   }
 
   return {
-    build, inside, inBox, dist, heightAt, distToBox, standable,
-    canSee, segHitsBox, moveField, costTo, canReach, pathTo,
+    build, inside, inBox, dist, heightAt, distToBox, standable, wallsFor, STEP_OVER,
+    canSee, segHitsBox, moveField, costTo, canReach, pathTo, climbSpots, climbFor,
     sampleReach, sampleSight, nudgeToLegal
   };
 })();

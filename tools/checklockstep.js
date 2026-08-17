@@ -34,7 +34,7 @@ function fingerprint(B) {
     units: S.units.map(u => [u.id, +u.x.toFixed(6), +u.y.toFixed(6), u.wounds, u.alive,
                              u.kills, u.overwatch ? [+u.overwatch.x.toFixed(4), +u.overwatch.y.toFixed(4)] : 0]),
     log: S.log.length,
-    dice: S.dice.map(d => d.value)
+    strikes: S.strikes.map(k => [k.attacker, k.target, k.hit, k.wound, k.damage, k.killed])
   });
 }
 
@@ -132,10 +132,10 @@ function rollSeries(seed) {
     if (!G.Battle.meleeTargets('u0_0').length) break;
     G.Battle.doFight('u0_0', 'u1_0', null);
   }
-  return G.Battle.get().dice.map(d => d.value);
+  return G.Battle.get().strikes.map(k => (k.rolls ? k.rolls.hit : 0) + ':' + (k.rolls && k.rolls.wound || 0));
 }
 const s1 = rollSeries(987654321), s2 = rollSeries(5), s1again = rollSeries(987654321);
-console.log('seed 987654321 ->', JSON.stringify(s1));
-console.log('seed 5         ->', JSON.stringify(s2));
+console.log('seed 987654321 -> rolls', JSON.stringify(s1));
+console.log('seed 5         -> rolls', JSON.stringify(s2));
 console.log('same seed twice is the same series:', JSON.stringify(s1) === JSON.stringify(s1again) ? 'yes' : 'NO');
 console.log('a different seed is a different series:', JSON.stringify(s1) !== JSON.stringify(s2) ? 'yes' : 'NO — seed ignored');

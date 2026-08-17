@@ -284,6 +284,30 @@ body[data-control="1"] .who { color: var(--p1); }
 .log .win { color: var(--gold-lit); }
 .log .note { color: #9c9382; font-style: italic; }
 
+/* --------------------------------------------------------- making ready */
+
+.loading {
+  position: absolute; inset: 0; z-index: 78;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 14px; background: radial-gradient(ellipse at 50% 45%, #1c1712 0%, #070605 75%);
+}
+.loadmark { font-size: 44px; color: var(--gold); opacity: .6; }
+.loadtitle {
+  font-family: var(--gothic); letter-spacing: .3em; font-size: 13px; color: var(--bone);
+}
+.loadbar {
+  width: min(420px, 60vw); height: 6px; background: rgba(0,0,0,.6);
+  border: 1px solid var(--line);
+}
+.loadbar i {
+  display: block; height: 100%; width: 0;
+  background: linear-gradient(90deg, #6d5720, var(--gold-lit));
+  transition: width .18s linear;
+}
+.loadwhat { font-size: 10px; letter-spacing: .18em; color: var(--dim); min-height: 1em; }
+
+.prompt.resolving { color: var(--gold-lit); letter-spacing: .14em; }
+
 /* ------------------------------------------------------------ the modals */
 
 .modalwrap {

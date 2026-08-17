@@ -60,6 +60,15 @@ higher than the higher of the two of you, so a 3.4" trench wall stops mattering
 the moment you climb the 2.2" redoubt — and two models on the floor still cannot
 see each other across it.
 
+### All terrain is climbable
+
+Walk your base into a piece of scenery and you go up it: you end on the lowest
+part you can balance on, nearest to where you touched, and that is the end of
+your move. So the trench wall in your way is not only an obstacle to walk round
+— it is a firing position, if you are willing to spend the move getting onto it.
+Line of sight follows from where you end up, so taking the high ground is worth
+the inch it costs.
+
 ### In three dimensions
 
 The table is a three.js scene where one world unit is one inch, so nothing is
@@ -73,9 +82,12 @@ player's end of the table.
 | **SHOOT** | Shades everything the model can see, with the shadows terrain casts cut out of it, and measures the range to the target |
 | **OVERWATCH** | Place the token anywhere within 12"; its 3" trigger circle is drawn before you commit, and it fires mid-move, interrupting the walk |
 | **CHARGE** | Rolls the 1D6 on the table, finds the closest legal spot that puts a blade on the target, and declines gracefully if it cannot reach |
-| **Dice** | Thrown where the action is, tumbling, settling on the face that was actually rolled, on a gold pad if they passed and a red one if they failed |
-| **Attacks** | Tracer, muzzle flash, sparks off the target and a jolt of the camera; melee gets a slash instead |
-| **Models** | Placeholders — a based figure in the player's colour with its initials over it and a wound track. `Render3D.setArt(unitId, src)` drops a scan in when the scanner app is ready |
+| **Every attack** | The camera cuts to the shot, the weapon goes off, and a round crosses the table. Where it ends up **is** the roll — no dice are ever shown |
+| **A miss** | The round goes past him into the rockcrete: a metallic clang, sparks, and a scorch where it struck |
+| **A hit that does not wound** | It rings off his armour — the same clang and sparks, and he reels |
+| **A wound** | Blood, and a mark on the ground under him. Blood only ever means a wound |
+| **Scenery** | Real models — Kenney's Space Kit, CC0. The mass of a piece is the rules box exactly, so nothing on the table is cover the rules do not know about; the models are what make it worth looking at |
+| **Sound** | Synthesised in the browser rather than sampled: nothing to download and nothing to licence |
 
 ### Reactions move where you say
 

@@ -66,13 +66,31 @@ MAPS.list.forEach(function (m) {
   ok(O.every(o => Board.standable(b, o, BASE)),
      'a model can actually stand on every objective');
 
-  /* Nothing walled off: with no limit on the move, everything is reachable. */
+  /* Nothing walled off. All terrain is climbable, but a climb ends your move,
+     so getting somewhere high takes more than one — expand a few moves out. */
   [0, 1].forEach(function (p) {
     const start = Board.nudgeToLegal(b, zoneMid(b.deploy[p]), BASE, []);
-    const field = Board.moveField(b, start, BASE, []);
-    const stranded = O.filter(o => !isFinite(Board.costTo(field, o)));
+    let frontier = [start];
+    const seen = [];
+    const got = o => frontier.concat(seen).some(function (f) {
+      const fld = Board.moveField(b, f, BASE, [], Board.heightAt(b, f));
+      return isFinite(Board.costTo(fld, o));
+    });
+    for (let round = 0; round < 5 && frontier.length; round++) {
+      const next = [];
+      frontier.forEach(function (f) {
+        const fld = Board.moveField(b, f, BASE, [], Board.heightAt(b, f));
+        Board.climbSpots(fld, 1e4).forEach(function (c) {
+          if (seen.concat(next).some(q => Board.dist(q, c) < 0.5)) return;
+          next.push({ x: c.x, y: c.y });
+        });
+      });
+      seen.push.apply(seen, frontier);
+      frontier = next;
+    }
+    const stranded = O.filter(o => !got(o));
     ok(stranded.length === 0,
-       'P' + (p + 1) + ' can walk to every objective' +
+       'P' + (p + 1) + ' can reach every objective, climbing where it has to' +
        (stranded.length ? ' (stranded: ' + stranded.map(o => o.x + ',' + o.y).join(' ') + ')' : ''));
   });
 
@@ -127,12 +145,30 @@ const fo = Board.moveField(tl, openA, BASE, []);
 ok(Math.abs(Board.costTo(fo, openB) - Board.dist(openA, openB)) < 1e-6,
    'in the open, a move measures exactly the straight line');
 
-/* You cannot stand inside a wall, or half inside one. */
-ok(!Board.standable(tl, { x: wall.x + 1, y: wall.y + 1 }, BASE), 'you cannot stand inside a wall');
+/* All terrain is climbable, so the top of a wall is somewhere you can stand —
+   but its side is not, and you cannot hang half off the edge. */
+ok(Board.standable(tl, { x: wall.x + wall.w / 2, y: wall.y + wall.h / 2 }, BASE),
+   'you can stand on top of a wall');
+ok(Math.abs(Board.heightAt(tl, { x: wall.x + wall.w / 2, y: wall.y + wall.h / 2 }) - wall.top) < 1e-9,
+   'and standing on it puts you at its height');
 ok(!Board.standable(tl, { x: wall.x + 1, y: wall.y - 0.25 }, BASE),
-   'nor with your base overlapping one');
+   'you cannot stand with your base cutting into its side');
 ok(Board.standable(tl, { x: wall.x + 1, y: wall.y - 0.75 }, BASE),
    'but you can stand right up against it');
+ok(!Board.standable(tl, { x: wall.x + 0.1, y: wall.y + wall.h / 2 }, BASE, wall.top),
+   'nor hang off the edge of the top');
+
+/* Walking into it takes you up it, and that is the end of the move. */
+const below = { x: wall.x + wall.w / 2, y: wall.y - 2 };
+const cf = Board.moveField(tl, below, BASE, [], 0);
+const climbs = Board.climbSpots(cf, 6);
+const onWall = climbs.find(c => c.box === wall);
+ok(!!onWall, 'walking into a wall offers a way up it');
+if (onWall) {
+  ok(Math.abs(onWall.top - wall.top) < 1e-9, 'and it puts you on top of it');
+  ok(onWall.cost < 2.1, 'costing only the walk up to it (' + onWall.cost.toFixed(2) + '")');
+  ok(Board.inBox(wall, onWall), 'landing squarely on the piece you climbed');
+}
 
 console.log('\n== the shrine specifically');
 const sh = Board.build(MAPS.byId('shrine'));

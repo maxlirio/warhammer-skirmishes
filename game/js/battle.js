@@ -48,18 +48,9 @@ const Battle = (function () {
     if (S.log.length > 300) S.log.shift();
   }
 
-  /* Dice the table can watch being thrown. The renderer picks these up. */
-  function roll(what, target, mods, where) {
-    const value = d6();
-    S.dice.push({
-      what: what, value: value, target: target, mods: mods || 0,
-      pass: target == null ? null : (value !== 1 && value >= target),
-      where: where ? { x: where.x, y: where.y } : null,
-      at: S.diceSeq++
-    });
-    if (S.dice.length > 6) S.dice.shift();
-    return value;
-  }
+  /* The dice stay behind the curtain. What the table shows is the shot: the
+     round leaves the barrel, and where it ends up is the roll. */
+  const roll = () => d6();
 
   /* ------------------------------------------------------------- setting up */
 
@@ -77,7 +68,7 @@ const Battle = (function () {
       chain: { active: false, initiator: null, passes: 0 },
       control: { player: 0, forcedUnitId: null },
       pending: null,
-      log: [], dice: [], diceSeq: 0, shots: [],
+      log: [], strikes: [], seq: 0,
       winner: null,
       vpTarget: cfg.vpTarget || 10
     };
@@ -279,13 +270,17 @@ const Battle = (function () {
     }).map(t => t.id);
   }
 
+  const levelOf = u => Board.heightAt(S.board, u);
+
   const fieldFor = (u, blockers) =>
     Board.moveField(S.board, u, u.radius,
-      (blockers || others(u.id)).map(o => ({ x: o.x, y: o.y, radius: o.radius })));
+      (blockers || others(u.id)).map(o => ({ x: o.x, y: o.y, radius: o.radius })),
+      levelOf(u));
 
   function moveField(unitId) {
     const u = unit(unitId);
-    return { field: fieldFor(u), inches: u.move };
+    const field = fieldFor(u);
+    return { field: field, inches: u.move, climbs: Board.climbSpots(field, u.move) };
   }
 
   /* --------------------------------------------------------------- moving */
@@ -295,21 +290,34 @@ const Battle = (function () {
     const p = S.control.player;
     if (!u || u.owner !== p || S.players[p].ap < 1) return;
     const field = fieldFor(u);
-    if (!Board.canReach(field, to, u.move)) return;
-    const path = Board.pathTo(field, to);
+
+    /* Either walk to it, or walk into a piece of terrain and go up it. */
+    let path = null, climb = null;
+    if (Board.canReach(field, to, u.move)) {
+      path = Board.pathTo(field, to);
+    } else {
+      climb = Board.climbFor(field, u.move, to);
+      if (climb) path = Board.pathTo(field, climb.from);
+    }
     if (!path) return;
 
     openChain(p);
     spend(p, 1);
-    log(S.players[p].name + ': ' + u.name + ' → MOVE (' + path.length.toFixed(1) + '").', 'action');
-    walk(u, path.points, function () {
+    log(S.players[p].name + ': ' + u.name + ' → MOVE (' +
+        (climb ? climb.cost : path.length).toFixed(1) + '").', 'action');
+    if (climb) {
+      log(u.name + ' climbs the ' + (climb.box.kind || 'terrain') + ' — ' +
+          climb.top.toFixed(1) + '" up, and that is the end of the move.', 'note');
+    }
+    walk(u, path.points, climb, function () {
       afterAction(p, { endsChain: true, reason: 'MOVE' });
     });
   }
 
   /* Walk the line, in short steps, so anything watching gets its shot at the
      moment the model crosses into the arc rather than at the end of it. */
-  function walk(u, points, done) {
+  function walk(u, points, climb, done) {
+    if (typeof climb === 'function') { done = climb; climb = null; }
     if (u.overwatch) { u.overwatch = null; log(u.name + ' gives up its overwatch by moving.', 'muted'); }
     const STEP = 0.5;
     const legs = [];
@@ -322,9 +330,21 @@ const Battle = (function () {
       }
     }
     u.walking = { points: points.slice(), at: 0 };
-    let i = 0;
+    let i = 0, mounted = false;
     (function step() {
-      if (i >= legs.length || !u.alive) { u.walking = null; done(); return; }
+      if (!u.alive) { u.walking = null; done(); return; }
+      if (i >= legs.length) {
+        /* touched it, so go up it — and being up there is a move too, so
+           anything watching gets one more look */
+        if (climb && !mounted) {
+          mounted = true;
+          u.climbed = { from: { x: u.x, y: u.y }, to: { x: climb.x, y: climb.y }, top: climb.top, at: S.seq++ };
+          u.x = climb.x; u.y = climb.y;
+          const w2 = triggeredWatchers(u);
+          if (w2.length) { openOverwatch(u, w2, step); return; }
+        }
+        u.walking = null; done(); return;
+      }
       const c = legs[i++];
       if (i > 1) u.facing = Math.atan2(c.y - u.y, c.x - u.x);
       u.x = c.x; u.y = c.y;
@@ -434,7 +454,7 @@ const Battle = (function () {
     if (!a || !t || a.owner !== p || S.players[p].ap < 2) return;
     openChain(p);
     spend(p, 2);
-    const rolled = roll('charge', null, 0, a);
+    const rolled = roll();
     const fromHigh = Board.heightAt(S.board, a);
     log(S.players[p].name + ': ' + a.name + ' → CHARGE → ' + t.name +
         ' — rolls ' + rolled + '".', 'action');
@@ -449,7 +469,7 @@ const Battle = (function () {
       return;
     }
     const path = Board.pathTo(field, landing);
-    walk(a, path ? path.points : [a, landing], function () {
+    walk(a, path ? path.points : [a, landing], null, function () {
       if (!a.alive) { afterAction(p, {}); return; }
       const high = fromHigh > Board.heightAt(S.board, t);
       if (high) log('Charging down from the high ground: +1 to Wound and +1 Damage.', 'note');
@@ -495,6 +515,8 @@ const Battle = (function () {
   function spotsWithin(u, inches, keep, step) {
     const field = fieldFor(u);
     const out = [];
+    const climbs = Board.climbSpots(field, inches).filter(c => !keep || keep(c));
+    climbs.forEach(c => out.push({ x: c.x, y: c.y, climb: c }));
     const STEP = step || 0.4;
     for (let dy = -inches; dy <= inches + 1e-9; dy += STEP) {
       for (let dx = -inches; dx <= inches + 1e-9; dx += STEP) {
@@ -505,7 +527,7 @@ const Battle = (function () {
         out.push(p);
       }
     }
-    return { field: field, inches: inches, spots: out, keep: keep || null };
+    return { field: field, inches: inches, spots: out, climbs: climbs, keep: keep || null };
   }
 
   const dodgeSpots = atk => spotsWithin(atk.target, 1).spots;
@@ -530,6 +552,7 @@ const Battle = (function () {
     S.pending = {
       kind: 'move', unitId: u.id, inches: inches, step: 0.22,
       field: sampled.field, keep: keep || null, spots: sampled.spots,
+      climbs: sampled.climbs,
       label: label, hint: hint, then: then
     };
     emit();
@@ -539,7 +562,8 @@ const Battle = (function () {
      otherwise the nearest legal one within a base's width, because a player
      aiming at a 3" patch of table should not have to hit it to the pixel. */
   function snapMove(pend, to) {
-    const legal = p => Board.canReach(pend.field, p, pend.inches) &&
+    const legal = p => (Board.canReach(pend.field, p, pend.inches) ||
+                        (pend.climbs || []).some(c => Board.dist(c, p) < 1e-6)) &&
                        (!pend.keep || pend.keep(p));
     if (legal(to)) return { x: to.x, y: to.y };
     let best = null, bestD = 1.4;
@@ -550,6 +574,8 @@ const Battle = (function () {
     return best ? { x: best.x, y: best.y } : null;
   }
 
+  /* A reaction that moves you is still a move: it is walked, not teleported,
+     so an overwatch token you cross on the way still gets its shot. */
   function placeMove(where) {
     const pend = S.pending;
     if (!pend || pend.kind !== 'move') return;
@@ -557,16 +583,22 @@ const Battle = (function () {
     if (!to) return;
     const u = unit(pend.unitId);
     const then = pend.then;
+    const climb = pend.climbs && pend.climbs.find(c => Board.dist(c, to) < 1e-6);
     S.pending = null;
-    if (u.overwatch) { u.overwatch = null; log(u.name + ' gives up its overwatch by moving.', 'muted'); }
-    u.facing = Math.atan2(to.y - u.y, to.x - u.x);
-    u.x = to.x; u.y = to.y;
-    then();
+    const path = climb ? Board.pathTo(pend.field, climb.from) : Board.pathTo(pend.field, to);
+    walk(u, path ? path.points : [{ x: u.x, y: u.y }, to], climb || null, then);
   }
 
   function chooseReaction(id) {
     const pend = S.pending;
     if (!pend || pend.kind !== 'reaction') return;
+    /* Only what was actually on offer — the screen greys the rest out, but the
+       engine should not take one on trust either. */
+    if (id && id !== 'none') {
+      const offered = pend.options.find(o => o.id === id);
+      if (!offered || !offered.ok) return;
+      if (offered.cost > S.players[pend.atk.target.owner].rp) return;
+    }
     const atk = pend.atk;
     const t = atk.target;
     S.pending = null;
@@ -648,16 +680,7 @@ const Battle = (function () {
     const woundMod = (atk.woundMod || 0) + effectMod(a, 'wound');
     const hitTarget = RULES.applyMod(Number(w.hit), hitMod).target;
 
-    /* The shot itself, for the table to draw. */
-    S.shots.push({
-      from: { x: a.x, y: a.y, z: Board.heightAt(S.board, a) },
-      to:   { x: t.x, y: t.y, z: Board.heightAt(S.board, t) },
-      melee: atk.range === 'melee', at: S.diceSeq
-    });
-    if (S.shots.length > 4) S.shots.shift();
-
-    const mid = { x: (a.x + t.x) / 2, y: (a.y + t.y) / 2 };
-    const r = roll('hit', hitTarget, hitMod, mid);
+    const r = roll();
     atk.rolls = { hit: r, hitTarget: hitTarget };
 
     /* A one always fails, whatever the modifiers say. */
@@ -670,7 +693,7 @@ const Battle = (function () {
 
     const wTarget = RULES.applyMod(
       RULES.woundTarget(Number(w.strength), t.toughness), woundMod).target;
-    const wRoll = roll('wound', wTarget, woundMod, mid);
+    const wRoll = roll();
     atk.rolls.wound = wRoll; atk.rolls.woundTarget = wTarget;
     if (wRoll === 1 || wRoll < wTarget) {
       log('Wound roll ' + wRoll + ' against ' + wTarget + '+ — no wound.', 'miss');
@@ -686,19 +709,35 @@ const Battle = (function () {
     const a = atk.attacker, t = atk.target;
     let killed = false;
 
+    /* One record of the whole exchange, which the table plays out: the round
+       leaving the muzzle, whether it found him, and what it did. */
+    const strike = {
+      at: S.seq++,
+      attacker: a.id, target: t.id,
+      melee: atk.range === 'melee',
+      weapon: atk.weapon.name,
+      from: { x: a.x, y: a.y, z: Board.heightAt(S.board, a) },
+      to: { x: t.x, y: t.y, z: Board.heightAt(S.board, t) },
+      hit: !!result.hit, wound: !!result.wound, damage: result.damage || 0,
+      rolls: atk.rolls || null, overwatch: !!atk.overwatch,
+      killed: false
+    };
+
     if (result.damage) {
       t.wounds = Math.max(0, t.wounds - result.damage);
-      t.hitAt = S.diceSeq;
       log(t.name + ' takes ' + result.damage + ' — ' + t.wounds + '/' + t.maxWounds + ' W.', 'damage');
       if (t.wounds <= 0) {
         t.alive = false;
         killed = true;
+        strike.killed = true;
         a.kills += 1;
         S.players[a.owner].vp += (t.killVP || 1);
         log(t.name + ' is DESTROYED. ' + S.players[a.owner].name + ' scores ' +
             (t.killVP || 1) + ' VP (now ' + S.players[a.owner].vp + ').', 'kill');
       }
     }
+    S.strikes.push(strike);
+    if (S.strikes.length > 12) S.strikes.shift();
     S.players[t.owner].rp = 0;
 
     if (atk.overwatch) { checkVictory(); if (done) done(); else emit(); return; }

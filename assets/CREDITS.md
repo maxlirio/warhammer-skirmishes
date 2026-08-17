@@ -43,6 +43,26 @@ Drop a new file in with the same name and it is picked up — the CSS refers to
 them by path only. Keep them dark: they sit underneath the panel gradients, not
 on top.
 
+# Scenery (the video game)
+
+`game/assets/kit/` is **Kenney's Space Kit 2.0**, CC0 — the licence ships with
+it as `LICENSE-kenney.txt`. Fifty-one models: structures, decking, rails,
+stairs, drums, generators, pipes, rocks, a satellite dish, a turret, and the
+three figures the models are built from (astronaut A and B, and the alien).
+
+They are also baked into `game/assets/kit.js` as base64 by `tools/buildkit.js`.
+That duplication is deliberate: GLTFLoader fetches, and fetch will not touch a
+`file://` URL, so a page opened off a disc could load three.js and the rules but
+not one model. The `.glb` files stay as the editable source; the bundle is what
+the game actually reads. Add or remove a model and re-run the tool.
+
+**The scenery is only a costume.** A battlefield is the boxes in
+`game/js/maps.js`, and those boxes are what gets measured, walked round and
+climbed. A piece of terrain's mass is drawn to exactly its box, so nothing on
+the table is cover the rules do not know about and nothing the rules know about
+is invisible. Models can be swapped for better ones without a single distance
+changing.
+
 # Libraries (the video game)
 
 Both are committed under `game/vendor/` rather than fetched from a CDN, so the

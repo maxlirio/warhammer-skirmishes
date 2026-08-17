@@ -174,14 +174,24 @@ const GameUI = (function () {
   function begin() {
     $('menu').hidden = true;
     $('battle').hidden = false;
+    $('loading').hidden = false;
+    Sfx.wake();
     Render3D.attach($('board'));
-    resize();                      /* size the canvas before the table is framed */
-    Battle.on(render);
-    Battle.start(cfg);
-    started = true;
-    window.addEventListener('resize', resize);
     resize();
-    if (window.Net) Net.onStart(cfg);
+    /* The scenery has to be on the table before anybody is deployed onto it. */
+    Assets.load('assets/kit/', function (done, total, name) {
+      $('loadfill').style.width = Math.round(done / total * 100) + '%';
+      $('loadwhat').textContent = name.replace(/_/g, ' ');
+    }).then(function () {
+      $('loading').hidden = true;
+      Battle.on(render);
+      Battle.start(cfg);
+      started = true;
+      window.addEventListener('resize', resize);
+      resize();
+      Sfx.chime(420, 0.16);
+      if (window.Net) Net.onStart(cfg);
+    });
   }
 
   function resize() { Render3D.resize(); }
@@ -201,6 +211,7 @@ const GameUI = (function () {
       v.areaGlow = true;
       const u = Battle.unit(pend.unitId);
       v.focus = u;
+      v.climbs = pend.climbs || [];
       const land = hover
         ? (Battle.snapMove(pend, hover) || Render3D.pickNearest(hoverPx.x, hoverPx.y, pend.spots))
         : null;
@@ -221,8 +232,17 @@ const GameUI = (function () {
       v.areaColour = Render3D.COL.move;
       v.areaOpacity = 0.3;
       v.areaCell = 0.4;
-      if (hover && Board.canReach(mode.field, hover, mode.inches)) {
-        v.tape = tape(u, hover, Board.costTo(mode.field, hover));
+      v.climbs = mode.climbs;
+      if (hover) {
+        if (Board.canReach(mode.field, hover, mode.inches)) {
+          v.tape = tape(u, hover, Board.costTo(mode.field, hover));
+        } else {
+          const c = Board.climbFor(mode.field, mode.inches, hover);
+          if (c) {
+            v.tape = tape(u, c, c.cost, '#e8c65c');
+            v.marks = [{ x: c.x, y: c.y, r: u.radius + 0.4, colour: Render3D.COL.goldLit }];
+          }
+        }
       }
     } else if (mode.kind === 'shoot') {
       v.area = mode.sight;
@@ -345,6 +365,7 @@ const GameUI = (function () {
         Battle.unit(pend.unitId).name + '.'));
       return;
     }
+    if (Render3D.busy()) { bar.appendChild(el('div', 'prompt resolving', 'the shot is still in the air…')); return; }
     if (S.pending) { bar.appendChild(el('div', 'prompt', 'waiting on the reaction…')); return; }
 
     const head = el('div', 'ahead');
@@ -449,6 +470,7 @@ const GameUI = (function () {
     if (kind === 'move') {
       const mf = Battle.moveField(unitId);
       mode = { kind: 'move', unitId: unitId, field: mf.field, inches: mf.inches,
+               climbs: mf.climbs,
                spots: Board.sampleReach(mf.field, mf.inches, 0.4) };
     } else if (kind === 'shoot') {
       const guns = Battle.weaponsOf(u, 'ranged');
@@ -516,6 +538,7 @@ const GameUI = (function () {
   function click(cx, cy) {
     const S = Battle.get();
     if (!S || S.winner !== null) return;
+    if (Render3D.busy()) return;
     const p = Render3D.pick(cx, cy);
     if (!p) return;
     const at = { x: p.x, y: p.y };
@@ -536,7 +559,10 @@ const GameUI = (function () {
 
     if (mode) {
       if (mode.kind === 'move') {
-        const to = Board.canReach(mode.field, at, mode.inches) ? at
+        const climb = Board.canReach(mode.field, at, mode.inches)
+          ? null : Board.climbFor(mode.field, mode.inches, at);
+        const to = climb ? climb
+                 : Board.canReach(mode.field, at, mode.inches) ? at
                  : Render3D.pickNearest(cx, cy, mode.spots, 30);
         if (to) {
           const id = mode.unitId; mode = null;
@@ -727,9 +753,14 @@ const GameUI = (function () {
   return { showMenu, wire, begin, apply, cfg: () => cfg, setCfg: c => { cfg = c; } };
 })();
 
+/* Every script here is a classic one loaded in order, so by the time the
+   document is ready everything this needs already exists. */
 function bootGame() {
   GameUI.wire();
   GameUI.showMenu();
 }
-if (window.Render3D) bootGame();
-else window.addEventListener('render3d-ready', bootGame);
+if (document.readyState === 'loading') {
+  window.addEventListener('DOMContentLoaded', bootGame);
+} else {
+  bootGame();
+}

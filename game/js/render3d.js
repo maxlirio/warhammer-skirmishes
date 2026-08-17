@@ -2,45 +2,51 @@
    THE TABLE, IN THREE DIMENSIONS
    One world unit is one inch, so nothing here has to convert anything: a
    model at (22, 15) on the table stands at (22, ground, 15) in the scene, and
-   a 12" range is twelve units long.
+   a 12" range is twelve units long. Table x → world X, table y → world Z.
 
-   Table x → world X, table y → world Z, height → world Y.
+   No rule is decided in this file. It is handed a board of boxes and a list of
+   strikes that have already been resolved, and its whole job is to make
+   watching them worth the time. An attack is not a number appearing in a log:
+   it is a round leaving a barrel, crossing the table, and either finding him
+   or going past him into the rockcrete.
    ========================================================================= */
-
-const THREE = window.THREE;
 
 const Render3D = (function () {
 
+  const THREE = window.THREE;
+
   let renderer, scene, camera, canvas, keyLight;
-  let ground, terrainGroup, unitGroup, overlayGroup, fxGroup, markerGroup;
-  const unitNodes = {};          // unit id -> THREE.Group
-  const art = {};                // unit id -> texture, once scans exist
+  let terrainGroup, unitGroup, overlayGroup, fxGroup, markerGroup;
+  const unitNodes = {};
   let board = null;
-  let raf = 0, lastT = 0;
-  const fx = [];                 // live effects, ticked each frame
-  const dice = [];               // dice on the table
-  let seenDice = -1, seenShot = -1;
+  let lastT = 0;
+  const fx = [];
+  const cine = [];
+  let playing = null;
+  let seenStrike = -1;
+  const seenClimb = {};
   let shake = 0;
 
   const COL = {
     p0: 0x5687b4, p1: 0xa8352a,
     gold: 0xb8912f, goldLit: 0xe8c65c, bone: 0xd9cfbc,
-    move: 0x5687b4, sight: 0xb8912f, watch: 0xa8352a
+    move: 0x5687b4, sight: 0xb8912f, watch: 0xa8352a,
+    blood: 0x6d1410, spark: 0xffc861
   };
 
-  /* ------------------------------------------------------------ the camera
-     Orbit by dragging, zoom on the wheel, pan with the right button — written
-     out here rather than pulled in, so the page stays self-contained. */
-  const cam = { az: -Math.PI / 2, el: 0.85, dist: 46, target: new THREE.Vector3(0, 0, 0) };
-  let want = null;          // {target, dist} the camera is easing toward
+  const MODEL = { astra: 'astronautA', greyknights: 'astronautB', orks: 'alien' };
+
+  /* ------------------------------------------------------------ the camera */
+
+  const cam = { az: -Math.PI / 2, el: 0.78, dist: 46, target: new THREE.Vector3() };
+  let want = null, userZoomed = false;
 
   function placeCamera() {
     const r = cam.dist * Math.cos(cam.el);
     camera.position.set(
       cam.target.x + r * Math.cos(cam.az),
       cam.target.y + cam.dist * Math.sin(cam.el),
-      cam.target.z + r * Math.sin(cam.az)
-    );
+      cam.target.z + r * Math.sin(cam.az));
     camera.lookAt(cam.target);
   }
 
@@ -48,7 +54,7 @@ const Render3D = (function () {
     let drag = null;
     canvas.addEventListener('contextmenu', e => e.preventDefault());
     canvas.addEventListener('pointerdown', function (e) {
-      if (e.button === 0 && !e.shiftKey) return;          /* left click is the game */
+      if (e.button === 0 && !e.shiftKey) return;
       drag = { x: e.clientX, y: e.clientY, pan: e.button === 2 };
       canvas.setPointerCapture(e.pointerId);
     });
@@ -65,7 +71,7 @@ const Render3D = (function () {
         clampTarget();
       } else {
         cam.az += dx * 0.006;
-        cam.el = Math.max(0.18, Math.min(1.45, cam.el + dy * 0.005));
+        cam.el = Math.max(0.12, Math.min(1.45, cam.el + dy * 0.005));
       }
       placeCamera();
     });
@@ -75,60 +81,38 @@ const Render3D = (function () {
     canvas.addEventListener('wheel', function (e) {
       e.preventDefault();
       userZoomed = true; want = null;
-      cam.dist = Math.max(9, Math.min(120, cam.dist * (1 + Math.sign(e.deltaY) * 0.11)));
+      cam.dist = Math.max(6, Math.min(120, cam.dist * (1 + Math.sign(e.deltaY) * 0.11)));
       placeCamera();
     }, { passive: false });
   }
 
   function clampTarget() {
     if (!board) return;
-    cam.target.x = Math.max(-6, Math.min(board.w + 6, cam.target.x));
-    cam.target.z = Math.max(-6, Math.min(board.h + 6, cam.target.z));
+    cam.target.x = Math.max(-8, Math.min(board.w + 8, cam.target.x));
+    cam.target.z = Math.max(-8, Math.min(board.h + 8, cam.target.z));
   }
 
-  /* Look at the table from one player's end. */
-  function viewFrom(player) {
-    userZoomed = false;
-    cam.az = player === 0 ? Math.PI : 0;
-    cam.el = 0.78;
-    cam.target.set(board.w / 2, 0, board.h / 2);
-    frameTable();
-  }
-
-  /* Centring on the middle of the table wastes the frame: looking down at it
-     from one end, the near edge spreads wide and low while the far edge
-     converges, so the near edge alone decides the distance and everything
-     above it is sky. Aim at the middle of what actually lands on screen.
-
-     The step is tried and kept only if it helped, so no sign convention in
-     here can send it off across the table. */
-  function frameTable() {
-    const err = function () {
-      cam.dist = fitDistance();
-      placeCamera();
-      const box = projectedBox();
-      return Math.abs((box.miny + box.maxy) / 2) + Math.abs((box.minx + box.maxx) / 2);
+  function fitDistance() {
+    const corners = [];
+    [0, board.w].forEach(x => [0, board.h].forEach(z => corners.push(new THREE.Vector3(x, 0, z))));
+    const fits = function (d) {
+      const r = d * Math.cos(cam.el);
+      const probe = camera.clone();
+      probe.position.set(cam.target.x + r * Math.cos(cam.az),
+                         cam.target.y + d * Math.sin(cam.el),
+                         cam.target.z + r * Math.sin(cam.az));
+      probe.lookAt(cam.target);
+      probe.updateMatrixWorld();
+      probe.updateProjectionMatrix();
+      return corners.every(function (c) {
+        const p = c.clone().project(probe);
+        return Math.abs(p.x) < 0.98 && Math.abs(p.y) < 0.96 && p.z < 1;
+      });
     };
-    let best = err();
-    const ground = new THREE.Vector3(Math.cos(cam.az), 0, Math.sin(cam.az));
-    const right = new THREE.Vector3(Math.sin(cam.az), 0, -Math.cos(cam.az));
-    let stepF = board.h * 0.25, stepR = board.w * 0.12;
-    for (let pass = 0; pass < 22 && best > 0.004; pass++) {
-      let moved = false;
-      [[ground, stepF], [ground, -stepF], [right, stepR], [right, -stepR]]
-        .forEach(function (t) {
-          if (moved) return;
-          const keep = cam.target.clone();
-          cam.target.addScaledVector(t[0], t[1]);
-          clampTarget();
-          const e = err();
-          if (e < best - 1e-4) { best = e; moved = true; }
-          else { cam.target.copy(keep); }
-        });
-      if (!moved) { stepF *= 0.5; stepR *= 0.5; if (stepF < 0.02) break; }
-    }
-    cam.dist = fitDistance();
-    placeCamera();
+    let lo = 8, hi = 220;
+    if (!fits(hi)) return hi;
+    for (let i = 0; i < 22; i++) { const m = (lo + hi) / 2; if (fits(m)) hi = m; else lo = m; }
+    return hi;
   }
 
   function projectedBox() {
@@ -142,39 +126,62 @@ const Render3D = (function () {
     return { minx, maxx, miny, maxy };
   }
 
-  /* How far back the whole table fits in the frame. A tilted perspective
-     camera does not obey a tidy formula, so this asks the camera itself:
-     project the corners of the table and back off until they all land inside. */
-  function fitDistance() {
-    const corners = [];
-    /* Only the table surface — the airspace above the near corners projects
-       off the top of the screen and would push the camera pointlessly far. */
-    [0, board.w].forEach(x => [0, board.h].forEach(z => {
-      corners.push(new THREE.Vector3(x, 0, z));
-    }));
-    const fits = function (d) {
-      const r = d * Math.cos(cam.el);
-      const pos = new THREE.Vector3(
-        cam.target.x + r * Math.cos(cam.az),
-        cam.target.y + d * Math.sin(cam.el),
-        cam.target.z + r * Math.sin(cam.az));
-      const probe = camera.clone();
-      probe.position.copy(pos);
-      probe.lookAt(cam.target);
-      probe.updateMatrixWorld();
-      probe.updateProjectionMatrix();
-      return corners.every(function (c) {
-        const p = c.clone().project(probe);
-        return Math.abs(p.x) < 0.98 && Math.abs(p.y) < 0.96 && p.z < 1;
-      });
+  /* Aim at the middle of what actually lands on screen, not the middle of the
+     table — looking down from one end, the near edge alone would decide the
+     distance and the rest of the frame would be sky. */
+  function frameTable() {
+    const err = function () {
+      cam.dist = fitDistance();
+      placeCamera();
+      const b = projectedBox();
+      return Math.abs((b.miny + b.maxy) / 2) + Math.abs((b.minx + b.maxx) / 2);
     };
-    let lo = 8, hi = 200;
-    if (!fits(hi)) return hi;
-    for (let i = 0; i < 24; i++) {
-      const mid = (lo + hi) / 2;
-      if (fits(mid)) hi = mid; else lo = mid;
+    let best = err();
+    const ground = new THREE.Vector3(Math.cos(cam.az), 0, Math.sin(cam.az));
+    const right = new THREE.Vector3(Math.sin(cam.az), 0, -Math.cos(cam.az));
+    let sf = board.h * 0.25, sr = board.w * 0.12;
+    for (let pass = 0; pass < 22 && best > 0.004; pass++) {
+      let moved = false;
+      [[ground, sf], [ground, -sf], [right, sr], [right, -sr]].forEach(function (t) {
+        if (moved) return;
+        const keep = cam.target.clone();
+        cam.target.addScaledVector(t[0], t[1]);
+        clampTarget();
+        const e = err();
+        if (e < best - 1e-4) { best = e; moved = true; } else { cam.target.copy(keep); }
+      });
+      if (!moved) { sf *= 0.5; sr *= 0.5; if (sf < 0.02) break; }
     }
-    return hi;
+    cam.dist = fitDistance();
+    placeCamera();
+  }
+
+  function viewFrom(player) {
+    userZoomed = false;
+    want = null;
+    cam.az = player === 0 ? Math.PI : 0;
+    cam.el = 0.78;
+    cam.target.set(board.w / 2, 0, board.h / 2);
+    frameTable();
+  }
+
+  function leanIn(p, dist) {
+    if (!board) return;
+    userZoomed = true;
+    want = { target: new THREE.Vector3(p.x, Board.heightAt(board, p) + 0.6, p.y),
+             dist: dist || 20, ease: 0.006 };
+  }
+
+  function leanOut() {
+    if (!board) return;
+    const kt = cam.target.clone(), kd = cam.dist, ka = cam.az, ke = cam.el;
+    cam.el = 0.78;
+    cam.az = ka;
+    frameTable();
+    want = { target: cam.target.clone(), dist: cam.dist, el: cam.el, ease: 0.03 };
+    cam.target.copy(kt); cam.dist = kd; cam.az = ka; cam.el = ke;
+    placeCamera();
+    userZoomed = false;
   }
 
   /* ------------------------------------------------------------------ setup */
@@ -186,27 +193,25 @@ const Render3D = (function () {
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.5;
+    renderer.toneMappingExposure = 1.45;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
 
     scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x0a0908);
-    scene.fog = new THREE.Fog(0x100d0b, 70, 210);
+    scene.background = skyTexture();
+    scene.fog = new THREE.FogExp2(0x2a2723, 0.0062);
 
-    camera = new THREE.PerspectiveCamera(42, 1, 0.5, 400);
+    camera = new THREE.PerspectiveCamera(42, 1, 0.4, 600);
 
-    /* Grimdark light: a cold ambient, one warm key throwing long shadows. */
-    scene.add(new THREE.HemisphereLight(0x8c9ab5, 0x2a2018, 1.5));
-    scene.add(new THREE.AmbientLight(0xfff0d8, 0.5));
-    keyLight = new THREE.DirectionalLight(0xffe2b8, 2.6);
+    scene.add(new THREE.HemisphereLight(0xa8b4c8, 0x3a2c1e, 1.15));
+    scene.add(new THREE.AmbientLight(0xffeccd, 0.32));
+    keyLight = new THREE.DirectionalLight(0xffd9a8, 2.7);
     keyLight.castShadow = true;
     keyLight.shadow.mapSize.set(2048, 2048);
-    keyLight.shadow.bias = -0.0012;
-    keyLight.shadow.normalBias = 0.03;
-    scene.add(keyLight);
-    scene.add(keyLight.target);
-    const rim = new THREE.DirectionalLight(0x88aadd, 0.9);
-    rim.position.set(24, 20, 22);
+    keyLight.shadow.bias = -0.0011;
+    keyLight.shadow.normalBias = 0.035;
+    scene.add(keyLight, keyLight.target);
+    const rim = new THREE.DirectionalLight(0x7f9dd6, 0.95);
+    rim.position.set(30, 22, 26);
     scene.add(rim);
 
     terrainGroup = new THREE.Group();
@@ -222,18 +227,29 @@ const Render3D = (function () {
     tick();
   }
 
-  let userZoomed = false;
+  function skyTexture() {
+    const c = document.createElement('canvas');
+    c.width = 8; c.height = 256;
+    const g = c.getContext('2d');
+    const grd = g.createLinearGradient(0, 0, 0, 256);
+    grd.addColorStop(0, '#080a10');
+    grd.addColorStop(0.5, '#241d18');
+    grd.addColorStop(0.78, '#3d3630');
+    grd.addColorStop(1, '#5c4b36');
+    g.fillStyle = grd;
+    g.fillRect(0, 0, 8, 256);
+    const t = new THREE.CanvasTexture(c);
+    t.mapping = THREE.EquirectangularReflectionMapping;
+    t.colorSpace = THREE.SRGBColorSpace;
+    return t;
+  }
 
-  /* Sized off the canvas itself rather than off whatever the caller thinks the
-     layout is — being told a stale size skews the projection and slides the
-     table off centre. */
   function resize() {
     if (!renderer) return;
     const w = canvas.clientWidth, h = canvas.clientHeight;
     if (!w || !h) return;
-    if (canvas.width === w * renderer.getPixelRatio() &&
-        canvas.height === h * renderer.getPixelRatio() &&
-        Math.abs(camera.aspect - w / h) < 1e-6) return;
+    if (Math.abs(camera.aspect - w / h) < 1e-6 &&
+        canvas.width === Math.round(w * renderer.getPixelRatio())) return;
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
@@ -242,118 +258,297 @@ const Render3D = (function () {
 
   /* -------------------------------------------------------------- the table */
 
+  function groundTexture(w, h) {
+    const c = document.createElement('canvas');
+    c.width = c.height = 512;
+    const g = c.getContext('2d');
+    g.fillStyle = '#5f5a51';
+    g.fillRect(0, 0, 512, 512);
+    for (let y = 0; y < 512; y += 64) {
+      for (let x = 0; x < 512; x += 64) {
+        const v = Assets.seeded(x * 7 + y * 13);
+        g.fillStyle = 'rgba(0,0,0,' + (0.03 + v * 0.1).toFixed(3) + ')';
+        g.fillRect(x + 1, y + 1, 62, 62);
+        g.strokeStyle = 'rgba(20,16,12,.55)';
+        g.lineWidth = 2;
+        g.strokeRect(x + 1, y + 1, 62, 62);
+      }
+    }
+    for (let i = 0; i < 340; i++) {
+      const v = Assets.seeded(i * 31);
+      const r = 8 + v * 56;
+      const x = Assets.seeded(i * 17) * 512, y = Assets.seeded(i * 53) * 512;
+      const grd = g.createRadialGradient(x, y, 0, x, y, r);
+      grd.addColorStop(0, 'rgba(28,20,12,' + (0.05 + v * 0.17).toFixed(3) + ')');
+      grd.addColorStop(1, 'rgba(28,20,12,0)');
+      g.fillStyle = grd;
+      g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
+    }
+    const t = new THREE.CanvasTexture(c);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(w / 8, h / 8);
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.anisotropy = 8;
+    return t;
+  }
+
+  /* Worn plate: panel lines, rivets, rust streaks, and a hazard band along the
+     top edge so the height of a piece reads at a glance. */
+  const panelCache = {};
+  function panelTexture(key, hazard) {
+    if (panelCache[key]) return panelCache[key];
+    const c = document.createElement('canvas');
+    c.width = c.height = 256;
+    const g = c.getContext('2d');
+    g.fillStyle = '#8f877a';
+    g.fillRect(0, 0, 256, 256);
+    for (let y = 0; y < 256; y += 32) {
+      for (let x = 0; x < 256; x += 64) {
+        const v = Assets.seeded(x * 3 + y * 7 + key.length);
+        g.fillStyle = 'rgba(255,252,244,' + (0.05 + v * 0.13).toFixed(3) + ')';
+        g.fillRect(x + 1, y + 1, 62, 30);
+        g.strokeStyle = 'rgba(24,20,16,.62)';
+        g.lineWidth = 2;
+        g.strokeRect(x + 1, y + 1, 62, 30);
+        g.fillStyle = 'rgba(20,17,13,.6)';
+        [[x + 6, y + 6], [x + 58, y + 6], [x + 6, y + 26], [x + 58, y + 26]].forEach(function (r) {
+          g.beginPath(); g.arc(r[0], r[1], 1.9, 0, 6.28); g.fill();
+        });
+      }
+    }
+    for (let i = 0; i < 60; i++) {
+      const v = Assets.seeded(i * 91 + key.length * 13);
+      const x = v * 256, y = Assets.seeded(i * 41) * 256;
+      const h = 12 + Assets.seeded(i * 7) * 70;
+      const grd = g.createLinearGradient(x, y, x, y + h);
+      grd.addColorStop(0, 'rgba(120,66,28,' + (0.12 + v * 0.3).toFixed(3) + ')');
+      grd.addColorStop(1, 'rgba(92,52,24,0)');
+      g.fillStyle = grd;
+      g.fillRect(x, y, 2 + v * 5, h);
+    }
+    if (hazard) {
+      g.save();
+      g.beginPath(); g.rect(0, 0, 256, 26); g.clip();
+      g.fillStyle = '#b8912f';
+      g.fillRect(0, 0, 256, 26);
+      g.fillStyle = '#17140f';
+      for (let x = -26; x < 280; x += 26) {
+        g.beginPath();
+        g.moveTo(x, 0); g.lineTo(x + 13, 0); g.lineTo(x + 13 - 26, 26); g.lineTo(x - 26, 26);
+        g.closePath(); g.fill();
+      }
+      g.fillStyle = 'rgba(20,16,12,.18)';
+      g.fillRect(0, 0, 256, 26);
+      g.restore();
+    }
+    const t = new THREE.CanvasTexture(c);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.anisotropy = 8;
+    panelCache[key] = t;
+    return t;
+  }
+
   function buildBoard(b) {
     board = b;
-    while (terrainGroup.children.length) terrainGroup.remove(terrainGroup.children[0]);
-    while (markerGroup.children.length) markerGroup.remove(markerGroup.children[0]);
+    [terrainGroup, markerGroup].forEach(g => { while (g.children.length) g.remove(g.children[0]); });
 
-    const floor = new THREE.Mesh(
-      new THREE.BoxGeometry(b.w, 1, b.h),
-      new THREE.MeshStandardMaterial({ color: 0x4a4238, roughness: 0.95, metalness: 0.05 })
-    );
+    const floor = new THREE.Mesh(new THREE.BoxGeometry(b.w, 1, b.h),
+      new THREE.MeshStandardMaterial({ map: groundTexture(b.w, b.h), roughness: 0.96, metalness: 0.04 }));
     floor.position.set(b.w / 2, -0.5, b.h / 2);
     floor.receiveShadow = true;
     terrainGroup.add(floor);
-    ground = floor;
 
-    /* a lip round the edge so the table reads as a table */
-    const lip = new THREE.Mesh(
-      new THREE.BoxGeometry(b.w + 1.6, 1.4, b.h + 1.6),
-      new THREE.MeshStandardMaterial({ color: 0x14110e, roughness: 1 })
-    );
-    lip.position.set(b.w / 2, -0.75, b.h / 2);
+    const lip = new THREE.Mesh(new THREE.BoxGeometry(b.w + 2, 1.4, b.h + 2),
+      new THREE.MeshStandardMaterial({ color: 0x18140f, roughness: 1 }));
+    lip.position.set(b.w / 2, -0.82, b.h / 2);
     terrainGroup.add(lip);
 
-    /* deployment zones, painted on the floor */
     b.deploy.forEach(function (z, i) {
-      const m = new THREE.Mesh(
-        new THREE.PlaneGeometry(z.w, z.h),
-        new THREE.MeshBasicMaterial({
-          color: i === 0 ? COL.p0 : COL.p1, transparent: true, opacity: 0.11,
-          depthWrite: false
-        })
-      );
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(z.w, z.h),
+        new THREE.MeshBasicMaterial({ color: i === 0 ? COL.p0 : COL.p1, transparent: true,
+                                      opacity: 0.09, depthWrite: false }));
       m.rotation.x = -Math.PI / 2;
-      m.position.set(z.x + z.w / 2, 0.012, z.y + z.h / 2);
+      m.position.set(z.x + z.w / 2, 0.015, z.y + z.h / 2);
       terrainGroup.add(m);
     });
 
-    b.terrain.forEach(function (t) {
-      const solid = t.blocks;
-      const geo = new THREE.BoxGeometry(t.w, t.top, t.h);
-      const mat = new THREE.MeshStandardMaterial({
-        color: solid ? 0x35302a : 0x6f5c42,
-        roughness: solid ? 0.95 : 0.85,
-        metalness: solid ? 0.25 : 0.1
-      });
-      const m = new THREE.Mesh(geo, mat);
-      m.position.set(t.x + t.w / 2, t.top / 2, t.y + t.h / 2);
-      m.castShadow = true; m.receiveShadow = true;
-      m.userData.terrain = t;
-      terrainGroup.add(m);
+    b.terrain.forEach((t, i) => terrainGroup.add(dressTerrain(t, i)));
 
-      /* a lit strip along the top edge so heights read at a glance */
-      const cap = new THREE.Mesh(
-        new THREE.PlaneGeometry(t.w, t.h),
-        new THREE.MeshStandardMaterial({
-          color: solid ? 0x5c5347 : 0x91785a, roughness: 0.8
-        })
-      );
-      cap.rotation.x = -Math.PI / 2;
-      cap.position.set(t.x + t.w / 2, t.top + 0.006, t.y + t.h / 2);
-      cap.receiveShadow = true;
-      cap.userData.terrain = t;
-      terrainGroup.add(cap);
-    });
-
-    /* Point the key light at the table and stretch its shadow camera to cover
-       the whole of it — a 44" table overflows any fixed frustum. */
-    const span = Math.max(b.w, b.h) * 0.75;
-    keyLight.position.set(b.w / 2 - span * 0.6, span * 1.5, b.h / 2 - span * 0.5);
+    const span = Math.max(b.w, b.h) * 0.8;
+    keyLight.position.set(b.w / 2 - span * 0.55, span * 1.6, b.h / 2 - span * 0.45);
     keyLight.target.position.set(b.w / 2, 0, b.h / 2);
     keyLight.target.updateMatrixWorld();
     const sc = keyLight.shadow.camera;
     sc.left = -span; sc.right = span; sc.top = span; sc.bottom = -span;
-    sc.near = 1; sc.far = span * 4;
+    sc.near = 1; sc.far = span * 4.2;
     sc.updateProjectionMatrix();
 
     b.objectives.forEach(function (o) {
-      const y = Board.heightAt(b, o);
       const g = new THREE.Group();
-      const ring = new THREE.Mesh(
-        new THREE.TorusGeometry(1.5, 0.09, 8, 40),
-        new THREE.MeshStandardMaterial({ color: COL.gold, emissive: 0x3a2d0a, roughness: 0.4, metalness: 0.7 })
-      );
+      if (Assets.has('turret_single')) g.add(Assets.fitted('turret_single', 1.5, 1.5, 1.2));
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(1.5, 0.08, 8, 44),
+        new THREE.MeshStandardMaterial({ color: COL.gold, emissive: 0x4a3a10,
+                                         roughness: 0.35, metalness: 0.8 }));
       ring.rotation.x = -Math.PI / 2;
-      ring.position.y = 0.03;
+      ring.position.y = 0.04;
       g.add(ring);
-      const beam = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.5, 0.9, 7, 16, 1, true),
-        new THREE.MeshBasicMaterial({
-          color: COL.goldLit, transparent: true, opacity: 0.10,
-          side: THREE.DoubleSide, depthWrite: false
-        })
-      );
-      beam.position.y = 3.5;
+      const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 1.0, 9, 18, 1, true),
+        new THREE.MeshBasicMaterial({ color: COL.goldLit, transparent: true, opacity: 0.07,
+                                      side: THREE.DoubleSide, depthWrite: false }));
+      beam.position.y = 4.5;
       g.add(beam);
-      g.position.set(o.x, y + 0.02, o.y);
+      g.position.set(o.x, Board.heightAt(b, o) + 0.02, o.y);
       g.userData.spin = beam;
       markerGroup.add(g);
     });
 
-    viewFrom(0, true);
+    viewFrom(0);
   }
 
-  /* -------------------------------------------------------------- the models
-     Placeholders until the scanner lands: a based figure in the player's
-     colour with its initials over it. Give a unit `art` and the base carries a
-     scan instead — nothing else changes. */
+  /* A rules box, dressed in real scenery. The box is the truth and this is only
+     the costume — it never sticks out past the footprint the rules measure, so
+     nothing on the table looks like cover that is not. */
+  function dressTerrain(t, idx) {
+    const g = new THREE.Group();
+    g.position.set(t.x + t.w / 2, 0, t.y + t.h / 2);
+    const kind = t.kind || (t.blocks ? 'blockhouse' : 'platform');
+    const rnd = i => Assets.seeded(idx * 613 + i * 37);
+
+    /* The mass is the rules box, exactly — nothing on the table is cover that
+       the rules do not know about, and nothing the rules know about is
+       invisible. The kit is what makes it worth looking at. */
+    if (kind !== 'rubble') {
+      /* cloned per piece: the cache holds the image, but the repeat belongs to
+         this box and must not be shared with every other one on the table */
+      const side = panelTexture('side' + (t.blocks ? 'B' : 'P'), t.blocks && t.top > 2).clone();
+      side.needsUpdate = true;
+      side.repeat.set(Math.max(1, t.w / 2.6), Math.max(1, t.top / 2.2));
+      const cap = panelTexture('cap', false).clone();
+      cap.needsUpdate = true;
+      cap.repeat.set(Math.max(1, t.w / 2.6), Math.max(1, t.h / 2.6));
+      const sideMat = new THREE.MeshStandardMaterial({
+        map: side, color: t.blocks ? 0xbdb6a9 : 0xd2c6b0, roughness: 0.85, metalness: 0.32 });
+      const capMat = new THREE.MeshStandardMaterial({
+        map: cap, color: t.blocks ? 0xa9a397 : 0xe0d3ba, roughness: 0.9, metalness: 0.22 });
+      const mass = new THREE.Mesh(new THREE.BoxGeometry(t.w, t.top, t.h),
+        [sideMat, sideMat, capMat, capMat, sideMat, sideMat]);
+      mass.position.y = t.top / 2;
+      mass.castShadow = true; mass.receiveShadow = true;
+      g.add(mass);
+
+      /* A rim round the top edge, as four bars — a slab here would roof the
+         piece over and you would be looking at its dark underside instead of
+         the deck. */
+      const rimMat = new THREE.MeshStandardMaterial({
+        color: 0x6b6154, roughness: 0.5, metalness: 0.8 });
+      [[t.w + 0.14, 0.18, 0.18, 0, (t.h + 0.14) / 2],
+       [t.w + 0.14, 0.18, 0.18, 0, -(t.h + 0.14) / 2],
+       [0.18, 0.18, t.h + 0.14, (t.w + 0.14) / 2, 0],
+       [0.18, 0.18, t.h + 0.14, -(t.w + 0.14) / 2, 0]].forEach(function (r) {
+        const bar = new THREE.Mesh(new THREE.BoxGeometry(r[0], r[1], r[2]), rimMat);
+        bar.position.set(r[3], t.top, r[4]);
+        bar.castShadow = true;
+        g.add(bar);
+      });
+    }
+
+    if (kind === 'rubble') {
+      const n = Math.max(3, Math.round(t.w * t.h / 2));
+      for (let i = 0; i < n; i++) {
+        const v = rnd(i * 7);
+        const r = Assets.fitted(v < 0.4 ? 'rock' : v < 0.75 ? 'rocks_smallA' : 'rock_largeB',
+                                0.8 + v * 0.9, 0.8 + v * 0.9, t.top * (0.85 + v * 0.5));
+        r.position.set((rnd(i * 3) - 0.5) * t.w * 0.8, 0, (rnd(i * 5) - 0.5) * t.h * 0.8);
+        r.rotation.y = v * 6.28;
+        g.add(r);
+      }
+      return finishDress(g, t);
+    }
+
+    /* --- what stands on it and against it, from the kit --- */
+    const edgeProp = function (name, w, d, h, inset) {
+      const p = Assets.fitted(name, w, d, h);
+      const edge = Math.floor(rnd(inset * 3 + 1) * 4);
+      const along = (rnd(inset * 5 + 2) - 0.5) * 0.72;
+      if (edge < 2) p.position.set(along * t.w, 0, (edge === 0 ? -1 : 1) * (t.h / 2 + d * 0.55));
+      else p.position.set((edge === 2 ? -1 : 1) * (t.w / 2 + w * 0.55), 0, along * t.h);
+      p.rotation.y = rnd(inset * 7) * 6.28;
+      return p;
+    };
+
+    if (t.blocks) {
+      const props = ['barrels', 'machine_generator', 'barrel', 'machine_barrel', 'pipe_supportLow'];
+      const n = Math.min(4, Math.max(2, Math.round((t.w + t.h) / 5)));
+      for (let i = 0; i < n; i++) {
+        g.add(edgeProp(props[Math.floor(rnd(i * 5) * props.length)], 0.85, 0.85, 0.8, i));
+      }
+      if (t.w > 2.4 && t.h > 2.4 && t.top > 2.5) {
+        const f = Assets.fitted(rnd(1) < 0.5 ? 'structure_diagonal' : 'supports_high',
+                                t.w * 0.7, t.h * 0.7, 1.7);
+        f.position.y = t.top;
+        f.rotation.y = Math.floor(rnd(2) * 4) * Math.PI / 2;
+        g.add(f);
+      }
+      if (t.w > 3.5 && t.h > 2 && Assets.has('pipe_straight')) {
+        const pipe = Assets.fitted('pipe_straight', t.w * 0.8, 0.5, 0.5);
+        pipe.position.set(0, t.top * 0.55, -t.h / 2 - 0.18);
+        g.add(pipe);
+      }
+    } else {
+      /* a deck: rails round the lip, steps up one side, kit on top */
+      if (Assets.has('rail') && t.w > 2.2 && t.h > 2.2) {
+        const run = function (len, across, axis) {
+          const n = Math.max(1, Math.round(len / 1.9));
+          for (let i = 0; i < n; i++) {
+            [-1, 1].forEach(function (sgn) {
+              const r = Assets.fitted('rail', len / n, 0.14, 0.6);
+              if (axis === 'x') r.position.set(-len / 2 + (i + 0.5) * (len / n), t.top, sgn * (across / 2 - 0.1));
+              else { r.rotation.y = Math.PI / 2;
+                     r.position.set(sgn * (across / 2 - 0.1), t.top, -len / 2 + (i + 0.5) * (len / n)); }
+              g.add(r);
+            });
+          }
+        };
+        run(t.w, t.h, 'x');
+        run(t.h, t.w, 'z');
+      }
+      if (Assets.has('stairs') && t.top > 1) {
+        const depth = Math.min(2.4, t.top * 1.6);
+        const st = Assets.fitted('stairs', 1.6, depth, t.top);
+        st.position.set(-t.w / 2 + 1.3, 0, t.h / 2 + depth / 2 - 0.05);
+        g.add(st);
+      }
+      if (t.w > 4 && t.h > 4) {
+        const dish = Assets.fitted(rnd(3) < 0.5 ? 'satelliteDish' : 'machine_wireless', 1.9, 1.9, 1.6);
+        dish.position.set(t.w * 0.24, t.top, -t.h * 0.24);
+        g.add(dish);
+        const crate = Assets.fitted('barrels_rail', 1.2, 1.2, 0.85);
+        crate.position.set(-t.w * 0.24, t.top, t.h * 0.2);
+        crate.rotation.y = rnd(4) * 6.28;
+        g.add(crate);
+      } else if (t.w > 1.8 && t.h > 1.8) {
+        const bar = Assets.fitted('barrel', 0.6, 0.6, 0.75);
+        bar.position.set(t.w * 0.2, t.top, t.h * 0.2);
+        g.add(bar);
+      }
+    }
+    return finishDress(g, t);
+  }
+
+  function finishDress(g, t) {
+    g.traverse(function (o) { if (o.isMesh) o.userData.terrain = t; });
+    return g;
+  }
+
+  /* -------------------------------------------------------------- the models */
+
   function initials(name) {
-    const quoted = name.match(/"([^"]+)"/);
-    if (quoted) return quoted[1].slice(0, 2).toUpperCase();
+    const q = name.match(/"([^"]+)"/);
+    if (q) return q[1].slice(0, 2).toUpperCase();
     const parts = name.replace(/["']/g, '').split(/\s+/).filter(Boolean);
-    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+    return parts.length === 1 ? parts[0].slice(0, 2).toUpperCase()
+                              : (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
   }
 
   function labelSprite(text, colour) {
@@ -368,105 +563,77 @@ const Render3D = (function () {
     g.font = '700 26px Impact, sans-serif';
     g.textAlign = 'center'; g.textBaseline = 'middle';
     g.fillText(text, 128, 32);
-    const tex = new THREE.CanvasTexture(c);
-    tex.anisotropy = 4;
-    const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true }));
+    const s = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: new THREE.CanvasTexture(c), depthTest: false, transparent: true }));
     s.scale.set(2.9, 0.72, 1);
     s.renderOrder = 20;
     return s;
   }
 
-  function makeUnit(u) {
+  function makeUnit(u, faction) {
     const colour = u.owner === 0 ? COL.p0 : COL.p1;
     const g = new THREE.Group();
 
     const base = new THREE.Mesh(
-      new THREE.CylinderGeometry(u.radius, u.radius, 0.14, 28),
-      new THREE.MeshStandardMaterial({ color: 0x15120f, roughness: 0.9, metalness: 0.3 })
-    );
-    base.position.y = 0.07;
+      new THREE.CylinderGeometry(u.radius, u.radius * 1.05, 0.12, 30),
+      new THREE.MeshStandardMaterial({ color: 0x15120f, roughness: 0.85, metalness: 0.35 }));
+    base.position.y = 0.06;
     base.receiveShadow = true; base.castShadow = true;
     g.add(base);
 
-    const rim = new THREE.Mesh(
-      new THREE.TorusGeometry(u.radius, 0.05, 8, 28),
-      new THREE.MeshStandardMaterial({ color: colour, emissive: colour, emissiveIntensity: 0.35, roughness: 0.5 })
-    );
+    const rim = new THREE.Mesh(new THREE.TorusGeometry(u.radius, 0.045, 8, 30),
+      new THREE.MeshStandardMaterial({ color: colour, emissive: colour,
+                                       emissiveIntensity: 0.5, roughness: 0.5 }));
     rim.rotation.x = -Math.PI / 2;
-    rim.position.y = 0.15;
+    rim.position.y = 0.13;
     g.add(rim);
 
-    /* the figure: torso, head, a weapon held across the body */
-    const body = new THREE.Mesh(
-      new THREE.CapsuleGeometry(0.24, 0.5, 4, 12),
-      new THREE.MeshStandardMaterial({ color: colour, roughness: 0.75, metalness: 0.2 })
-    );
-    body.position.y = 0.72;
-    body.castShadow = true;
+    const body = new THREE.Group();
+    const name = MODEL[faction] || 'astronautA';
+    if (Assets.has(name)) {
+      const fig = Assets.fitted(name, 0.95, 0.95, 1.6);
+      fig.traverse(function (o) {
+        if (!o.isMesh) return;
+        o.material = o.material.clone();
+        o.material.color.lerp(new THREE.Color(colour), 0.4);
+        o.castShadow = true;
+      });
+      body.add(fig);
+    }
+    body.position.y = 0.12;
     g.add(body);
-
-    const head = new THREE.Mesh(
-      new THREE.SphereGeometry(0.17, 14, 12),
-      new THREE.MeshStandardMaterial({ color: 0xcfc4ae, roughness: 0.8 })
-    );
-    head.position.y = 1.19;
-    head.castShadow = true;
-    g.add(head);
-
-    const gun = new THREE.Mesh(
-      new THREE.BoxGeometry(0.72, 0.11, 0.11),
-      new THREE.MeshStandardMaterial({ color: 0x2b2620, roughness: 0.6, metalness: 0.6 })
-    );
-    gun.position.set(0.34, 0.82, 0.2);
-    gun.castShadow = true;
-    g.add(gun);
-    g.userData.muzzle = new THREE.Vector3(0.72, 0.82, 0.2);
-
-    g.userData.unitId = u.id;
-    [base, rim, body, head, gun].forEach(m => { m.userData.unitId = u.id; });
+    g.userData.body = body;
 
     const label = labelSprite(initials(u.name), u.owner === 0 ? '#5687b4' : '#a8352a');
-    label.position.y = 2.15;
+    label.position.y = 2.3;
     g.add(label);
     g.userData.label = label;
 
-    /* wound pips, a small bar of blocks above the base */
     const pips = new THREE.Group();
     for (let i = 0; i < u.maxWounds; i++) {
-      const p = new THREE.Mesh(
-        new THREE.BoxGeometry(0.13, 0.06, 0.06),
-        new THREE.MeshBasicMaterial({ color: COL.bone })
-      );
-      p.position.set((i - (u.maxWounds - 1) / 2) * 0.18, 1.55, 0);
+      const p = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.06, 0.06),
+        new THREE.MeshBasicMaterial({ color: COL.bone }));
+      p.position.set((i - (u.maxWounds - 1) / 2) * 0.18, 1.88, 0);
       pips.add(p);
     }
     g.add(pips);
     g.userData.pips = pips;
-    g.userData.body = body;
     g.userData.ring = rim;
+    g.traverse(function (o) { if (o.isMesh) o.userData.unitId = u.id; });
+    g.userData.unitId = u.id;
 
-    /* the overwatch token, hidden until the unit places one */
     const token = new THREE.Group();
-    const disc = new THREE.Mesh(
-      new THREE.RingGeometry(2.85, 3, 48),
-      new THREE.MeshBasicMaterial({ color: colour, transparent: true, opacity: 0.75,
-                                    side: THREE.DoubleSide, depthWrite: false })
-    );
+    const disc = new THREE.Mesh(new THREE.RingGeometry(2.86, 3, 52),
+      new THREE.MeshBasicMaterial({ color: colour, transparent: true, opacity: 0.8,
+                                    side: THREE.DoubleSide, depthWrite: false }));
     disc.rotation.x = -Math.PI / 2;
-    const fill = new THREE.Mesh(
-      new THREE.CircleGeometry(3, 48),
-      new THREE.MeshBasicMaterial({ color: colour, transparent: true, opacity: 0.11,
-                                    side: THREE.DoubleSide, depthWrite: false })
-    );
+    const fill = new THREE.Mesh(new THREE.CircleGeometry(3, 52),
+      new THREE.MeshBasicMaterial({ color: colour, transparent: true, opacity: 0.1,
+                                    side: THREE.DoubleSide, depthWrite: false }));
     fill.rotation.x = -Math.PI / 2;
-    const pin = new THREE.Mesh(
-      new THREE.ConeGeometry(0.22, 0.7, 10),
-      new THREE.MeshStandardMaterial({ color: colour, emissive: colour, emissiveIntensity: 0.5 })
-    );
-    pin.position.y = 0.35;
-    token.add(disc, fill, pin);
+    token.add(disc, fill);
+    if (Assets.has('barrel')) token.add(Assets.fitted('barrel', 0.55, 0.55, 0.85));
     token.visible = false;
-    token.userData.detached = true;
     markerGroup.add(token);
     g.userData.token = token;
 
@@ -476,118 +643,104 @@ const Render3D = (function () {
   function syncUnits(S) {
     S.units.forEach(function (u) {
       let node = unitNodes[u.id];
-      if (!node) { node = unitNodes[u.id] = makeUnit(u); unitGroup.add(node); }
-      const y = Board.heightAt(S.board, u);
-      node.position.set(u.x, y, u.y);
-      node.rotation.y = -u.facing + Math.PI / 2;
-      node.visible = true;
-
-      if (!u.alive) {
-        /* leave a wreck: the model on its face, colour drained */
-        node.rotation.x = -Math.PI / 2.1;
-        node.position.y = y + 0.1;
-        node.userData.label.visible = false;
-        node.userData.pips.visible = false;
-        node.userData.body.material.color.setHex(0x33291f);
-        node.userData.ring.material.color.setHex(0x3a2420);
-        node.userData.ring.material.emissiveIntensity = 0;
-        node.userData.token.visible = false;
-        return;
+      if (!node) {
+        node = unitNodes[u.id] = makeUnit(u, S.players[u.owner].faction);
+        unitGroup.add(node);
       }
-      node.rotation.x = 0;
+      /* while a strike involving this model is on screen, the shot owns it */
+      if (playing && playing.holds[u.id]) return;
 
+      node.position.set(u.x, Board.heightAt(S.board, u), u.y);
+      node.rotation.set(0, -u.facing + Math.PI / 2, 0);
+      node.userData.body.rotation.set(0, 0, 0);
+      node.userData.body.position.set(0, 0.12, 0);
+
+      if (!u.alive) { fell(node); return; }
+      node.userData.label.visible = true;
+      node.userData.pips.visible = true;
+      node.userData.ring.material.emissiveIntensity = 0.5;
       node.userData.pips.children.forEach(function (p, i) {
         p.visible = i < u.wounds;
         p.material.color.setHex(u.wounds === 1 ? 0xa8352a
           : u.wounds <= u.maxWounds / 2 ? 0xc9832a : COL.bone);
       });
-
       const tok = node.userData.token;
+      tok.visible = !!u.overwatch;
       if (u.overwatch) {
-        tok.visible = true;
         tok.position.set(u.overwatch.x, Board.heightAt(S.board, u.overwatch) + 0.03, u.overwatch.y);
-      } else {
-        tok.visible = false;
       }
     });
   }
 
-  /* ------------------------------------------------------------- the overlays
-     The rules measure exactly; these are the shading, built from the sampled
-     points the battle layer hands over. */
+  function fell(node) {
+    node.userData.label.visible = false;
+    node.userData.pips.visible = false;
+    node.userData.token.visible = false;
+    node.userData.body.rotation.set(-Math.PI / 2.05, 0, 0.3);
+    node.userData.body.position.y = 0.16;
+    node.userData.ring.material.emissiveIntensity = 0;
+  }
+
+  /* ----------------------------------------------------------- the overlays */
+
   function areaMesh(points, colour, opacity, cell, lift) {
-    /* Exactly cell-sized, so the samples tile edge to edge. Overlapping them
-       would double the alpha along every seam and draw a lattice — which is
-       the one thing this game is not supposed to look like. */
     const geo = new THREE.BufferGeometry();
     const half = (cell || 0.4) * 0.5;
     const pos = new Float32Array(points.length * 18);
     let k = 0;
     points.forEach(function (p) {
-      const y = (lift || 0.05) + Board.heightAt(board, p);
+      const y = (lift === undefined ? 0.05 : lift) + Board.heightAt(board, p);
       const x0 = p.x - half, x1 = p.x + half, z0 = p.y - half, z1 = p.y + half;
-      const quad = [x0, y, z0, x1, y, z0, x1, y, z1, x0, y, z0, x1, y, z1, x0, y, z1];
-      for (let i = 0; i < 18; i++) pos[k++] = quad[i];
+      [x0, y, z0, x1, y, z0, x1, y, z1, x0, y, z0, x1, y, z1, x0, y, z1]
+        .forEach(v => { pos[k++] = v; });
     });
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     return new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
       color: colour, transparent: true, opacity: opacity,
-      depthWrite: false, side: THREE.DoubleSide
-    }));
+      depthWrite: false, side: THREE.DoubleSide }));
   }
 
-  function ringMesh(centre, radius, colour, y) {
-    const m = new THREE.Mesh(
-      new THREE.RingGeometry(radius - 0.09, radius, 64),
+  function ringMesh(c, radius, colour, y) {
+    const m = new THREE.Mesh(new THREE.RingGeometry(Math.max(0.02, radius - 0.09), radius, 64),
       new THREE.MeshBasicMaterial({ color: colour, transparent: true, opacity: 0.85,
-                                    side: THREE.DoubleSide, depthWrite: false })
-    );
+                                    side: THREE.DoubleSide, depthWrite: false }));
     m.rotation.x = -Math.PI / 2;
-    m.position.set(centre.x, (y || 0) + 0.07, centre.y);
+    m.position.set(c.x, (y || 0) + 0.07, c.y);
     return m;
   }
 
-  /* The tape measure: a line with the distance written on it. */
   function tapeMesh(from, to, label, colour) {
     const g = new THREE.Group();
-    const a = new THREE.Vector3(from.x, from.y + 0.12, from.z);
-    const b = new THREE.Vector3(to.x, to.y + 0.12, to.z);
-    const geo = new THREE.BufferGeometry().setFromPoints([a, b]);
-    /* a proper drawn line, thick enough to read as a tape */
+    const a = new THREE.Vector3(from.x, from.y + 0.5, from.z);
+    const b = new THREE.Vector3(to.x, to.y + 0.5, to.z);
     const dir = b.clone().sub(a);
-    const tube = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.055, 0.055, dir.length(), 6),
-      new THREE.MeshBasicMaterial({ color: colour, depthTest: false, transparent: true, opacity: 0.95 })
-    );
-    tube.position.copy(a).lerp(b, 0.5);
-    tube.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().normalize());
-    tube.renderOrder = 28;
-    g.add(tube);
-    [a, b].forEach(function (end) {
-      const cap = new THREE.Mesh(
-        new THREE.SphereGeometry(0.13, 10, 8),
-        new THREE.MeshBasicMaterial({ color: colour, depthTest: false })
-      );
-      cap.position.copy(end);
-      cap.renderOrder = 28;
+    if (dir.length() > 0.01) {
+      const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, dir.length(), 6),
+        new THREE.MeshBasicMaterial({ color: colour, depthTest: false, transparent: true, opacity: 0.95 }));
+      tube.position.copy(a).lerp(b, 0.5);
+      tube.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().normalize());
+      tube.renderOrder = 28;
+      g.add(tube);
+    }
+    [a, b].forEach(function (e) {
+      const cap = new THREE.Mesh(new THREE.SphereGeometry(0.12, 10, 8),
+        new THREE.MeshBasicMaterial({ color: colour, depthTest: false }));
+      cap.position.copy(e); cap.renderOrder = 28;
       g.add(cap);
     });
     const c = document.createElement('canvas');
     c.width = 192; c.height = 64;
     const x = c.getContext('2d');
-    x.fillStyle = 'rgba(8,7,6,.92)';
-    x.fillRect(0, 10, 192, 44);
-    x.strokeStyle = '#e8c65c'; x.lineWidth = 3;
-    x.strokeRect(1.5, 11.5, 189, 41);
+    x.fillStyle = 'rgba(8,7,6,.92)'; x.fillRect(0, 10, 192, 44);
+    x.strokeStyle = '#e8c65c'; x.lineWidth = 3; x.strokeRect(1.5, 11.5, 189, 41);
     x.fillStyle = '#f3e3ac';
     x.font = '700 34px Impact, sans-serif';
     x.textAlign = 'center'; x.textBaseline = 'middle';
     x.fillText(label, 96, 33);
     const sp = new THREE.Sprite(new THREE.SpriteMaterial({
-      map: new THREE.CanvasTexture(c), depthTest: false, transparent: true
-    }));
+      map: new THREE.CanvasTexture(c), depthTest: false, transparent: true }));
     sp.scale.set(4.2, 1.4, 1);
-    sp.position.copy(a).lerp(b, 0.5).setY(Math.max(a.y, b.y) + 1.1);
+    sp.position.copy(a).lerp(b, 0.5).setY(Math.max(a.y, b.y) + 1.3);
     sp.renderOrder = 30;
     g.add(sp);
     return g;
@@ -600,243 +753,306 @@ const Render3D = (function () {
       if (c.geometry) c.geometry.dispose();
     }
     if (!view) return;
-
     if (view.area && view.area.length) {
       overlayGroup.add(areaMesh(view.area, view.areaColour || COL.move,
                                 view.areaOpacity || 0.3, view.areaCell, 0.05));
-      /* a lit border round a placement area, so a thin crescent of legal
-         ground is impossible to miss */
       if (view.areaGlow) {
-        const edge = areaMesh(view.area, view.areaColour || COL.goldLit, 0.5,
-                              (view.areaCell || 0.22) * 2.6, 0.03);
-        edge.material.blending = THREE.AdditiveBlending;
-        overlayGroup.add(edge);
+        const e = areaMesh(view.area, view.areaColour || COL.goldLit, 0.45,
+                           (view.areaCell || 0.22) * 2.6, 0.03);
+        e.material.blending = THREE.AdditiveBlending;
+        overlayGroup.add(e);
       }
     }
+    /* somewhere you can climb: lit up on top of the piece you would go up */
+    (view.climbs || []).forEach(function (c) {
+      const m = areaMesh([{ x: c.x, y: c.y }], COL.goldLit, 0.4, 1.6, c.top + 0.06 - Board.heightAt(board, c));
+      m.material.blending = THREE.AdditiveBlending;
+      overlayGroup.add(m);
+      overlayGroup.add(ringMesh(c, 0.9, COL.goldLit, c.top));
+    });
     if (view.ring) {
       overlayGroup.add(ringMesh(view.ring, view.ring.r, view.ringColour || COL.watch,
                                 Board.heightAt(board, view.ring)));
     }
-    if (view.tape) {
-      overlayGroup.add(tapeMesh(view.tape.from, view.tape.to, view.tape.label,
-                                view.tape.colour || COL.goldLit));
-    }
+    if (view.tape) overlayGroup.add(tapeMesh(view.tape.from, view.tape.to, view.tape.label,
+                                             view.tape.colour || COL.goldLit));
     (view.marks || []).forEach(function (m) {
-      const ring = ringMesh(m, m.r || 1.1, m.colour || COL.p1, Board.heightAt(board, m));
-      ring.material.opacity = 0.95;
-      overlayGroup.add(ring);
+      overlayGroup.add(ringMesh(m, m.r || 1.1, m.colour || COL.p1, Board.heightAt(board, m)));
     });
   }
 
-  /* --------------------------------------------------------------- the dice
-     Thrown where the action is, tumbling, then settling on the face that was
-     actually rolled. */
-  const DIE_FACE = [null,
-    { axis: 'z', a: Math.PI / 2 },    /* 1 is +X: turn +X up */
-    { axis: 'x', a: 0 },              /* 2 is +Y: already up */
-    { axis: 'x', a: -Math.PI / 2 },   /* 3 is +Z */
-    { axis: 'x', a: Math.PI / 2 },    /* 4 is -Z */
-    { axis: 'x', a: Math.PI },        /* 5 is -Y */
-    { axis: 'z', a: -Math.PI / 2 }    /* 6 is -X */
-  ];
+  /* ============================================================== THE STRIKE
+     One shape for every attack, so it always reads the same way: the weapon
+     goes off, something crosses the table, and it either finds him or it does
+     not. No dice are ever shown — where the round ends up IS the roll. */
 
-  function pipTexture(n) {
-    const c = document.createElement('canvas');
-    c.width = c.height = 96;
-    const g = c.getContext('2d');
-    g.fillStyle = '#ded3bd'; g.fillRect(0, 0, 96, 96);
-    g.strokeStyle = '#b3a68c'; g.lineWidth = 4; g.strokeRect(2, 2, 92, 92);
-    g.fillStyle = '#1a1512';
-    const P = { 1: [[48, 48]], 2: [[28, 28], [68, 68]], 3: [[26, 26], [48, 48], [70, 70]],
-      4: [[28, 28], [68, 28], [28, 68], [68, 68]],
-      5: [[28, 28], [68, 28], [48, 48], [28, 68], [68, 68]],
-      6: [[28, 24], [68, 24], [28, 48], [68, 48], [28, 72], [68, 72]] };
-    P[n].forEach(function (p) {
-      g.beginPath(); g.arc(p[0], p[1], 9, 0, Math.PI * 2); g.fill();
-    });
-    return new THREE.CanvasTexture(c);
-  }
-  const pipTex = [];
-  function dieMaterials() {
-    if (!pipTex.length) for (let i = 1; i <= 6; i++) pipTex[i] = pipTexture(i);
-    /* BoxGeometry face order: +X −X +Y −Y +Z −Z */
-    return [1, 6, 2, 5, 3, 4].map(v => new THREE.MeshStandardMaterial({
-      map: pipTex[v], roughness: 0.55, metalness: 0.05
-    }));
+  const T = { AIM: 0.6, FIRE: 0.28, FLIGHT: 0.4, DWELL: 0.9, OUT: 0.5 };
+
+  const worldOf = p => new THREE.Vector3(p.x, p.z, p.y);
+
+  function queueStrike(k) {
+    if (!unitNodes[k.attacker] || !unitNodes[k.target]) return;
+    const holds = {};
+    holds[k.attacker] = true;
+    holds[k.target] = true;
+    cine.push({ k: k, holds: holds, t: 0, stage: 'aim', fired: false });
   }
 
-  function throwDie(value, at, pass) {
-    const SIZE = 1.7;
-    const m = new THREE.Mesh(new THREE.BoxGeometry(SIZE, SIZE, SIZE), dieMaterials());
-    m.castShadow = true;
-    const drop = new THREE.Vector3(at.x + (Math.random() - 0.5) * 3.4, at.y + 9,
-                                   at.z + (Math.random() - 0.5) * 3.4);
-    m.position.copy(drop);
-    fxGroup.add(m);
-
-    /* a pad under it so a pass or a fail reads from across the table */
-    let pad = null;
-    if (pass !== null && pass !== undefined) {
-      pad = new THREE.Mesh(
-        new THREE.CircleGeometry(SIZE * 1.15, 28),
-        new THREE.MeshBasicMaterial({
-          color: pass ? 0xe8c65c : 0x8d2a20, transparent: true, opacity: 0,
-          depthWrite: false, side: THREE.DoubleSide
-        })
-      );
-      pad.rotation.x = -Math.PI / 2;
-      pad.position.set(drop.x, at.y + 0.05, drop.z);
-      fxGroup.add(pad);
-    }
-    const rest = DIE_FACE[value];
-    const target = new THREE.Quaternion().setFromEuler(new THREE.Euler(
-      rest.axis === 'x' ? rest.a : 0, Math.random() * Math.PI * 2, rest.axis === 'z' ? rest.a : 0, 'YZX'));
-    dice.push({
-      mesh: m, t: 0, life: 3.2,
-      pad: pad,
-      from: drop.clone(), to: new THREE.Vector3(drop.x, at.y + SIZE / 2 + 0.02, drop.z),
-      spin: new THREE.Vector3(Math.random() * 14 - 7, Math.random() * 14 - 7, Math.random() * 14 - 7),
-      target: target
-    });
-    if (dice.length > 8) {
-      const d = dice.shift();
-      fxGroup.remove(d.mesh);
-      if (d.pad) fxGroup.remove(d.pad);
-    }
+  /* Where a round that missed ends up: past him, into whatever is behind. */
+  function missPoint(k) {
+    const from = worldOf(k.from), to = worldOf(k.to);
+    const dir = to.clone().sub(from).normalize();
+    const side = new THREE.Vector3(-dir.z, 0, dir.x)
+      .multiplyScalar((Assets.seeded(k.at * 13 + 5) - 0.5) * 3);
+    const p = to.clone().addScaledVector(dir, 2 + Assets.seeded(k.at * 7) * 2.5).add(side);
+    p.x = Math.max(0.5, Math.min(board.w - 0.5, p.x));
+    p.z = Math.max(0.5, Math.min(board.h - 0.5, p.z));
+    p.y = Board.heightAt(board, { x: p.x, y: p.z }) + 0.3;
+    return p;
   }
 
-  /* ------------------------------------------------------------------- shots */
+  function shotCamera(k) {
+    const from = worldOf(k.from), to = worldOf(k.to);
+    const mid = from.clone().lerp(to, 0.55);
+    const d = to.clone().sub(from);
+    const len = Math.max(3, d.length());
+    const side = new THREE.Vector3(-d.z, 0, d.x).normalize();
+    want = {
+      target: mid.setY(mid.y + 1.0),
+      dist: Math.max(10, Math.min(24, len * 1.45)),
+      az: Math.atan2(side.z, side.x) + (Assets.seeded(k.at * 3) < 0.5 ? 0 : Math.PI),
+      el: 0.3 + Assets.seeded(k.at * 11) * 0.18,
+      ease: 0.015
+    };
+  }
 
-  function tracer(from, to, melee) {
-    const a = new THREE.Vector3(from.x, from.z + 0.85, from.y);
-    const b = new THREE.Vector3(to.x, to.z + 0.85, to.y);
-    if (melee) {
-      fx.push({ kind: 'slash', at: b.clone(), t: 0, life: 0.42,
-                node: slashNode(b) });
-      shake = Math.max(shake, 0.26);
+  function playStrike(c, dt) {
+    const k = c.k;
+    const a = unitNodes[k.attacker], t = unitNodes[k.target];
+    c.t += dt;
+
+    if (c.stage === 'aim') {
+      if (!c.framed) {
+        c.framed = true;
+        shotCamera(k);
+        const from = worldOf(k.from), to = worldOf(k.to);
+        a.position.set(k.from.x, k.from.z, k.from.y);
+        t.position.set(k.to.x, k.to.z, k.to.y);
+        a.rotation.y = -Math.atan2(to.z - from.z, to.x - from.x) + Math.PI / 2;
+        a.userData.body.rotation.x = -0.07;
+      }
+      if (c.t >= T.AIM) { c.stage = 'fire'; c.t = 0; }
       return;
     }
-    const dir = b.clone().sub(a);
-    const len = dir.length();
-    const geo = new THREE.CylinderGeometry(0.035, 0.02, len, 6);
-    geo.translate(0, len / 2, 0);
-    const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
-      color: 0xffe9b0, transparent: true, opacity: 0.95, depthWrite: false
-    }));
-    mesh.position.copy(a);
-    mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().normalize());
-    fxGroup.add(mesh);
-    fx.push({ kind: 'tracer', node: mesh, t: 0, life: 0.3 });
 
-    const flash = new THREE.PointLight(0xffcc77, 9, 9, 2);
-    flash.position.copy(a);
-    fxGroup.add(flash);
-    fx.push({ kind: 'flash', node: flash, t: 0, life: 0.13 });
-
-    fx.push({ kind: 'sparks', node: sparkNode(b), t: 0, life: 0.6 });
-    shake = Math.max(shake, 0.16);
-  }
-
-  function sparkNode(at) {
-    const N = 26;
-    const pos = new Float32Array(N * 3);
-    const vel = [];
-    for (let i = 0; i < N; i++) {
-      pos[i * 3] = at.x; pos[i * 3 + 1] = at.y; pos[i * 3 + 2] = at.z;
-      const a = Math.random() * Math.PI * 2, e = Math.random() * 1.2;
-      const s = 3 + Math.random() * 7;
-      vel.push(new THREE.Vector3(Math.cos(a) * Math.cos(e) * s, Math.sin(e) * s + 2,
-                                 Math.sin(a) * Math.cos(e) * s));
+    if (c.stage === 'fire') {
+      if (!c.fired) {
+        c.fired = true;
+        const from = worldOf(k.from); from.y = k.from.z + 0.95;
+        c.impact = k.hit ? (function () { const p = worldOf(k.to); p.y = k.to.z + 0.85; return p; })()
+                         : missPoint(k);
+        c.muzzlePos = from;
+        if (k.melee) {
+          Sfx.swing(1);
+          a.userData.body.rotation.x = -0.55;
+        } else {
+          Sfx.shot(1);
+          muzzle(from);
+          c.bolt = boltNode(from, c.impact);
+          a.userData.body.rotation.x = 0.24;
+        }
+        shake = Math.max(shake, k.melee ? 0.1 : 0.2);
+      }
+      if (c.t >= T.FIRE) { c.stage = 'flight'; c.t = 0; }
+      return;
     }
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    const pts = new THREE.Points(geo, new THREE.PointsMaterial({
-      color: 0xffc861, size: 0.16, transparent: true, opacity: 1, depthWrite: false
-    }));
-    pts.userData.vel = vel;
-    fxGroup.add(pts);
-    return pts;
+
+    if (c.stage === 'flight') {
+      const span = k.melee ? 0.16 : T.FLIGHT;
+      const p = Math.min(1, c.t / span);
+      if (c.bolt) c.bolt.position.copy(c.muzzlePos).lerp(c.impact, p);
+      a.userData.body.rotation.x *= 0.85;
+      if (p >= 1) {
+        if (c.bolt) { fxGroup.remove(c.bolt); c.bolt = null; }
+        resolveVisually(c);
+        c.stage = 'dwell'; c.t = 0;
+      }
+      return;
+    }
+
+    if (c.stage === 'dwell') {
+      if (k.killed) {
+        const p = Math.min(1, c.t / 0.9);
+        const e = p * p * (3 - 2 * p);
+        t.userData.body.rotation.x = -e * (Math.PI / 2.05);
+        t.userData.body.rotation.z = e * 0.3;
+        t.userData.body.position.y = 0.12 + e * 0.04;
+        t.userData.label.visible = false;
+        t.userData.pips.visible = false;
+        t.userData.ring.material.emissiveIntensity = (1 - e) * 0.5;
+      } else if (k.wound) {
+        t.userData.body.rotation.x = -0.38 * Math.exp(-c.t * 5) * Math.cos(c.t * 20);
+      } else if (k.hit) {
+        t.userData.body.rotation.z = 0.18 * Math.exp(-c.t * 7) * Math.cos(c.t * 24);
+      }
+      if (c.t >= T.DWELL) { c.stage = 'out'; c.t = 0; leanOut(); }
+      return;
+    }
+
+    if (c.t >= T.OUT) c.done = true;
   }
 
-  function slashNode(at) {
-    const g = new THREE.Mesh(
-      new THREE.TorusGeometry(0.9, 0.07, 6, 20, Math.PI * 1.1),
-      new THREE.MeshBasicMaterial({ color: 0xfff0c8, transparent: true, opacity: 1, depthWrite: false })
-    );
-    g.position.copy(at);
-    g.rotation.set(Math.random() * 0.8 - 0.4, Math.random() * Math.PI, Math.PI / 2.4);
+  function resolveVisually(c) {
+    const k = c.k, at = c.impact;
+    if (k.wound) {
+      blood(at, k.killed ? 1.7 : 1);
+      Sfx.wound(k.killed ? 1 : 0.85);
+      if (k.killed) window.setTimeout(() => Sfx.down(), 280);
+      shake = Math.max(shake, k.killed ? 0.5 : 0.32);
+    } else {
+      /* armour, or rockcrete — either way it rings and throws sparks */
+      sparks(at, k.hit ? 1 : 0.85);
+      Sfx.clang(k.hit ? 1 : 0.85);
+      scorch(at);
+      shake = Math.max(shake, 0.16);
+    }
+  }
+
+  function boltNode(from, to) {
+    const g = new THREE.Group();
+    const dir = to.clone().sub(from).normalize();
+    const core = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.028, 1.2, 6),
+      new THREE.MeshBasicMaterial({ color: 0xfff2c8 }));
+    core.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+    g.add(core);
+    const glow = new THREE.Mesh(new THREE.SphereGeometry(0.18, 10, 8),
+      new THREE.MeshBasicMaterial({ color: 0xffb347, transparent: true, opacity: 0.55,
+                                    blending: THREE.AdditiveBlending, depthWrite: false }));
+    g.add(glow);
+    g.add(new THREE.PointLight(0xffc070, 4, 7, 2));
+    g.position.copy(from);
     fxGroup.add(g);
     return g;
   }
 
-  function damagePop(at) {
-    fx.push({ kind: 'sparks', node: sparkNode(new THREE.Vector3(at.x, at.y + 0.9, at.z)),
-              t: 0, life: 0.7 });
-    shake = Math.max(shake, 0.34);
+  function muzzle(at) {
+    const l = new THREE.PointLight(0xffd08a, 18, 13, 2);
+    l.position.copy(at);
+    fxGroup.add(l);
+    fx.push({ kind: 'flash', node: l, t: 0, life: 0.15, peak: 18 });
+    const f = new THREE.Mesh(new THREE.SphereGeometry(0.34, 10, 8),
+      new THREE.MeshBasicMaterial({ color: 0xffe0a0, transparent: true, opacity: 0.9,
+                                    blending: THREE.AdditiveBlending, depthWrite: false }));
+    f.position.copy(at);
+    fxGroup.add(f);
+    fx.push({ kind: 'puff', node: f, t: 0, life: 0.17 });
   }
+
+  function particles(at, n, colour, size, speed, gravity, spread) {
+    const pos = new Float32Array(n * 3);
+    const vel = [];
+    for (let i = 0; i < n; i++) {
+      pos[i * 3] = at.x; pos[i * 3 + 1] = at.y; pos[i * 3 + 2] = at.z;
+      const ang = Math.random() * Math.PI * 2, el = Math.random() * spread;
+      const s = speed * (0.35 + Math.random());
+      vel.push(new THREE.Vector3(Math.cos(ang) * Math.cos(el) * s,
+                                 Math.sin(el) * s + speed * 0.35,
+                                 Math.sin(ang) * Math.cos(el) * s));
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    const pts = new THREE.Points(geo, new THREE.PointsMaterial({
+      color: colour, size: size, transparent: true, opacity: 1, depthWrite: false }));
+    pts.userData.vel = vel;
+    pts.userData.gravity = gravity;
+    fxGroup.add(pts);
+    return pts;
+  }
+
+  function sparks(at, scale) {
+    fx.push({ kind: 'parts', node: particles(at, 60, COL.spark, 0.24 * scale, 11, 30, 1.35),
+              t: 0, life: 0.85 });
+    fx.push({ kind: 'parts', node: particles(at, 22, 0xfff0c0, 0.13 * scale, 16, 34, 1.5),
+              t: 0, life: 0.55 });
+    const f = new THREE.Mesh(new THREE.SphereGeometry(0.4 * scale, 10, 8),
+      new THREE.MeshBasicMaterial({ color: 0xffdca0, transparent: true, opacity: 0.95,
+                                    blending: THREE.AdditiveBlending, depthWrite: false }));
+    f.position.copy(at);
+    fxGroup.add(f);
+    fx.push({ kind: 'puff', node: f, t: 0, life: 0.22 });
+    const l = new THREE.PointLight(0xffa040, 16 * scale, 11, 2);
+    l.position.copy(at);
+    fxGroup.add(l);
+    fx.push({ kind: 'flash', node: l, t: 0, life: 0.26, peak: 16 * scale });
+  }
+
+  function blood(at, scale) {
+    fx.push({ kind: 'parts', node: particles(at, 44, COL.blood, 0.22 * scale, 6.5, 26, 1.0),
+              t: 0, life: 1.0 });
+    fx.push({ kind: 'parts', node: particles(at, 18, 0x9a2018, 0.34 * scale, 3.4, 20, 1.4),
+              t: 0, life: 1.25 });
+    const pool = new THREE.Mesh(new THREE.CircleGeometry(0.9 * scale, 20),
+      new THREE.MeshBasicMaterial({ color: 0x4a0d0a, transparent: true, opacity: 0,
+                                    depthWrite: false }));
+    pool.rotation.x = -Math.PI / 2;
+    pool.position.set(at.x, Board.heightAt(board, { x: at.x, y: at.z }) + 0.03, at.z);
+    fxGroup.add(pool);
+    fx.push({ kind: 'stain', node: pool, t: 0, life: 40, peak: 0.8 });
+  }
+
+  function scorch(at) {
+    const m = new THREE.Mesh(new THREE.CircleGeometry(0.42, 14),
+      new THREE.MeshBasicMaterial({ color: 0x16120d, transparent: true, opacity: 0,
+                                    depthWrite: false }));
+    m.rotation.x = -Math.PI / 2;
+    m.position.set(at.x, Board.heightAt(board, { x: at.x, y: at.z }) + 0.025, at.z);
+    fxGroup.add(m);
+    fx.push({ kind: 'stain', node: m, t: 0, life: 30, peak: 0.55 });
+  }
+
+  const busy = () => cine.length > 0 || !!playing;
 
   /* ------------------------------------------------------------------ frame */
 
   function tick() {
-    raf = requestAnimationFrame(tick);
+    requestAnimationFrame(tick);
     resize();
     const now = performance.now();
     const dt = Math.min(0.05, (now - lastT) / 1000);
     lastT = now;
 
-    markerGroup.children.forEach(function (g) {
-      if (g.userData.spin) g.userData.spin.rotation.y += dt * 0.5;
-    });
+    markerGroup.children.forEach(g => { if (g.userData.spin) g.userData.spin.rotation.y += dt * 0.4; });
 
-    /* dice: fall, tumble, settle */
-    for (let i = dice.length - 1; i >= 0; i--) {
-      const d = dice[i];
-      d.t += dt;
-      const drop = Math.min(1, d.t / 0.55);
-      const e = 1 - Math.pow(1 - drop, 3);
-      d.mesh.position.lerpVectors(d.from, d.to, e);
-      if (d.t < 0.55) {
-        d.mesh.rotation.x += d.spin.x * dt;
-        d.mesh.rotation.y += d.spin.y * dt;
-        d.mesh.rotation.z += d.spin.z * dt;
-      } else {
-        d.mesh.quaternion.slerp(d.target, Math.min(1, dt * 9));
-        if (d.t > 0.6 && d.t < 0.68) {
-          d.mesh.position.y = d.to.y + Math.sin((d.t - 0.6) / 0.08 * Math.PI) * 0.28;
-        }
-      }
-      if (d.pad) d.pad.material.opacity = Math.min(0.45, Math.max(0, (d.t - 0.5) * 1.4)) *
-                                          (d.t > d.life ? Math.max(0, 1 - (d.t - d.life) / 0.5) : 1);
-      if (d.t > d.life) {
-        const k = Math.min(1, (d.t - d.life) / 0.5);
-        d.mesh.material.forEach(m => { m.transparent = true; m.opacity = 1 - k; });
-        if (k >= 1) {
-          fxGroup.remove(d.mesh);
-          if (d.pad) fxGroup.remove(d.pad);
-          dice.splice(i, 1);
-        }
-      }
+    if (!playing && cine.length) playing = cine.shift();
+    if (playing) {
+      playStrike(playing, dt);
+      if (playing.done) playing = null;
     }
 
     for (let i = fx.length - 1; i >= 0; i--) {
       const e = fx[i];
       e.t += dt;
       const k = e.t / e.life;
-      if (e.kind === 'tracer') e.node.material.opacity = Math.max(0, 0.95 * (1 - k));
-      if (e.kind === 'flash') e.node.intensity = Math.max(0, 9 * (1 - k * k));
-      if (e.kind === 'slash') {
-        e.node.material.opacity = Math.max(0, 1 - k);
-        e.node.scale.setScalar(1 + k * 0.9);
+      if (e.kind === 'flash') e.node.intensity = Math.max(0, (e.peak || 8) * (1 - k) * (1 - k));
+      if (e.kind === 'puff') {
+        e.node.material.opacity = Math.max(0, 0.9 * (1 - k));
+        e.node.scale.setScalar(1 + k * 2.4);
       }
-      if (e.kind === 'sparks') {
+      if (e.kind === 'parts') {
         const pos = e.node.geometry.attributes.position;
+        const g = e.node.userData.gravity;
         e.node.userData.vel.forEach(function (v, j) {
-          v.y -= 26 * dt;
-          pos.setXYZ(j, pos.getX(j) + v.x * dt, Math.max(0.03, pos.getY(j) + v.y * dt),
+          v.y -= g * dt;
+          pos.setXYZ(j, pos.getX(j) + v.x * dt, Math.max(0.02, pos.getY(j) + v.y * dt),
                      pos.getZ(j) + v.z * dt);
         });
         pos.needsUpdate = true;
-        e.node.material.opacity = Math.max(0, 1 - k);
+        e.node.material.opacity = Math.max(0, 1 - k * k);
+      }
+      if (e.kind === 'stain') {
+        const peak = e.peak || 0.7;
+        e.node.material.opacity = k < 0.03 ? (k / 0.03) * peak
+                                : peak * Math.max(0, 1 - Math.max(0, k - 0.65) / 0.35);
       }
       if (k >= 1) {
         if (e.node.parent) e.node.parent.remove(e.node);
@@ -845,21 +1061,25 @@ const Render3D = (function () {
     }
 
     if (want) {
-      const k = 1 - Math.pow(0.006, dt);
+      const k = 1 - Math.pow(want.ease || 0.006, dt);
       cam.target.lerp(want.target, k);
       cam.dist += (want.dist - cam.dist) * k;
-      placeCamera();
-      if (cam.target.distanceTo(want.target) < 0.05 && Math.abs(cam.dist - want.dist) < 0.2) {
-        want = null;
+      if (want.az !== undefined) {
+        let d = want.az - cam.az;
+        while (d > Math.PI) d -= Math.PI * 2;
+        while (d < -Math.PI) d += Math.PI * 2;
+        cam.az += d * k;
       }
+      if (want.el !== undefined) cam.el += (want.el - cam.el) * k;
+      placeCamera();
+      if (cam.target.distanceTo(want.target) < 0.06 && Math.abs(cam.dist - want.dist) < 0.25) want = null;
     }
 
     if (shake > 0.001) {
       shake *= Math.pow(0.0015, dt);
-      const s = shake;
-      camera.position.x += (Math.random() - 0.5) * s;
-      camera.position.y += (Math.random() - 0.5) * s;
-      camera.position.z += (Math.random() - 0.5) * s;
+      camera.position.x += (Math.random() - 0.5) * shake;
+      camera.position.y += (Math.random() - 0.5) * shake;
+      camera.position.z += (Math.random() - 0.5) * shake;
     }
 
     if (renderer && scene && camera) renderer.render(scene, camera);
@@ -872,81 +1092,67 @@ const Render3D = (function () {
     syncUnits(S);
     setOverlay(view);
 
-    /* new dice since last frame get thrown */
-    S.dice.forEach(function (d) {
-      if (d.at <= seenDice) return;
-      seenDice = d.at;
-      const w = d.where || (view && view.focus) || { x: S.board.w / 2, y: S.board.h / 2 };
-      throwDie(d.value, new THREE.Vector3(w.x, Board.heightAt(S.board, w), w.y), d.pass);
-    });
-    S.shots.forEach(function (s) {
-      if (s.at <= seenShot) return;
-      seenShot = s.at;
-      tracer(s.from, s.to, s.melee);
+    S.strikes.forEach(function (k) {
+      if (k.at <= seenStrike) return;
+      seenStrike = k.at;
+      queueStrike(k);
     });
     S.units.forEach(function (u) {
-      if (u.hitAt !== undefined && u.hitAt > (u.__shown || -1)) {
-        u.__shown = u.hitAt;
-        damagePop(new THREE.Vector3(u.x, Board.heightAt(S.board, u), u.y));
-      }
+      if (!u.climbed || seenClimb[u.id] === u.climbed.at) return;
+      seenClimb[u.id] = u.climbed.at;
+      Sfx.climb();
     });
   }
 
-  /* --------------------------------------------------------------- picking
-     Screen to table, in inches, off whatever surface the ray lands on. */
+  /* --------------------------------------------------------------- picking */
+
   const ray = new THREE.Raycaster();
   const ndc = new THREE.Vector2();
 
-  function pick(clientX, clientY) {
-    if (!board) return null;
+  function setNdc(x, y) {
     const r = canvas.getBoundingClientRect();
-    ndc.x = ((clientX - r.left) / r.width) * 2 - 1;
-    ndc.y = -((clientY - r.top) / r.height) * 2 + 1;
-    ray.setFromCamera(ndc, camera);
-    const hits = ray.intersectObjects(terrainGroup.children, false);
-    if (hits.length) {
-      const p = hits[0].point;
-      return { x: p.x, y: p.z, height: p.y };
-    }
-    return null;
+    ndc.x = ((x - r.left) / r.width) * 2 - 1;
+    ndc.y = -((y - r.top) / r.height) * 2 + 1;
+    return r;
   }
 
-  /* Hit the model itself first — a model standing on a gantry is nowhere near
-     the patch of floor its feet project onto. Fall back to proximity so a
-     click just beside a base still selects it. */
-  /* The nearest of a set of table positions to where the player clicked,
-     measured on screen. Raycasting alone is not enough for placement: a wall
-     standing between the camera and the spot swallows the ray, and the player
-     is aiming at what they can see, not at what the ray hits first. */
-  function pickNearest(clientX, clientY, points, maxPx) {
+  function pick(x, y) {
+    if (!board) return null;
+    setNdc(x, y);
+    ray.setFromCamera(ndc, camera);
+    const hits = ray.intersectObjects(terrainGroup.children, true);
+    if (!hits.length) return null;
+    const p = hits[0].point;
+    return { x: p.x, y: p.z, height: p.y, terrain: hits[0].object.userData.terrain || null };
+  }
+
+  function pickNearest(x, y, points, maxPx) {
     if (!points || !points.length) return null;
     const r = canvas.getBoundingClientRect();
     const v = new THREE.Vector3();
-    let best = null, bestD = (maxPx || 46);
+    let best = null, bestD = maxPx || 46;
     points.forEach(function (p) {
       v.set(p.x, Board.heightAt(board, p) + 0.3, p.y).project(camera);
       if (v.z > 1) return;
       const sx = r.left + (v.x + 1) / 2 * r.width;
       const sy = r.top + (1 - (v.y + 1) / 2) * r.height;
-      const d = Math.hypot(sx - clientX, sy - clientY);
+      const d = Math.hypot(sx - x, sy - y);
       if (d < bestD) { bestD = d; best = p; }
     });
     return best;
   }
 
-  function pickUnit(clientX, clientY, S) {
-    const r = canvas.getBoundingClientRect();
-    ndc.x = ((clientX - r.left) / r.width) * 2 - 1;
-    ndc.y = -((clientY - r.top) / r.height) * 2 + 1;
+  function pickUnit(x, y, S) {
+    setNdc(x, y);
     ray.setFromCamera(ndc, camera);
     const hits = ray.intersectObjects(unitGroup.children, true);
     for (let i = 0; i < hits.length; i++) {
       const id = hits[i].object.userData.unitId;
       if (!id) continue;
-      const u = S.units.find(x => x.id === id);
+      const u = S.units.find(q => q.id === id);
       if (u && u.alive) return u;
     }
-    const p = pick(clientX, clientY);
+    const p = pick(x, y);
     if (!p) return null;
     let best = null, bestD = 1.1;
     S.units.forEach(function (u) {
@@ -957,47 +1163,12 @@ const Render3D = (function () {
     return best;
   }
 
-  function setArt(unitId, src) {
-    const tex = new THREE.TextureLoader().load(src, function () { art[unitId] = tex; });
-  }
-
-  function focusOn(p) {
-    if (!board) return;
-    cam.target.set(p.x, 0, p.y);
-    clampTarget();
-    placeCamera();
-  }
-
-  /* Lean in on something small — a 3" reaction is invisible from table height.
-     Eased rather than cut, so the player keeps their bearings. */
-  function leanIn(p, dist) {
-    if (!board) return;
-    userZoomed = true;
-    want = {
-      target: new THREE.Vector3(p.x, Board.heightAt(board, p), p.y),
-      dist: dist || 20
-    };
-  }
-
-  function leanOut() {
-    if (!board) return;
-    /* back to the framing the table gets on its own */
-    const keepT = cam.target.clone(), keepD = cam.dist;
-    frameTable();
-    want = { target: cam.target.clone(), dist: cam.dist };
-    cam.target.copy(keepT); cam.dist = keepD;
-    placeCamera();
-    userZoomed = false;
-  }
+  const focusOn = p => leanIn(p, Math.max(18, cam.dist * 0.6));
 
   return {
-    attach, resize, draw, pick, pickUnit, pickNearest, setArt, viewFrom, focusOn,
-    leanIn, leanOut,
+    attach, resize, draw, pick, pickUnit, pickNearest, viewFrom, focusOn,
+    leanIn, leanOut, busy, COL,
     get camera() { return camera; },
-    get scene() { return scene; },
-    COL
+    get scene() { return scene; }
   };
 })();
-
-window.Render3D = Render3D;
-window.dispatchEvent(new Event('render3d-ready'));
