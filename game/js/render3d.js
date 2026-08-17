@@ -171,18 +171,26 @@ const Render3D = (function () {
     scene.add(terrainGroup, markerGroup, overlayGroup, unitGroup, fxGroup);
 
     wireCamera();
+    if (window.ResizeObserver) new ResizeObserver(() => resize()).observe(canvas);
     lastT = performance.now();
     tick();
   }
 
   let userZoomed = false;
 
-  function resize(w, h) {
-    if (!renderer || !w || !h) return;
+  /* Sized off the canvas itself rather than off whatever the caller thinks the
+     layout is — being told a stale size skews the projection and slides the
+     table off centre. */
+  function resize() {
+    if (!renderer) return;
+    const w = canvas.clientWidth, h = canvas.clientHeight;
+    if (!w || !h) return;
+    if (canvas.width === w * renderer.getPixelRatio() &&
+        canvas.height === h * renderer.getPixelRatio() &&
+        Math.abs(camera.aspect - w / h) < 1e-6) return;
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
-    /* Reframe unless the player has taken the camera into their own hands. */
     if (board && !userZoomed) { cam.dist = fitDistance(); placeCamera(); }
   }
 
@@ -725,6 +733,7 @@ const Render3D = (function () {
 
   function tick() {
     raf = requestAnimationFrame(tick);
+    resize();
     const now = performance.now();
     const dt = Math.min(0.05, (now - lastT) / 1000);
     lastT = now;

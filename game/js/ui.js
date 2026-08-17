@@ -184,10 +184,7 @@ const GameUI = (function () {
     if (window.Net) Net.onStart(cfg);
   }
 
-  function resize() {
-    const wrap = $('boardwrap');
-    Render3D.resize(wrap.clientWidth, wrap.clientHeight);
-  }
+  function resize() { Render3D.resize(); }
 
   /* ---------------------------------------------------- what the table shows */
 
