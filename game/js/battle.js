@@ -610,16 +610,33 @@ const Battle = (function () {
     return out;
   }
 
-  /* Does this aura reach from its source to this unit? */
+  /* Does this aura reach? There are two shapes of them and they read in
+     opposite directions, which is what makes this fiddly:
+
+       onlyVsOwner   the aura is about its OWN source being attacked — Cloaked,
+                     Small. `side: enemy` means it hinders enemies shooting at
+                     it, so the range is measured from the shooter to the source.
+       otherwise     the aura buffs whoever is near the source — It's My Job,
+                     Intimidating Presence — so the range is source to subject. */
   function auraApplies(au, subject, attacker, weapon, range) {
     const e = au.e;
     if (e.weapon && e.weapon !== 'any' && e.weapon !== range) return false;
+
+    if (e.onlyVsOwner) {
+      if (subject.id !== au.src.id) return false;
+      const byEnemy = attacker.owner !== au.src.owner;
+      if (e.side === 'enemy' && !byEnemy) return false;
+      if (e.side === 'friendly' && byEnemy) return false;
+      const d = rangeTo(attacker, au.src);
+      if (e.mode === 'within' && d > (e.range || 6)) return false;
+      if (e.mode === 'beyond' && d <= (e.range || 6)) return false;
+      return true;
+    }
+
     const friendly = au.src.owner === subject.owner;
     if (e.side === 'friendly' && !friendly) return false;
     if (e.side === 'enemy' && friendly) return false;
-    /* `onlyVsOwner` means the aura is about the source itself being shot at */
-    if (e.onlyVsOwner && subject.id !== au.src.id) return false;
-    const d = e.onlyVsOwner ? rangeTo(attacker, au.src) : rangeTo(au.src, subject);
+    const d = rangeTo(au.src, subject);
     if (e.mode === 'within' && d > (e.range || 6)) return false;
     if (e.mode === 'beyond' && d <= (e.range || 6)) return false;
     return true;
@@ -662,8 +679,9 @@ const Battle = (function () {
       const e = au.e;
       /* an aura on the shooter helps them; one on the target hinders them */
       if (e.stat === 'hit' || e.stat === 'wound') {
-        const onTarget = e.onlyVsOwner || e.side === 'enemy';
-        const subject = onTarget ? t : a;
+        /* one that guards its own source is about the target being shot at;
+           anything else is about the shooter it is standing near */
+        const subject = e.onlyVsOwner ? t : a;
         if (!auraApplies(au, subject, a, weapon, range)) return;
         const v = Number(e.value) || 0;
         if (e.stat === 'hit') hit += v; else wound += v;
@@ -804,6 +822,19 @@ const Battle = (function () {
       if (u.reserve && !(a.effects || []).some(e => e.kind === 'place')) {
         why = 'in reserve';
       }
+      /* the card's own conditions, so a button never costs AP and does nothing */
+      (a.effects || []).forEach(function (e) {
+        if (e.kind === 'hook') {
+          const sniff = Number(e.near) || 3;
+          if (!S.board.terrain.some(t => Board.distToBox(t, u) <= sniff)) {
+            why = 'no terrain within ' + sniff + '"';
+          }
+        }
+        if (e.kind === 'place' && !e.fromReserve && arrivalSpots(u.id, i).length === 0) {
+          why = 'nowhere it may be placed';
+        }
+      });
+      if (a.usesPerGame && a.usedGame) why = 'already used this game';
       out.push({ index: i, name: a.name, cost: cost, why: why, text: a.text || '' });
     });
     return out;
@@ -815,9 +846,11 @@ const Battle = (function () {
   function abilityNeeds(u, a) {
     const e = (a.effects || []);
     if (e.some(x => x.kind === 'place')) return 'spot';
-    if (e.some(x => x.kind === 'damage' || x.kind === 'mark' || x.kind === 'heal' ||
-                    x.kind === 'attack')) {
-      return e.some(x => x.side === 'friendly') ? 'friend' : 'enemy';
+    const needsOne = e.filter(x => (x.kind === 'damage' || x.kind === 'mark' ||
+                                    x.kind === 'heal' || x.kind === 'attack') &&
+                                   x.pick !== 'multi' && x.pick !== 'attacker');
+    if (needsOne.length) {
+      return needsOne.some(x => x.side === 'friendly') ? 'friend' : 'enemy';
     }
     return null;
   }
@@ -841,6 +874,7 @@ const Battle = (function () {
     openChain(p);
     spend(p, cost);
     if (a.usesPerTurn) a.usedTurn = S.turn.number;
+    if (a.usesPerGame) a.usedGame = true;
     log(S.players[p].name + ': ' + u.name + ' → ' + a.name + '.', 'action');
     if (a.text) log(a.text, 'note');
     runEffects(u, a, arg, p);
@@ -966,18 +1000,24 @@ const Battle = (function () {
         }
         case 'hook': {
           /* Grappling Hook: straight at the nearest scenery, height ignored */
+          const reach = Number(e.value) || 5, sniff = Number(e.near) || 3;
           const near = S.board.terrain
             .map(t2 => ({ t: t2, d: Board.distToBox(t2, u) }))
-            .filter(o => o.d <= 3)
+            .filter(o => o.d <= sniff)
             .sort((x, y) => x.d - y.d)[0];
           if (!near) { log('No terrain within 3".', 'muted'); break; }
           const cx = near.t.x + near.t.w / 2, cy = near.t.y + near.t.h / 2;
           const ang2 = Math.atan2(cy - u.y, cx - u.x);
-          let best = null;
-          for (let d = 5; d >= 0.5; d -= 0.25) {
+          /* "ignoring height" is the whole point of a hook: of everywhere along
+             the line it can reach, take the highest it can stand on, and only
+             fall back to flat ground if it cannot get up at all. */
+          let best = null, bestUp = -1;
+          for (let d = 0.5; d <= reach + 1e-6; d += 0.25) {
             const q = { x: u.x + Math.cos(ang2) * d, y: u.y + Math.sin(ang2) * d };
-            if (Board.standable(S.board, q, u.radius, Board.heightAt(S.board, q)) &&
-                !alive().some(o => o !== u && rangeTo(o, q) < o.radius + u.radius)) { best = q; break; }
+            const lvl = Board.heightAt(S.board, q);
+            if (!Board.standable(S.board, q, u.radius, lvl)) continue;
+            if (alive().some(o => o !== u && rangeTo(o, q) < o.radius + u.radius)) continue;
+            if (lvl > bestUp || (lvl === bestUp && best === null)) { bestUp = lvl; best = q; }
           }
           if (best) {
             u.facing = ang2;
@@ -1164,10 +1204,6 @@ const Battle = (function () {
         legs.push({ x: a.x + (b.x - a.x) * k / n, y: a.y + (b.y - a.y) * k / n });
       }
     }
-    /* the whole route, so the table can walk the model along it rather than
-       having it appear at the far end */
-    u.route = { pts: [{ x: u.x, y: u.y }].concat(legs), at: S.seq++,
-                climb: climb ? { x: climb.x, y: climb.y, top: climb.top } : null };
     let i = 0, mounted = false;
     (function step() {
       if (!u.alive) { done(); return; }
@@ -1830,7 +1866,7 @@ const Battle = (function () {
     actionsFor, rangedTargets, meleeTargets, chargeTargets, moveField, weaponsOf, reachOf,
     doMove, doShoot, doFight, doCharge, doOverwatch, doPass, doSecure, doRelic,
     abilityActions, useAbility, confirmAbility, arrivalSpots, abilityOf, moveOf,
-    cardPowers, useCardPower, holderOf,
+    cardPowers, useCardPower, holderOf, attackMods, diceFor, blockedReactions,
     chooseReaction, chooseRedirect, toggleWatcher, fireOverwatch, endTurn, placeMove,
     mustPass, elevation, diveEscapes, spotsWithin, fieldFor, snapMove
   };

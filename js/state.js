@@ -370,9 +370,8 @@ const PRESETS = [
         { name: 'Grappling Hook', trigger: 'ap', cost: 1, moves: true,
           text: 'Use only if terrain is within 3". Move this unit up to 5" in the direction of ' +
                 'the terrain, ignoring height. Your opponent gains 1 AP.',
-          effects: [{ kind: 'ap_opponent', value: 1 },
-                    { kind: 'note',
-                      text: 'Move up to 5" toward the terrain, ignoring height.' }] }
+          effects: [{ kind: 'hook', value: 5, near: 3 },
+                    { kind: 'ap_opponent', value: 1 }] }
       ]
     },
     {
@@ -542,7 +541,7 @@ const PRESETS = [
           roll: 'D6', rollWhat: 'how far it moves',
           rollNote: 'Move this unit that many inches, in any direction.',
           text: 'Use only on your turn. Move this unit D6". End the action chain.',
-          effects: [] }
+          effects: [{ kind: 'wander' }] }
       ]
     },
     {
@@ -561,7 +560,7 @@ const PRESETS = [
                             'have +1 to wound.' }] },
         { name: 'WAAAAAGH', trigger: 'ap', cost: 1, usesPerGame: 1, opponentReacts: false, moves: true,
           text: 'Usable only once per game. Move each of your units up to D6". End the action chain.',
-          effects: [{ kind: 'note', text: 'Roll a D6 and move each of your units up to that far.' }] }
+          effects: [{ kind: 'wander', everyone: true }] }
       ]
     },
     {

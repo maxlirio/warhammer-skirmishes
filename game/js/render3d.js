@@ -241,26 +241,31 @@ const Render3D = (function () {
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.45;
+    renderer.toneMappingExposure = 1.25;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
 
     scene = new THREE.Scene();
     scene.background = skyTexture();
-    scene.fog = new THREE.FogExp2(0x2a2723, 0.0062);
+    scene.fog = new THREE.FogExp2(0x2f3138, 0.0052);
 
     camera = new THREE.PerspectiveCamera(42, 1, 0.4, 600);
 
-    scene.add(new THREE.HemisphereLight(0xa8b4c8, 0x3a2c1e, 1.15));
-    scene.add(new THREE.AmbientLight(0xffeccd, 0.32));
-    keyLight = new THREE.DirectionalLight(0xffd9a8, 2.7);
+    scene.add(new THREE.HemisphereLight(0xbcd0e8, 0x4a3a26, 1.45));
+    scene.add(new THREE.AmbientLight(0xfff2dd, 0.42));
+    keyLight = new THREE.DirectionalLight(0xffe8c4, 3.1);
     keyLight.castShadow = true;
     keyLight.shadow.mapSize.set(2048, 2048);
     keyLight.shadow.bias = -0.0011;
     keyLight.shadow.normalBias = 0.035;
     scene.add(keyLight, keyLight.target);
-    const rim = new THREE.DirectionalLight(0x7f9dd6, 0.95);
-    rim.position.set(30, 22, 26);
+    /* a cold rim off the opposite shoulder, so edges separate from the ground
+       instead of everything sinking into one brown */
+    const rim = new THREE.DirectionalLight(0x86b0ff, 1.5);
+    rim.position.set(34, 16, 30);
     scene.add(rim);
+    const back = new THREE.DirectionalLight(0xff9d5c, 0.7);
+    back.position.set(-20, 10, 34);
+    scene.add(back);
 
     terrainGroup = new THREE.Group();
     unitGroup = new THREE.Group();
@@ -445,10 +450,10 @@ const Render3D = (function () {
     c.width = 8; c.height = 256;
     const g = c.getContext('2d');
     const grd = g.createLinearGradient(0, 0, 0, 256);
-    grd.addColorStop(0, '#080a10');
-    grd.addColorStop(0.5, '#241d18');
-    grd.addColorStop(0.78, '#3d3630');
-    grd.addColorStop(1, '#5c4b36');
+    grd.addColorStop(0, '#070a14');
+    grd.addColorStop(0.5, '#25272e');
+    grd.addColorStop(0.78, '#4a4038');
+    grd.addColorStop(1, '#6d5540');
     g.fillStyle = grd;
     g.fillRect(0, 0, 8, 256);
     const t = new THREE.CanvasTexture(c);
@@ -476,7 +481,7 @@ const Render3D = (function () {
     const c = document.createElement('canvas');
     c.width = c.height = 512;
     const g = c.getContext('2d');
-    g.fillStyle = '#5f5a51';
+    g.fillStyle = '#6a6b66';
     g.fillRect(0, 0, 512, 512);
     for (let y = 0; y < 512; y += 64) {
       for (let x = 0; x < 512; x += 64) {
@@ -909,17 +914,7 @@ const Render3D = (function () {
       /* while a strike involving this model is on screen, the shot owns it */
       if (playing && playing.holds[u.id]) return;
 
-      /* a route the engine walked: play the model along it */
-      if (u.route && node.userData.routeAt !== u.route.at) {
-        node.userData.routeAt = u.route.at;
-        node.userData.walk = { pts: u.route.pts.slice(), t: 0,
-                               climb: u.route.climb, done: false };
-        node.userData.walk.len = routeLength(node.userData.walk.pts);
-      }
-      const wk = node.userData.walk;
-      if (wk && !wk.done && u.alive) return;      /* the walk is driving it */
 
-      node.userData.aim = null;
       node.position.set(u.x, Board.heightAt(S.board, u), u.y);
       node.userData.wantRot = -u.facing + Math.PI / 2;
       node.userData.body.rotation.set(0, 0, 0);
@@ -1433,30 +1428,6 @@ const Render3D = (function () {
   /* ------------------------------------------------------------ the models,
      moving. The rules finished a while ago; this is the part you watch. */
 
-  function routeLength(pts) {
-    let n = 0;
-    for (let i = 1; i < pts.length; i++) n += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
-    return n;
-  }
-
-  function alongRoute(pts, d) {
-    let acc = 0;
-    for (let i = 1; i < pts.length; i++) {
-      const seg = Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
-      if (acc + seg >= d || i === pts.length - 1) {
-        const f = seg ? Math.min(1, (d - acc) / seg) : 1;
-        return { x: pts[i - 1].x + (pts[i].x - pts[i - 1].x) * f,
-                 y: pts[i - 1].y + (pts[i].y - pts[i - 1].y) * f,
-                 hx: pts[i].x - pts[i - 1].x, hy: pts[i].y - pts[i - 1].y };
-      }
-      acc += seg;
-    }
-    const last = pts[pts.length - 1];
-    return { x: last.x, y: last.y, hx: 1, hy: 0 };
-  }
-
-  const SPEED = 5.5;          /* inches a second — a walk, not a scuttle */
-
   function animateUnits(dt) {
     if (!lastState) return;
     lastState.units.forEach(function (u) {
@@ -1471,46 +1442,6 @@ const Render3D = (function () {
         const s2 = e < 1 ? 0.3 + 0.7 * (1 - Math.pow(1 - e, 3)) : 1;
         body.scale.setScalar(s2);
         node.userData.label.material.opacity = e;
-      }
-
-      /* walking a route */
-      const wk = node.userData.walk;
-      if (wk && !wk.done) {
-        if (!u.alive) { wk.done = true; }
-        else {
-          wk.t += dt * SPEED;
-          const at = alongRoute(wk.pts, wk.t);
-          node.position.set(at.x, Board.heightAt(board, { x: at.x, y: at.y }), at.y);
-          node.userData.wantRot = -Math.atan2(at.hy, at.hx) + Math.PI / 2;
-          /* stride: a bob and a slight roll, so it reads as walking */
-          const ph = wk.t * 3.4;
-          body.position.y = 0.12 + Math.abs(Math.sin(ph)) * 0.09;
-          body.rotation.z = Math.sin(ph * 2) * 0.055;
-          body.rotation.x = -0.09;
-          if (!wk.stepAt || wk.t - wk.stepAt > 0.85) { wk.stepAt = wk.t; Sfx.step(0.32); }
-          if (wk.t >= wk.len) {
-            /* and up onto whatever it walked into */
-            if (wk.climb && !wk.climbed) {
-              wk.climbed = true;
-              wk.hopT = 0;
-            }
-            if (wk.climb && wk.hopT !== undefined && wk.hopT < 1) {
-              wk.hopT = Math.min(1, wk.hopT + dt * 1.7);
-              const h = wk.hopT;
-              const from = wk.pts[wk.pts.length - 1];
-              node.position.set(from.x + (wk.climb.x - from.x) * h,
-                                Board.heightAt(board, from) + wk.climb.top * h +
-                                Math.sin(h * Math.PI) * 0.55,
-                                from.y + (wk.climb.y - from.y) * h);
-              body.rotation.x = -0.5 + h * 0.4;
-              return;
-            }
-            wk.done = true;
-            body.position.y = 0.12;
-            body.rotation.set(0, 0, 0);
-          }
-          return;
-        }
       }
 
       /* standing about: a slow breath, and a lift when selected */
