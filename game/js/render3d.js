@@ -221,10 +221,173 @@ const Render3D = (function () {
     markerGroup = new THREE.Group();
     scene.add(terrainGroup, markerGroup, overlayGroup, unitGroup, fxGroup);
 
+    buildTray();
     wireCamera();
     if (window.ResizeObserver) new ResizeObserver(() => resize()).observe(canvas);
     lastT = performance.now();
     tick();
+  }
+
+  /* ---------------------------------------------------------- the dice bowl
+     The dice are thrown in a bowl beside the table, not onto it. It is hung off
+     the camera, so it is always in the corner of the screen and looking at a
+     roll never means going anywhere. One die at a time. */
+  let tray = null, trayDie = null, trayLabel = null;
+  const rolls = [];             // waiting to be thrown
+  let rolling = null;
+
+  const DIE_FACE = [null,
+    { axis: 'z', a: Math.PI / 2 },    /* 1 is +X */
+    { axis: 'x', a: 0 },              /* 2 is +Y */
+    { axis: 'x', a: -Math.PI / 2 },   /* 3 is +Z */
+    { axis: 'x', a: Math.PI / 2 },    /* 4 is -Z */
+    { axis: 'x', a: Math.PI },        /* 5 is -Y */
+    { axis: 'z', a: -Math.PI / 2 }    /* 6 is -X */
+  ];
+
+  function pipTexture(n) {
+    const c = document.createElement('canvas');
+    c.width = c.height = 96;
+    const g = c.getContext('2d');
+    g.fillStyle = '#ded3bd'; g.fillRect(0, 0, 96, 96);
+    g.strokeStyle = '#9c8f76'; g.lineWidth = 4; g.strokeRect(2, 2, 92, 92);
+    g.fillStyle = '#1a1512';
+    ({ 1: [[48, 48]], 2: [[28, 28], [68, 68]], 3: [[26, 26], [48, 48], [70, 70]],
+       4: [[28, 28], [68, 28], [28, 68], [68, 68]],
+       5: [[28, 28], [68, 28], [48, 48], [28, 68], [68, 68]],
+       6: [[28, 24], [68, 24], [28, 48], [68, 48], [28, 72], [68, 72]] })[n]
+      .forEach(function (p) { g.beginPath(); g.arc(p[0], p[1], 9, 0, 6.28); g.fill(); });
+    const t = new THREE.CanvasTexture(c);
+    t.colorSpace = THREE.SRGBColorSpace;
+    return t;
+  }
+  const pipTex = [];
+  function dieMaterials() {
+    if (!pipTex.length) for (let i = 1; i <= 6; i++) pipTex[i] = pipTexture(i);
+    /* BoxGeometry face order is +X −X +Y −Y +Z −Z */
+    return [1, 6, 2, 5, 3, 4].map(v => new THREE.MeshStandardMaterial({
+      map: pipTex[v], roughness: 0.5, metalness: 0.05 }));
+  }
+
+  function trayText(top, bottom) {
+    const c = document.createElement('canvas');
+    c.width = 256; c.height = 96;
+    const g = c.getContext('2d');
+    g.clearRect(0, 0, 256, 96);
+    g.fillStyle = '#e8c65c';
+    g.font = '700 30px Impact, sans-serif';
+    g.textAlign = 'center';
+    g.fillText(top || '', 128, 32);
+    g.fillStyle = '#cfc4ae';
+    g.font = '600 22px Impact, sans-serif';
+    g.fillText(bottom || '', 128, 66);
+    return new THREE.CanvasTexture(c);
+  }
+
+  function buildTray() {
+    tray = new THREE.Group();
+    /* a shallow bowl */
+    const bowl = new THREE.Mesh(
+      new THREE.CylinderGeometry(1.5, 1.15, 0.5, 34, 1, true),
+      new THREE.MeshStandardMaterial({ color: 0x2a251f, roughness: 0.7, metalness: 0.6,
+                                       side: THREE.DoubleSide }));
+    bowl.position.y = 0.25;
+    tray.add(bowl);
+    const floor = new THREE.Mesh(new THREE.CircleGeometry(1.2, 34),
+      new THREE.MeshStandardMaterial({ color: 0x14110d, roughness: 0.95 }));
+    floor.rotation.x = -Math.PI / 2;
+    tray.add(floor);
+    const rim = new THREE.Mesh(new THREE.TorusGeometry(1.5, 0.075, 8, 40),
+      new THREE.MeshStandardMaterial({ color: 0xb8912f, roughness: 0.35, metalness: 0.9 }));
+    rim.rotation.x = -Math.PI / 2;
+    rim.position.y = 0.5;
+    tray.add(rim);
+
+    trayDie = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.62, 0.62), dieMaterials());
+    trayDie.visible = false;
+    tray.add(trayDie);
+
+    trayLabel = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: trayText('', ''), depthTest: false, transparent: true }));
+    trayLabel.scale.set(2.4, 0.9, 1);
+    trayLabel.position.set(0, 1.5, 0);
+    tray.add(trayLabel);
+
+    /* its own light, so it reads whatever the table is doing */
+    const l = new THREE.PointLight(0xffe0b0, 3.2, 8, 2);
+    l.position.set(1, 2.2, 1.4);
+    tray.add(l);
+
+    tray.rotation.set(-0.42, -0.5, 0);
+    tray.visible = false;
+    camera.add(tray);
+    scene.add(camera);
+    layoutTray();
+  }
+
+  /* Tucked into the bottom corner whatever shape the window is, and never
+     hanging off the edge of it. */
+  function layoutTray() {
+    if (!tray || !camera) return;
+    const d = 7;
+    const halfH = d * Math.tan((camera.fov * Math.PI / 180) / 2);
+    const halfW = halfH * camera.aspect;
+    const scale = Math.min(0.62, halfH / 4.4);
+    tray.scale.setScalar(scale);
+    const r = 1.75 * scale;
+    tray.position.set(halfW - r - 0.3, -halfH + r * 1.55, -d);
+  }
+
+  /* Ask for a die. They queue, and are thrown one at a time. */
+  function rollDie(value, target, label) {
+    rolls.push({ value: value, target: target, label: label || '' });
+  }
+
+  const rollingNow = () => !!rolling || rolls.length > 0;
+
+  function stepTray(dt) {
+    if (!rolling && rolls.length) {
+      rolling = rolls.shift();
+      rolling.t = 0;
+      tray.visible = true;
+      trayDie.visible = true;
+      trayDie.position.set((Math.random() - 0.5) * 0.5, 2.6, (Math.random() - 0.5) * 0.5);
+      trayDie.rotation.set(Math.random() * 6, Math.random() * 6, Math.random() * 6);
+      rolling.spin = new THREE.Vector3(Math.random() * 16 - 8, Math.random() * 16 - 8,
+                                       Math.random() * 16 - 8);
+      const f = DIE_FACE[rolling.value];
+      rolling.rest = new THREE.Quaternion().setFromEuler(new THREE.Euler(
+        f.axis === 'x' ? f.a : 0, Math.random() * Math.PI * 2, f.axis === 'z' ? f.a : 0, 'YZX'));
+      rolling.from = trayDie.position.clone();
+      trayLabel.material.map = trayText(rolling.label,
+        rolling.target ? 'NEEDS ' + rolling.target + '+' : '');
+      trayLabel.material.needsUpdate = true;
+      Sfx.step(0.5);
+    }
+    if (!rolling) return;
+    rolling.t += dt;
+    const drop = Math.min(1, rolling.t / 0.5);
+    const e = 1 - Math.pow(1 - drop, 3);
+    trayDie.position.lerpVectors(rolling.from, new THREE.Vector3(0, 0.34, 0), e);
+    if (rolling.t < 0.5) {
+      trayDie.rotation.x += rolling.spin.x * dt;
+      trayDie.rotation.y += rolling.spin.y * dt;
+      trayDie.rotation.z += rolling.spin.z * dt;
+    } else {
+      trayDie.quaternion.slerp(rolling.rest, Math.min(1, dt * 10));
+      if (rolling.t > 0.52 && rolling.t < 0.62) {
+        trayDie.position.y = 0.34 + Math.sin((rolling.t - 0.52) / 0.1 * Math.PI) * 0.18;
+        if (!rolling.clacked) { rolling.clacked = true; Sfx.clang(0.28); }
+      }
+      if (!rolling.said && rolling.t > 0.75) {
+        rolling.said = true;
+        const ok = rolling.target ? (rolling.value !== 1 && rolling.value >= rolling.target) : null;
+        trayLabel.material.map = trayText(rolling.label,
+          ok === null ? rolling.value + '"' : (ok ? 'PASSED' : 'FAILED'));
+        trayLabel.material.needsUpdate = true;
+      }
+    }
+    if (rolling.t > 1.5) rolling = null;
   }
 
   function skyTexture() {
@@ -253,6 +416,7 @@ const Render3D = (function () {
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
+    layoutTray();
     if (board && !userZoomed) frameTable();
   }
 
@@ -513,11 +677,18 @@ const Render3D = (function () {
         run(t.w, t.h, 'x');
         run(t.h, t.w, 'z');
       }
+      /* Steps go on whichever side has open ground to come up from, facing
+         out, with their top against the deck — not on a fixed edge where they
+         end up backwards, or buried in the next piece of terrain along. */
       if (Assets.has('stairs') && t.top > 1) {
-        const depth = Math.min(2.4, t.top * 1.6);
-        const st = Assets.fitted('stairs', 1.6, depth, t.top);
-        st.position.set(-t.w / 2 + 1.3, 0, t.h / 2 + depth / 2 - 0.05);
-        g.add(st);
+        const depth = Math.min(2.6, Math.max(1.4, t.top * 1.5));
+        const side = bestApproach(t, depth);
+        if (side) {
+          const st = Assets.fitted('stairs', 1.7, depth, t.top);
+          st.rotation.y = side.turn;
+          st.position.set(side.x, 0, side.z);
+          g.add(st);
+        }
       }
       if (t.w > 4 && t.h > 4) {
         const dish = Assets.fitted(rnd(3) < 0.5 ? 'satelliteDish' : 'machine_wireless', 1.9, 1.9, 1.6);
@@ -534,6 +705,39 @@ const Render3D = (function () {
       }
     }
     return finishDress(g, t);
+  }
+
+  /* Which side of a piece you could actually walk up to, scored on how much
+     clear table is in front of it. Returns a local offset and a turn, or null
+     if the piece is boxed in on every side. */
+  function bestApproach(t, depth) {
+    const sides = [
+      { nx: 0, nz: -1, turn: Math.PI },        /* north face */
+      { nx: 0, nz: 1, turn: 0 },               /* south face */
+      { nx: -1, nz: 0, turn: -Math.PI / 2 },   /* west face */
+      { nx: 1, nz: 0, turn: Math.PI / 2 }      /* east face */
+    ];
+    let best = null;
+    sides.forEach(function (s2) {
+      const half = s2.nx ? t.w / 2 : t.h / 2;
+      let clear = 0;
+      for (let a = -0.5; a <= 0.5; a += 0.25) {
+        for (let d = 0.6; d <= depth + 0.6; d += 0.6) {
+          const px = t.x + t.w / 2 + s2.nx * (half + d) + (s2.nx ? 0 : a * t.w * 0.7);
+          const pz = t.y + t.h / 2 + s2.nz * (half + d) + (s2.nz ? 0 : a * t.h * 0.7);
+          if (px < 0.5 || pz < 0.5 || px > board.w - 0.5 || pz > board.h - 0.5) continue;
+          const p = { x: px, y: pz };
+          if (board.terrain.some(o => o !== t && Board.inBox(o, p))) continue;
+          clear++;
+        }
+      }
+      if (!best || clear > best.clear) {
+        best = { clear: clear, turn: s2.turn,
+                 x: s2.nx * (t.w / 2 + depth / 2 - 0.05),
+                 z: s2.nz * (t.h / 2 + depth / 2 - 0.05) };
+      }
+    });
+    return best && best.clear >= 6 ? best : null;
   }
 
   function finishDress(g, t) {
@@ -683,21 +887,59 @@ const Render3D = (function () {
 
   /* ----------------------------------------------------------- the overlays */
 
+  /* An area is a shape, not a heap of squares. The samples are painted as
+     overlapping discs into one canvas — which unions them cleanly instead of
+     stacking alpha — and that canvas is laid on the table as a single plane.
+     So a 6" move reads as a 6" curve and the overwatch arc is a real circle. */
   function areaMesh(points, colour, opacity, cell, lift) {
-    const geo = new THREE.BufferGeometry();
-    const half = (cell || 0.4) * 0.5;
-    const pos = new Float32Array(points.length * 18);
-    let k = 0;
+    if (!points.length) return new THREE.Group();
+    let minx = Infinity, maxx = -Infinity, miny = Infinity, maxy = -Infinity;
     points.forEach(function (p) {
-      const y = (lift === undefined ? 0.05 : lift) + Board.heightAt(board, p);
-      const x0 = p.x - half, x1 = p.x + half, z0 = p.y - half, z1 = p.y + half;
-      [x0, y, z0, x1, y, z0, x1, y, z1, x0, y, z0, x1, y, z1, x0, y, z1]
-        .forEach(v => { pos[k++] = v; });
+      if (p.x < minx) minx = p.x;
+      if (p.x > maxx) maxx = p.x;
+      if (p.y < miny) miny = p.y;
+      if (p.y > maxy) maxy = p.y;
     });
-    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    return new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
-      color: colour, transparent: true, opacity: opacity,
-      depthWrite: false, side: THREE.DoubleSide }));
+    const r = Math.max(0.28, (cell || 0.4) * 0.92);
+    const pad = r + 0.35;
+    minx -= pad; maxx += pad; miny -= pad; maxy += pad;
+    const w = maxx - minx, h = maxy - miny;
+    const PX = Math.min(20, Math.max(6, 900 / Math.max(w, h)));
+    const cw = Math.max(8, Math.round(w * PX)), ch = Math.max(8, Math.round(h * PX));
+
+    const c = document.createElement('canvas');
+    c.width = cw; c.height = ch;
+    const g = c.getContext('2d');
+    const hex = '#' + ('000000' + colour.toString(16)).slice(-6);
+
+    const blob = function (radius, style, blur) {
+      g.save();
+      g.fillStyle = style;
+      if (blur) { g.shadowColor = style; g.shadowBlur = blur; }
+      points.forEach(function (p) {
+        g.beginPath();
+        g.arc((p.x - minx) * PX, (p.y - miny) * PX, radius * PX, 0, Math.PI * 2);
+        g.fill();
+      });
+      g.restore();
+    };
+    blob(r, hex);                                   /* the rim */
+    g.globalCompositeOperation = 'destination-out';
+    blob(Math.max(0.05, r - 0.16), 'rgba(0,0,0,1)'); /* hollow it */
+    g.globalCompositeOperation = 'source-over';
+    g.globalAlpha = 0.55;
+    blob(Math.max(0.05, r - 0.06), hex);            /* and fill it back, softer */
+    g.globalAlpha = 1;
+
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.anisotropy = 4;
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h),
+      new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: opacity,
+                                    depthWrite: false, side: THREE.DoubleSide }));
+    m.rotation.x = -Math.PI / 2;
+    m.position.set(minx + w / 2, (lift === undefined ? 0.06 : lift), miny + h / 2);
+    return m;
   }
 
   function ringMesh(c, radius, colour, y) {
@@ -764,10 +1006,15 @@ const Render3D = (function () {
       }
     }
     /* somewhere you can climb: lit up on top of the piece you would go up */
+    /* somewhere you can climb: a disc lit up on top of the piece you go up */
     (view.climbs || []).forEach(function (c) {
-      const m = areaMesh([{ x: c.x, y: c.y }], COL.goldLit, 0.4, 1.6, c.top + 0.06 - Board.heightAt(board, c));
-      m.material.blending = THREE.AdditiveBlending;
-      overlayGroup.add(m);
+      const disc = new THREE.Mesh(new THREE.CircleGeometry(0.85, 40),
+        new THREE.MeshBasicMaterial({ color: COL.goldLit, transparent: true, opacity: 0.3,
+                                      depthWrite: false, side: THREE.DoubleSide,
+                                      blending: THREE.AdditiveBlending }));
+      disc.rotation.x = -Math.PI / 2;
+      disc.position.set(c.x, c.top + 0.07, c.y);
+      overlayGroup.add(disc);
       overlayGroup.add(ringMesh(c, 0.9, COL.goldLit, c.top));
     });
     if (view.ring) {
@@ -841,7 +1088,29 @@ const Render3D = (function () {
         a.rotation.y = -Math.atan2(to.z - from.z, to.x - from.x) + Math.PI / 2;
         a.userData.body.rotation.x = -0.07;
       }
-      if (c.t >= T.AIM) { c.stage = 'fire'; c.t = 0; }
+      if (c.t >= T.AIM) {
+        /* one die, in the bowl, before the shot goes */
+        if (k.rolls && k.rolls.hitTarget) rollDie(k.rolls.hit, k.rolls.hitTarget, 'TO HIT');
+        c.stage = 'waitHit'; c.t = 0;
+      }
+      return;
+    }
+
+    if (c.stage === 'waitHit') {
+      if (!rollingNow() && c.t > 0.35) { c.stage = 'fire'; c.t = 0; }
+      return;
+    }
+
+    if (c.stage === 'waitWound') {
+      if (!rollingNow() && c.t > 0.3) {
+        if (k.wound) {
+          blood(c.impact, k.killed ? 1.7 : 1);
+          Sfx.wound(k.killed ? 1 : 0.85);
+          if (k.killed) window.setTimeout(() => Sfx.down(), 280);
+          shake = Math.max(shake, k.killed ? 0.5 : 0.32);
+        }
+        c.stage = 'dwell'; c.t = 0;
+      }
       return;
     }
 
@@ -875,7 +1144,13 @@ const Render3D = (function () {
       if (p >= 1) {
         if (c.bolt) { fxGroup.remove(c.bolt); c.bolt = null; }
         resolveVisually(c);
-        c.stage = 'dwell'; c.t = 0;
+        if (k.hit && k.rolls && k.rolls.woundTarget) {
+          /* it struck him — now find out whether it got through */
+          rollDie(k.rolls.wound, k.rolls.woundTarget, 'TO WOUND');
+          c.stage = 'waitWound'; c.t = 0;
+        } else {
+          c.stage = 'dwell'; c.t = 0;
+        }
       }
       return;
     }
@@ -902,19 +1177,19 @@ const Render3D = (function () {
     if (c.t >= T.OUT) c.done = true;
   }
 
+  /* What the round does when it arrives. Armour or rockcrete both ring and
+     throw sparks; blood waits on the wound roll and never appears without it. */
   function resolveVisually(c) {
     const k = c.k, at = c.impact;
-    if (k.wound) {
+    sparks(at, k.hit ? 1 : 0.85);
+    Sfx.clang(k.hit ? 1 : 0.85);
+    if (!k.hit) scorch(at);
+    shake = Math.max(shake, 0.17);
+    /* a strike with no dice behind it (an ability) resolves its blood here */
+    if (k.wound && !(k.rolls && k.rolls.woundTarget)) {
       blood(at, k.killed ? 1.7 : 1);
       Sfx.wound(k.killed ? 1 : 0.85);
-      if (k.killed) window.setTimeout(() => Sfx.down(), 280);
-      shake = Math.max(shake, k.killed ? 0.5 : 0.32);
-    } else {
-      /* armour, or rockcrete — either way it rings and throws sparks */
-      sparks(at, k.hit ? 1 : 0.85);
-      Sfx.clang(k.hit ? 1 : 0.85);
-      scorch(at);
-      shake = Math.max(shake, 0.16);
+      shake = Math.max(shake, 0.4);
     }
   }
 
@@ -1010,7 +1285,7 @@ const Render3D = (function () {
     fx.push({ kind: 'stain', node: m, t: 0, life: 30, peak: 0.55 });
   }
 
-  const busy = () => cine.length > 0 || !!playing;
+  const busy = () => cine.length > 0 || !!playing || rollingNow();
 
   /* ------------------------------------------------------------------ frame */
 
@@ -1022,6 +1297,7 @@ const Render3D = (function () {
     lastT = now;
 
     markerGroup.children.forEach(g => { if (g.userData.spin) g.userData.spin.rotation.y += dt * 0.4; });
+    if (tray) stepTray(dt);
 
     if (!playing && cine.length) playing = cine.shift();
     if (playing) {
@@ -1097,6 +1373,11 @@ const Render3D = (function () {
       seenStrike = k.at;
       queueStrike(k);
     });
+    (S.dice || []).forEach(function (d) {
+      if (d.at <= seenStrike) return;
+      seenStrike = d.at;
+      rollDie(d.value, d.target, d.label);
+    });
     S.units.forEach(function (u) {
       if (!u.climbed || seenClimb[u.id] === u.climbed.at) return;
       seenClimb[u.id] = u.climbed.at;
@@ -1167,7 +1448,7 @@ const Render3D = (function () {
 
   return {
     attach, resize, draw, pick, pickUnit, pickNearest, viewFrom, focusOn,
-    leanIn, leanOut, busy, COL,
+    leanIn, leanOut, busy, COL, rollDie, rollingNow,
     get camera() { return camera; },
     get scene() { return scene; }
   };

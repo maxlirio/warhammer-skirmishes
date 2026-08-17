@@ -128,6 +128,48 @@ body::before {
 .note { text-align: center; font-size: 11px; color: var(--dim); max-width: 560px; margin: 12px auto; line-height: 1.6; }
 .note a { color: var(--gold); }
 
+/* ------------------------------------------------------- the mission card */
+
+.missgrid {
+  display: grid; gap: 10px; max-width: 1100px; margin: 0 auto;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+}
+.misscard {
+  display: flex; flex-direction: column; gap: 5px; text-align: left; padding: 12px;
+  cursor: pointer; color: var(--bone);
+  background: linear-gradient(180deg, var(--panel2), var(--panel));
+  border: 1px solid var(--line);
+  clip-path: polygon(9px 0, 100% 0, 100% calc(100% - 9px), calc(100% - 9px) 100%, 0 100%, 0 9px);
+}
+.misscard:hover { border-color: var(--gold); }
+.misscard.on { border-color: var(--gold-lit); box-shadow: inset 0 0 0 1px rgba(232,198,92,.32); }
+.missname { font-family: var(--gothic); letter-spacing: .14em; font-size: 13px; }
+.missflav { font-size: 11px; color: var(--gold); font-style: italic; }
+.missobj { margin: 4px 0 0; padding-left: 15px; font-size: 11px; color: var(--dim); line-height: 1.5; }
+.missobj li { margin-bottom: 3px; }
+.missends {
+  margin-top: auto; font-family: var(--gothic); letter-spacing: .16em;
+  font-size: 9px; color: var(--gold-lit);
+}
+.missionline {
+  font-family: var(--gothic); letter-spacing: .2em; font-size: 10px;
+  color: var(--gold); margin-top: 2px;
+}
+
+.asub {
+  font-family: var(--gothic); letter-spacing: .18em; font-size: 9px;
+  color: var(--gold); margin: 10px 0 5px;
+}
+.abtns.one { grid-template-columns: 1fr; }
+.abtn.ability { border-color: rgba(184,145,47,.45); }
+.atext { font-size: 9.5px; color: var(--dim); line-height: 1.4; margin-top: 3px; }
+.apassive { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 7px; }
+.pchip {
+  font-size: 9px; letter-spacing: .06em; color: var(--dim);
+  border: 1px solid var(--line); padding: 3px 6px; background: rgba(0,0,0,.3);
+}
+.tag.res { color: #7fa7c9; }
+
 /* ------------------------------------------------------------ the battle */
 
 #battle { display: flex; flex-direction: column; }

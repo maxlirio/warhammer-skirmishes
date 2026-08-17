@@ -82,12 +82,32 @@ player's end of the table.
 | **SHOOT** | Shades everything the model can see, with the shadows terrain casts cut out of it, and measures the range to the target |
 | **OVERWATCH** | Place the token anywhere within 12"; its 3" trigger circle is drawn before you commit, and it fires mid-move, interrupting the walk |
 | **CHARGE** | Rolls the 1D6 on the table, finds the closest legal spot that puts a blade on the target, and declines gracefully if it cannot reach |
-| **Every attack** | The camera cuts to the shot, the weapon goes off, and a round crosses the table. Where it ends up **is** the roll — no dice are ever shown |
+| **The dice** | Thrown in a bowl beside the table, one at a time, never on the battlefield — looking at a roll never means going anywhere. TO HIT before the shot, TO WOUND only if it connected |
+| **Every attack** | The camera cuts to it, the weapon goes off, and a round crosses the table |
 | **A miss** | The round goes past him into the rockcrete: a metallic clang, sparks, and a scorch where it struck |
 | **A hit that does not wound** | It rings off his armour — the same clang and sparks, and he reels |
 | **A wound** | Blood, and a mark on the ground under him. Blood only ever means a wound |
 | **Scenery** | Real models — Kenney's Space Kit, CC0. The mass of a piece is the rules box exactly, so nothing on the table is cover the rules do not know about; the models are what make it worth looking at |
 | **Sound** | Synthesised in the browser rather than sampled: nothing to download and nothing to licence |
+
+### The Mission Cards
+
+All six are on the menu and all six are played out, because the game can see the
+table and does not have to ask. SABOTAGE and AMBUSH put markers you can shoot in
+the deployment zones; KING OF THE HILL works out which piece of terrain is the
+high ground and watches who is standing on it; SECURE THE AREA adds the SECURE
+action and remembers who holds what; THE RELIC adds picking it up, slows the
+carrier by 2", bars them from OVERWATCH and CHARGE, drops it when they are hurt
+and scores the 3 VP when they walk it home; ASSASSINATION scores the centre.
+The card decides the VP target and how the game ends.
+
+### Special abilities, and units held back
+
+A unit's own card is in its action list by name — cost, text and all. Anything
+costing RP is offered when it is attacked, alongside DODGE and the rest. A unit
+with `reserve` starts off the battlefield entirely: Brother Drusius is not on
+the table until Deep Strike puts him there, and the game shades every spot he
+may legally arrive in.
 
 ### Reactions move where you say
 

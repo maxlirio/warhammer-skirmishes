@@ -23,7 +23,8 @@ const GameUI = (function () {
   let selected = null;
   let hover = null;         // {x, y} on the table
   let hoverPx = { x: 0, y: 0 };
-  let cfg = { mapId: null, factions: ['astra', 'orks'], names: ['Player One', 'Player Two'] };
+  let cfg = { mapId: null, missionId: null,
+              factions: ['astra', 'orks'], names: ['Player One', 'Player Two'] };
   let started = false;
 
   /* --------------------------------------------------------------- the menu */
@@ -64,6 +65,23 @@ const GameUI = (function () {
                        (u.oc ? '  OC' + u.oc : ''))));
     });
 
+    const miss = $('missionPick');
+    miss.innerHTML = '';
+    [{ id: null, name: 'NO CARD', flavour: '“Just fight.”',
+       objective: ['Hold objectives at the end of your turn, first to 10 VP.'] }]
+      .concat(RULES.missions).forEach(function (m) {
+        const card = el('button', 'misscard');
+        card.appendChild(el('span', 'missname', m.name));
+        card.appendChild(el('span', 'missflav', m.flavour || ''));
+        const ul = el('ul', 'missobj');
+        (m.objective || []).forEach(t => ul.appendChild(el('li', null, t)));
+        card.appendChild(ul);
+        if (m.endsShort) card.appendChild(el('span', 'missends', m.endsShort));
+        if (cfg.missionId === m.id) card.classList.add('on');
+        card.onclick = () => { cfg.missionId = m.id; showMenu(); };
+        miss.appendChild(card);
+      });
+
     drawNet();
     $('startBtn').disabled = !cfg.mapId || netMode !== 'local';
     $('startBtn').textContent = !cfg.mapId ? 'CHOOSE A BATTLEFIELD'
@@ -94,7 +112,24 @@ const GameUI = (function () {
         go.disabled = !cfg.mapId;
         go.onclick = function () {
           Net.host(cfg, function (dealt, seat) { cfg = dealt; startNet(seat); });
-          drawNet();
+          const miss = $('missionPick');
+    miss.innerHTML = '';
+    [{ id: null, name: 'NO CARD', flavour: '“Just fight.”',
+       objective: ['Hold objectives at the end of your turn, first to 10 VP.'] }]
+      .concat(RULES.missions).forEach(function (m) {
+        const card = el('button', 'misscard');
+        card.appendChild(el('span', 'missname', m.name));
+        card.appendChild(el('span', 'missflav', m.flavour || ''));
+        const ul = el('ul', 'missobj');
+        (m.objective || []).forEach(t => ul.appendChild(el('li', null, t)));
+        card.appendChild(ul);
+        if (m.endsShort) card.appendChild(el('span', 'missends', m.endsShort));
+        if (cfg.missionId === m.id) card.classList.add('on');
+        card.onclick = () => { cfg.missionId = m.id; showMenu(); };
+        miss.appendChild(card);
+      });
+
+    drawNet();
         };
         panel.appendChild(go);
       } else if (/error/.test(st)) {
@@ -124,7 +159,24 @@ const GameUI = (function () {
       go.onclick = function () {
         if (inp.value.length < 4) return;
         Net.join(inp.value, function (dealt, seat) { cfg = dealt; startNet(seat); });
-        drawNet();
+        const miss = $('missionPick');
+    miss.innerHTML = '';
+    [{ id: null, name: 'NO CARD', flavour: '“Just fight.”',
+       objective: ['Hold objectives at the end of your turn, first to 10 VP.'] }]
+      .concat(RULES.missions).forEach(function (m) {
+        const card = el('button', 'misscard');
+        card.appendChild(el('span', 'missname', m.name));
+        card.appendChild(el('span', 'missflav', m.flavour || ''));
+        const ul = el('ul', 'missobj');
+        (m.objective || []).forEach(t => ul.appendChild(el('li', null, t)));
+        card.appendChild(ul);
+        if (m.endsShort) card.appendChild(el('span', 'missends', m.endsShort));
+        if (cfg.missionId === m.id) card.classList.add('on');
+        card.onclick = () => { cfg.missionId = m.id; showMenu(); };
+        miss.appendChild(card);
+      });
+
+    drawNet();
       };
       row.appendChild(inp); row.appendChild(go);
       panel.appendChild(row);
@@ -202,6 +254,24 @@ const GameUI = (function () {
     const v = {};
     const pend = S.pending;
 
+    /* An ability waiting to be pointed at somewhere or somebody. */
+    if (pend && pend.kind === 'ability') {
+      const u = Battle.unit(pend.unitId);
+      v.focus = u;
+      if (pend.need === 'spot') {
+        if (!pend.spots) pend.spots = Battle.arrivalSpots(pend.unitId);
+        v.area = pend.spots;
+        v.areaColour = Render3D.COL.goldLit;
+        v.areaOpacity = 0.34;
+        v.areaCell = 0.7;
+      } else {
+        v.marks = Battle.alive()
+          .filter(x => pend.need === 'friend' ? x.owner === u.owner : x.owner !== u.owner)
+          .map(x => ({ x: x.x, y: x.y, r: x.radius + 0.5, colour: Render3D.COL.watch }));
+      }
+      return v;
+    }
+
     /* A reaction that moves you: the table is waiting for a destination. */
     if (pend && pend.kind === 'move') {
       v.area = pend.spots;
@@ -230,7 +300,7 @@ const GameUI = (function () {
     if (mode.kind === 'move') {
       v.area = mode.spots;
       v.areaColour = Render3D.COL.move;
-      v.areaOpacity = 0.3;
+      v.areaOpacity = 0.62;
       v.areaCell = 0.4;
       v.climbs = mode.climbs;
       if (hover) {
@@ -247,7 +317,7 @@ const GameUI = (function () {
     } else if (mode.kind === 'shoot') {
       v.area = mode.sight;
       v.areaColour = Render3D.COL.sight;
-      v.areaOpacity = 0.22;
+      v.areaOpacity = 0.5;
       v.areaCell = 0.5;
       v.marks = mode.targets.map(id => mark(Battle.unit(id)));
       const t = hoveredTarget(S);
@@ -260,7 +330,7 @@ const GameUI = (function () {
     } else if (mode.kind === 'overwatch') {
       v.area = mode.spots;
       v.areaColour = Render3D.COL.watch;
-      v.areaOpacity = 0.2;
+      v.areaOpacity = 0.45;
       v.areaCell = 0.6;
       if (hover && Battle.rangeTo(u, hover) <= 12) {
         v.ring = { x: hover.x, y: hover.y, r: 3 };
@@ -319,6 +389,7 @@ const GameUI = (function () {
     document.body.dataset.control = ctrl;
 
     $('turnline').textContent = 'TURN ' + S.turn.number + ' · ' + S.players[S.turn.player].name;
+    $('missionline').textContent = S.mission ? S.mission.name : 'NO CARD';
     $('chainline').textContent = S.chain.active ? 'ACTION CHAIN RUNNING' : 'no chain';
     $('chainline').className = 'chainline' + (S.chain.active ? ' on' : '');
 
@@ -337,9 +408,13 @@ const GameUI = (function () {
         const pips = el('span', 'pips');
         for (let i = 0; i < u.maxWounds; i++) pips.appendChild(el('i', i < u.wounds ? 'pip on' : 'pip'));
         row.appendChild(pips);
+        if (u.reserve) row.appendChild(el('span', 'tag res', 'RESERVE'));
+        if (u.marker) row.appendChild(el('span', 'tag', 'MARKER'));
+        if (u.carryingRelic) row.appendChild(el('span', 'tag kills', 'RELIC'));
         if (u.overwatch) row.appendChild(el('span', 'tag', 'OW'));
         if (u.kills) row.appendChild(el('span', 'tag kills', '☠' + u.kills));
-        row.onclick = () => { if (u.alive) { select(u.id); Render3D.leanIn(u, 26); } };
+        row.onclick = () => { if (u.alive && !u.reserve) { select(u.id); Render3D.leanIn(u, 26); }
+                              else if (u.alive) select(u.id); };
         list.appendChild(row);
       });
     });
@@ -388,8 +463,9 @@ const GameUI = (function () {
       bar.appendChild(el('div', 'prompt', 'not yours to move right now'));
     } else {
       bar.appendChild(unitCard(u, S));
+      const acts = Battle.actionsFor(u.id);
       const row = el('div', 'abtns');
-      Battle.actionsFor(u.id).forEach(function (a) {
+      acts.filter(a => a.ability === undefined).forEach(function (a) {
         const def = RULES.actionById(a.id);
         const b = el('button', 'abtn' + (a.ok ? '' : ' off') +
                                (mode && mode.kind === a.id && mode.unitId === u.id ? ' on' : ''));
@@ -402,6 +478,33 @@ const GameUI = (function () {
         row.appendChild(b);
       });
       bar.appendChild(row);
+
+      /* the unit's own card */
+      const abils = acts.filter(a => a.ability !== undefined);
+      if (abils.length) {
+        bar.appendChild(el('div', 'asub', 'SPECIAL ABILITIES'));
+        const arow = el('div', 'abtns one');
+        abils.forEach(function (a) {
+          const b = el('button', 'abtn ability' + (a.ok ? '' : ' off'));
+          b.appendChild(el('span', 'an', a.name));
+          b.appendChild(el('span', 'ac', a.cost + ' AP'));
+          if (a.text) b.appendChild(el('span', 'atext', a.text));
+          if (a.why) b.appendChild(el('span', 'awhy', a.why));
+          b.disabled = !a.ok;
+          b.onclick = () => act(() => Battle.useAbility(u.id, a.ability),
+                               { t: 'ability', id: u.id, i: a.ability });
+          arow.appendChild(b);
+        });
+        bar.appendChild(arow);
+      }
+      /* and what it can do without spending anything */
+      const passives = (u.abilities || []).filter(x => x.trigger === 'passive' || x.trigger === 'rp');
+      if (passives.length) {
+        const p = el('div', 'apassive');
+        passives.forEach(x => p.appendChild(el('div', 'pchip',
+          (x.trigger === 'rp' ? '↩ ' : '● ') + x.name)));
+        bar.appendChild(p);
+      }
     }
 
     const foot = el('div', 'afoot');
@@ -464,6 +567,8 @@ const GameUI = (function () {
 
   function enter(kind, unitId) {
     const S = Battle.get();
+    if (kind === 'secure') { act(() => Battle.doSecure(unitId), { t: 'secure', id: unitId }); return; }
+    if (kind === 'relic') { act(() => Battle.doRelic(unitId), { t: 'relic', id: unitId }); return; }
     if (mode && mode.kind === kind && mode.unitId === unitId) { mode = null; render(S); return; }
     const u = Battle.unit(unitId);
 
@@ -523,6 +628,12 @@ const GameUI = (function () {
     $('againBtn').onclick = () => location.reload();
     $('viewP0').onclick = () => Render3D.viewFrom(0);
     $('viewP1').onclick = () => Render3D.viewFrom(1);
+    $('sfxBtn').onclick = function () {
+      const on = !Sfx.enabled();
+      Sfx.enabled(on);
+      $('sfxBtn').textContent = 'SOUND: ' + (on ? 'ON' : 'OFF');
+      if (on) Sfx.ui();
+    };
     $('netLocal').onclick = () => { Net.hangUp(); netMode = 'local'; showMenu(); };
     $('netHost').onclick  = () => { Net.hangUp(); netMode = 'host';  showMenu(); };
     $('netJoin').onclick  = () => { Net.hangUp(); netMode = 'join';  showMenu(); };
@@ -542,6 +653,18 @@ const GameUI = (function () {
     const p = Render3D.pick(cx, cy);
     if (!p) return;
     const at = { x: p.x, y: p.y };
+
+    if (S.pending && S.pending.kind === 'ability') {
+      const pend = S.pending;
+      if (pend.need === 'spot') {
+        const spot = Render3D.pickNearest(cx, cy, pend.spots || [], 40) || at;
+        act(() => Battle.confirmAbility(spot), { t: 'abil2', at: spot });
+      } else {
+        const hit2 = Render3D.pickUnit(cx, cy, S);
+        if (hit2) act(() => Battle.confirmAbility(hit2.id), { t: 'abil2', id: hit2.id });
+      }
+      return;
+    }
 
     /* Placing a model after a reaction that moves it. */
     if (S.pending && S.pending.kind === 'move') {
@@ -746,6 +869,10 @@ const GameUI = (function () {
     if (msg.t === 'react')  Battle.chooseReaction(msg.r);
     if (msg.t === 'watch')  Battle.toggleWatcher(msg.id);
     if (msg.t === 'fire')   Battle.fireOverwatch();
+    if (msg.t === 'secure') Battle.doSecure(msg.id);
+    if (msg.t === 'relic')  Battle.doRelic(msg.id);
+    if (msg.t === 'ability') Battle.useAbility(msg.id, msg.i);
+    if (msg.t === 'abil2')  Battle.confirmAbility(msg.id !== undefined ? msg.id : msg.at);
     if (msg.t === 'pass')   Battle.doPass(false);
     if (msg.t === 'endturn') Battle.endTurn();
   }

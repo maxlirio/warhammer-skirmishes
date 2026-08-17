@@ -37,7 +37,7 @@ const Battle = (function () {
   }
   const d6 = () => 1 + Math.floor(rng() * 6);
   const unit = id => S.units.find(u => u.id === id) || null;
-  const alive = () => S.units.filter(u => u.alive);
+  const alive = () => S.units.filter(u => u.alive && !u.reserve);
   const mine = p => alive().filter(u => u.owner === p);
   const other = p => 1 - p;
   const others = exceptId => alive().filter(u => u.id !== exceptId);
@@ -48,9 +48,13 @@ const Battle = (function () {
     if (S.log.length > 300) S.log.shift();
   }
 
-  /* The dice stay behind the curtain. What the table shows is the shot: the
-     round leaves the barrel, and where it ends up is the roll. */
   const roll = () => d6();
+
+  /* A roll the bowl should show on its own, rather than as part of a shot. */
+  function announce(value, target, label) {
+    S.dice.push({ value: value, target: target || null, label: label, at: S.seq++ });
+    if (S.dice.length > 8) S.dice.shift();
+  }
 
   /* ------------------------------------------------------------- setting up */
 
@@ -68,34 +72,131 @@ const Battle = (function () {
       chain: { active: false, initiator: null, passes: 0 },
       control: { player: 0, forcedUnitId: null },
       pending: null,
-      log: [], strikes: [], seq: 0,
+      log: [], strikes: [], dice: [], seq: 0,
       winner: null,
+      mission: null, flags: {}, control: { player: 0, forcedUnitId: null },
+      secured: {}, relic: null, highGround: null,
       vpTarget: cfg.vpTarget || 10
     };
+    S.control = { player: 0, forcedUnitId: null };
+
+    /* The card being played, and everything it puts on the table. */
+    const mission = cfg.missionId ? RULES.missionById(cfg.missionId) : null;
+    S.mission = mission;
+    if (mission) {
+      S.vpTarget = mission.vpTarget;
+      S.roles = mission.roles ? { defender: 0, attacker: 1 } : null;
+    }
 
     [0, 1].forEach(function (p) {
       const faction = PRESETS.find(f => f.id === cfg.factions[p]);
-      const spots = deploySpots(board, p, faction.units.length);
+      const onTable = faction.units.filter(u => !u.reserve);
+      const spots = deploySpots(board, p, onTable.length);
+      let k = 0;
       faction.units.forEach(function (spec, i) {
-        const at = spots[i] || spots[spots.length - 1];
+        /* A unit held in reserve is alive but nowhere — it arrives by its own
+           ability rather than being deployed. */
+        const at = spec.reserve ? { x: -50, y: -50 } : (spots[k++] || spots[spots.length - 1]);
+        const mod = (S.mission && S.mission.rosterMod) || null;
+        let w = spec.maxWounds;
+        if (mod && mod.woundsDelta) w = Math.max(mod.woundsMin || 1, w + mod.woundsDelta);
         S.units.push({
           id: 'u' + p + '_' + i, owner: p, name: spec.name,
           x: at.x, y: at.y, facing: p === 0 ? 0 : Math.PI, radius: BASE,
-          move: spec.move, maxWounds: spec.maxWounds, wounds: spec.maxWounds,
+          move: spec.move, maxWounds: w, wounds: w,
           toughness: spec.toughness, oc: spec.oc || 0,
           killVP: spec.killVP || 1,
-          weapons: spec.weapons.map(w => Object.assign({}, w)),
-          abilities: (spec.abilities || []).map(a => Object.assign({}, a)),
+          weapons: spec.weapons.map(x => Object.assign({}, x)),
+          abilities: (spec.abilities || []).map(a => Object.assign({}, a,
+            { effects: (a.effects || []).map(e => Object.assign({}, e)) })),
           notes: spec.notes || '',
-          alive: true, kills: 0, overwatch: null, effects: []
+          reserve: !!spec.reserve,
+          alive: true, kills: 0, overwatch: null, effects: [], marks: []
         });
       });
+      if (S.mission && S.mission.rosterMod) {
+        log(S.mission.name + ': every unit has ' + S.mission.rosterMod.woundsDelta +
+            ' Wound.', 'note');
+      }
     });
+
+    placeMissionPieces(board);
 
     log('— ' + map.name + ' —', 'big');
     beginTurn(0, true);
     emit();
   }
+
+  /* Whatever the card puts on the table besides the two forces: markers you
+     can shoot, a relic you can carry, a piece of high ground to hold. */
+  function placeMissionPieces(board) {
+    const m = S.mission;
+    if (!m) return;
+
+    const marker = function (owner, spec, at) {
+      S.units.push({
+        id: 'm' + owner + '_' + S.units.length, owner: owner, name: spec.label,
+        x: at.x, y: at.y, facing: 0, radius: BASE,
+        move: 0, maxWounds: spec.wounds, wounds: spec.wounds,
+        toughness: spec.toughness, oc: 0,
+        killVP: spec.killVP || 1, killVPFor: spec.killVPFor || null,
+        endsGame: !!spec.endsGame,
+        weapons: [], abilities: [], notes: '',
+        marker: true, noRP: true,
+        alive: true, kills: 0, overwatch: null, effects: [], marks: []
+      });
+      log(spec.label + ' is placed in ' + S.players[owner].name + '’s deployment area.', 'note');
+    };
+
+    (m.markersPerPlayer || []).forEach(function (spec) {
+      [0, 1].forEach(function (p) {
+        const z = board.deploy[p];
+        marker(p, spec, Board.nudgeToLegal(board,
+          { x: z.x + z.w * (p === 0 ? 0.3 : 0.7), y: z.y + z.h * 0.5 }, BASE,
+          S.units.map(u => ({ x: u.x, y: u.y, radius: BASE + 0.5 }))));
+      });
+    });
+
+    if (m.markersForRole) {
+      const p = m.markersForRole.role === 'defender' ? 0 : 1;
+      m.markersForRole.markers.forEach(function (spec) {
+        const z = board.deploy[p];
+        marker(p, spec, Board.nudgeToLegal(board,
+          { x: z.x + z.w * 0.5, y: z.y + z.h * 0.35 }, BASE,
+          S.units.map(u => ({ x: u.x, y: u.y, radius: BASE + 0.5 }))));
+      });
+      log(S.players[0].name + ' is the DEFENDER; ' + S.players[1].name + ' is the ATTACKER.', 'note');
+    }
+
+    if (m.relic) {
+      S.relic = { x: board.w / 2, y: board.h / 2, carrier: null, home: { x: board.w / 2, y: board.h / 2 } };
+      log('The RELIC is placed in the centre of the battlefield.', 'note');
+    }
+
+    /* KING OF THE HILL: the card says the tallest terrain near the middle. The
+       game can see the table, so it works it out rather than asking. */
+    if (m.id === 'hill') {
+      let best = null;
+      board.terrain.forEach(function (t) {
+        const cx = t.x + t.w / 2, cy = t.y + t.h / 2;
+        const fromMid = Math.hypot(cx - board.w / 2, cy - board.h / 2);
+        const score = t.top * 3 - fromMid;
+        if (!best || score > best.score) best = { t: t, score: score, cx: cx, cy: cy };
+      });
+      if (best) {
+        S.highGround = best.t;
+        log('The HIGH GROUND is the ' + (best.t.kind || 'terrain') + ' at the centre, ' +
+            best.t.top.toFixed(1) + '" up.', 'note');
+      }
+    }
+
+    if (m.controlPoints) {
+      board.objectives.forEach(o => { S.secured[o.id] = null; });
+    }
+  }
+
+  const onTable = u => u.alive && !u.reserve;
+  const isMarker = u => !!u.marker;
 
   /* Spread a squad down its deployment zone, a couple of inches apart. */
   function deploySpots(board, player, count) {
@@ -128,47 +229,94 @@ const Battle = (function () {
     if (S.winner !== null || S.pending) return;
     const p = S.turn.player;
     if (S.chain.active) closeChain('the turn ended');
-    scoreObjectives(p);
+    scoreEndOfTurn(p);
     checkVictory();
     if (S.winner === null) beginTurn(other(p));
     emit();
   }
 
-  /* Only the player whose turn is ending scores, and only for the markers
-     their side has the most OC within 3" of. */
-  function scoreObjectives(player) {
-    let scored = 0;
-    S.board.objectives.forEach(function (o) {
-      const oc = [0, 0];
-      alive().forEach(function (u) {
-        if (rangeTo(u, o) <= 3) oc[u.owner] += (u.oc || 0);
-      });
-      if (oc[player] > 0 && oc[player] > oc[other(player)]) scored += 1;
+  /* Who has the most OC within 3" of a spot. */
+  function holderOf(o) {
+    const oc = [0, 0];
+    alive().forEach(function (u) {
+      if (!isMarker(u) && rangeTo(u, o) <= 3) oc[u.owner] += (u.oc || 0);
     });
-    if (scored > 0) {
-      S.players[player].vp += scored;
-      log(S.players[player].name + ' holds ' + scored + ' objective' +
-          (scored === 1 ? '' : 's') + ' — ' + scored + ' VP (now ' +
-          S.players[player].vp + ').', 'vp');
+    if (oc[0] === oc[1]) return null;
+    return oc[0] > oc[1] ? 0 : 1;
+  }
+
+  const inZone = (p, z) => p.x >= z.x && p.x <= z.x + z.w && p.y >= z.y && p.y <= z.y + z.h;
+
+  /* Only the player whose turn is ending scores, and what they score is
+     whatever the card says. The game can see the table, so none of this has to
+     be asked — it is read off the board. */
+  function scoreEndOfTurn(player) {
+    const m = S.mission;
+    const me = S.players[player];
+    let scored = 0;
+    const say = (n, why) => { scored += n; log(me.name + ' scores ' + n + ' VP — ' + why + '.', 'vp'); };
+
+    if (m && m.id === 'hill') {
+      const up = mine(player).filter(u => !isMarker(u) && S.highGround &&
+                                          Board.inBox(S.highGround, u));
+      if (up.length) say(1, up[0].name + ' holds the HIGH GROUND');
+
+    } else if (m && m.id === 'secure') {
+      const held = S.board.objectives.filter(o => S.secured[o.id] === player).length;
+      if (held) say(held, 'holding ' + held + ' SECURED objective' + (held === 1 ? '' : 's'));
+
+    } else if (m && m.id === 'relic') {
+      const carrier = S.relic && S.relic.carrier ? unit(S.relic.carrier) : null;
+      if (carrier && carrier.owner === player && carrier.alive) {
+        say(1, carrier.name + ' is carrying the RELIC');
+        if (inZone(carrier, S.board.deploy[player])) {
+          say(3, carrier.name + ' brought the RELIC home');
+          S.relic.carrier = null;
+          S.relic.x = S.relic.home.x; S.relic.y = S.relic.home.y;
+          carrier.carryingRelic = false;
+          log('The RELIC is returned to the centre of the battlefield.', 'note');
+        }
+      }
+
     } else {
-      log(S.players[player].name + ' holds no objectives this turn.', 'muted');
+      /* assassination scores the centre marker; a card-less game scores them all */
+      const mid = { x: S.board.w / 2, y: S.board.h / 2 };
+      const list = (m && m.id === 'assassination')
+        ? [S.board.objectives.reduce((a, o) =>
+            Board.dist(o, mid) < Board.dist(a, mid) ? o : a, S.board.objectives[0])]
+        : S.board.objectives;
+      const held = list.filter(o => holderOf(o) === player).length;
+      if (held) say(held, 'holding ' + held + ' objective' + (held === 1 ? '' : 's'));
     }
+
+    if (!scored) log(me.name + ' scores nothing this turn.', 'muted');
+    me.vp += scored;
   }
 
   function checkVictory() {
     if (S.winner !== null) return;
-    S.players.forEach(function (p) {
-      if (p.vp >= S.vpTarget) {
-        S.winner = p.id;
-        log('★ ' + p.name + ' reaches ' + p.vp + ' VP and takes the field.', 'win');
-      }
-    });
+    if (S.vpTarget) {
+      S.players.forEach(function (p) {
+        if (p.vp >= S.vpTarget) {
+          S.winner = p.id;
+          log('★ ' + p.name + ' reaches ' + p.vp + ' VP and takes the field.', 'win');
+        }
+      });
+    }
+    /* A force is wiped out when nothing of theirs that can fight is left — a
+       marker sitting in a deployment zone is not a fighting unit. */
     [0, 1].forEach(function (p) {
-      if (S.winner === null && mine(p).length === 0) {
+      if (S.winner === null &&
+          S.units.filter(u => u.owner === p && u.alive && !isMarker(u)).length === 0) {
         S.winner = other(p);
         log('★ Nothing of ' + S.players[p].name + '’s is left standing.', 'win');
       }
     });
+    /* Some cards end the moment a thing is destroyed, whatever the score. */
+    if (S.winner === null && S.endNow) {
+      S.winner = S.players[0].vp >= S.players[1].vp ? 0 : 1;
+      log('★ ' + S.endNow + ' — ' + S.players[S.winner].name + ' takes the field.', 'win');
+    }
   }
 
   /* ------------------------------------------------------------- the chain */
@@ -215,12 +363,70 @@ const Battle = (function () {
     const out = [];
     const add = (id, cost, why) => out.push({ id: id, cost: cost, ok: ap >= cost && !why, why: why });
 
+    if (u.marker) return [];             /* a crate does not take actions */
+
+    const carrying = !!u.carryingRelic;
     add('move', 1, null);
     add('shoot', 1, rangedTargets(unitId).length ? null : 'nothing in sight');
-    add('charge', 2, chargeTargets(unitId).length ? null : 'nothing to charge');
+    add('charge', 2, carrying ? 'carrying the RELIC'
+                    : chargeTargets(unitId).length ? null : 'nothing to charge');
     add('fight', 1, meleeTargets(unitId).length ? null : 'nothing in reach');
-    add('overwatch', 1, u.weapons.some(w => w.type === 'ranged') ? null : 'no ranged weapon');
+    add('overwatch', 1, carrying ? 'carrying the RELIC'
+                       : u.weapons.some(w => w.type === 'ranged') ? null : 'no ranged weapon');
+
+    /* SECURE THE AREA and THE RELIC each add an action of their own. */
+    const m = S.mission;
+    if (m && (m.extraActions || []).indexOf('secure') >= 0) {
+      const o = nearestObjective(u);
+      const why = !o ? 'no objective within 3"'
+                : holderOf(o) !== u.owner ? 'you do not have the most OC there'
+                : S.secured[o.id] === u.owner ? 'already yours'
+                : null;
+      add('secure', 1, why);
+    }
+    if (m && (m.extraActions || []).indexOf('relic') >= 0 && S.relic) {
+      const why = S.relic.carrier ? (S.relic.carrier === u.id ? 'you have it' : 'somebody has it')
+                : rangeTo(u, S.relic) > 3 ? 'the RELIC is not within 3"'
+                : null;
+      add('relic', 1, why);
+    }
+
+    /* Everything the unit's own card lets it do for AP. */
+    abilityActions(u).forEach(function (a) {
+      out.push({ id: 'ability:' + a.index, cost: a.cost, ok: ap >= a.cost && !a.why,
+                 why: a.why, name: a.name, ability: a.index, text: a.text });
+    });
     return out;
+  }
+
+  const nearestObjective = u => S.board.objectives
+    .filter(o => rangeTo(u, o) <= 3)
+    .sort((a, b) => rangeTo(u, a) - rangeTo(u, b))[0] || null;
+
+  function doSecure(unitId) {
+    const u = unit(unitId), p = S.control.player;
+    if (!u || u.owner !== p || S.players[p].ap < 1) return;
+    const o = nearestObjective(u);
+    if (!o || holderOf(o) !== p) return;
+    openChain(p);
+    spend(p, 1);
+    S.secured[o.id] = p;
+    log(S.players[p].name + ': ' + u.name + ' SECURES the objective — it stays theirs until ' +
+        'somebody takes it off them.', 'action');
+    afterAction(p, {});
+  }
+
+  function doRelic(unitId) {
+    const u = unit(unitId), p = S.control.player;
+    if (!u || u.owner !== p || S.players[p].ap < 1 || !S.relic || S.relic.carrier) return;
+    if (rangeTo(u, S.relic) > 3) return;
+    openChain(p);
+    spend(p, 1);
+    S.relic.carrier = u.id;
+    u.carryingRelic = true;
+    log(S.players[p].name + ': ' + u.name + ' takes up the RELIC. −2" Move, and no ' +
+        'OVERWATCH or CHARGE while carrying it.', 'action');
+    afterAction(p, {});
   }
 
   const weaponsOf = (u, type) => u.weapons.filter(w => w.type === type && w.hit != null);
@@ -277,10 +483,196 @@ const Battle = (function () {
       (blockers || others(u.id)).map(o => ({ x: o.x, y: o.y, radius: o.radius })),
       levelOf(u));
 
+  const moveOf = u => Math.max(1, u.move + (u.carryingRelic ? -2 : 0) + effectMod(u, 'move'));
+
   function moveField(unitId) {
     const u = unit(unitId);
     const field = fieldFor(u);
-    return { field: field, inches: u.move, climbs: Board.climbSpots(field, u.move) };
+    const inches = moveOf(u);
+    return { field: field, inches: inches, climbs: Board.climbSpots(field, inches) };
+  }
+
+  /* ============================================================= ABILITIES
+     A unit's own card. Anything that costs AP is offered in its action list by
+     name; anything that costs RP is offered when it is attacked. */
+
+  function abilityActions(u) {
+    const out = [];
+    (u.abilities || []).forEach(function (a, i) {
+      if (a.trigger !== 'ap') return;
+      const cost = a.cost === undefined ? 1 : a.cost;
+      let why = null;
+      if (a.usesPerTurn && a.usedTurn === S.turn.number) why = 'already used this turn';
+      if (a.effects && a.effects.some(e => e.kind === 'place' && e.fromReserve) && !u.reserve) {
+        why = u.name + ' is already on the battlefield';
+      }
+      if (u.reserve && !(a.effects || []).some(e => e.kind === 'place')) {
+        why = 'in reserve';
+      }
+      out.push({ index: i, name: a.name, cost: cost, why: why, text: a.text || '' });
+    });
+    return out;
+  }
+
+  const abilityOf = (u, i) => (u.abilities || [])[i] || null;
+
+  /* Does this ability need somewhere or something pointed at before it runs? */
+  function abilityNeeds(u, a) {
+    const e = (a.effects || []);
+    if (e.some(x => x.kind === 'place')) return 'spot';
+    if (e.some(x => x.kind === 'damage' || x.kind === 'mark' || x.kind === 'heal' ||
+                    x.kind === 'attack')) {
+      return e.some(x => x.side === 'friendly') ? 'friend' : 'enemy';
+    }
+    return null;
+  }
+
+  function useAbility(unitId, index, arg) {
+    const u = unit(unitId), p = S.control.player;
+    const a = abilityOf(u, index);
+    if (!u || !a || u.owner !== p) return;
+    const cost = a.cost === undefined ? 1 : a.cost;
+    if (S.players[p].ap < cost) return;
+
+    const need = abilityNeeds(u, a);
+    if (need && arg === undefined) {
+      S.pending = { kind: 'ability', unitId: unitId, index: index, need: need,
+                    name: a.name, text: a.text || '' };
+      emit();
+      return;
+    }
+
+    openChain(p);
+    spend(p, cost);
+    if (a.usesPerTurn) a.usedTurn = S.turn.number;
+    log(S.players[p].name + ': ' + u.name + ' → ' + a.name + '.', 'action');
+    if (a.text) log(a.text, 'note');
+    runEffects(u, a, arg, p);
+  }
+
+  function runEffects(u, a, arg, p) {
+    let endsChain = a.opponentReacts === false;
+    let attacked = false;
+
+    (a.effects || []).forEach(function (e) {
+      const target = (typeof arg === 'string') ? unit(arg) : null;
+      switch (e.kind) {
+        case 'ap_self':
+          S.players[p].ap += Number(e.value) || 1;
+          log(S.players[p].name + ' gains ' + (e.value || 1) + ' AP.', 'ap');
+          break;
+        case 'ap_opponent':
+          S.players[other(p)].ap += Number(e.value) || 1;
+          log(S.players[other(p)].name + ' gains ' + (e.value || 1) + ' AP.', 'ap');
+          break;
+        case 'vp_self':
+          S.players[p].vp += Number(e.value) || 1;
+          log(S.players[p].name + ' scores ' + (e.value || 1) + ' VP.', 'vp');
+          break;
+        case 'heal': {
+          const who = target || u;
+          who.wounds = Math.min(who.maxWounds, who.wounds + (Number(e.value) || 1));
+          log(who.name + ' recovers to ' + who.wounds + '/' + who.maxWounds + ' W.', 'damage');
+          break;
+        }
+        case 'damage': {
+          if (!target) break;
+          target.wounds = Math.max(0, target.wounds - (Number(e.value) || 1));
+          log(target.name + ' takes ' + (e.value || 1) + ' — ' + target.wounds + '/' +
+              target.maxWounds + ' W.', 'damage');
+          S.strikes.push({ at: S.seq++, attacker: u.id, target: target.id, melee: false,
+                           weapon: a.name,
+                           from: { x: u.x, y: u.y, z: Board.heightAt(S.board, u) },
+                           to: { x: target.x, y: target.y, z: Board.heightAt(S.board, target) },
+                           hit: true, wound: true, damage: Number(e.value) || 1,
+                           killed: target.wounds <= 0, rolls: null });
+          if (target.wounds <= 0) {
+            target.alive = false;
+            u.kills += 1;
+            const worth = killValue(target, u);
+            S.players[p].vp += worth.vp;
+            log(target.name + ' is DESTROYED.', 'kill');
+            if (target.endsGame) S.endNow = target.name + ' is destroyed';
+            dropRelicFrom(target, true);
+          }
+          break;
+        }
+        case 'mark':
+          if (target) {
+            target.marks.push(e.label || 'MARKED');
+            log(target.name + ' is ' + (e.label || 'MARKED') + '.', 'note');
+          }
+          break;
+        case 'unmark':
+          alive().filter(x => x.owner !== p).forEach(x => { x.marks = []; });
+          break;
+        case 'mod_hit':
+        case 'mod_wound':
+        case 'mod_strength':
+        case 'mod_move': {
+          const key = { mod_hit: 'hit', mod_wound: 'wound', mod_strength: 'strength',
+                        mod_move: 'move' }[e.kind];
+          const who = target || u;
+          const row = { label: a.name, until: e.until || 'chain' };
+          row[key] = Number(e.value) || 1;
+          who.effects.push(row);
+          log(who.name + ': ' + a.name + ' (' + (e.value > 0 ? '+' : '') + e.value + ' ' +
+              key + ').', 'note');
+          break;
+        }
+        case 'place': {
+          const spot = arg && arg.x !== undefined ? arg : null;
+          if (!spot) break;
+          if (u.reserve) { u.reserve = false; log(u.name + ' arrives on the battlefield.', 'note'); }
+          u.x = spot.x; u.y = spot.y;
+          if (e.noMoveTurn) u.noMoveTurn = S.turn.number;
+          break;
+        }
+        case 'attack': {
+          const t2 = target;
+          if (!t2) break;
+          attacked = true;
+          const w = weaponsOf(u, e.weapon === 'melee' ? 'melee' : 'ranged')
+            .sort((x, y) => x.hit - y.hit)[0];
+          if (!w) break;
+          resolveAttack({ attacker: u, target: t2, weapon: w,
+                          range: e.weapon === 'melee' ? 'melee' : 'ranged',
+                          hitMod: Number(e.hitMod) || 0, actor: p, noReaction: true,
+                          overwatch: true });
+          break;
+        }
+        case 'note':
+          log(e.text || a.text || '', 'note');
+          break;
+        default:
+          if (e.text) log(e.text, 'note');
+      }
+    });
+
+    if (!attacked) afterAction(p, { endsChain: endsChain, reason: a.name });
+  }
+
+  /* Placing something: the ability is waiting for a spot or a unit. */
+  function confirmAbility(arg) {
+    const pend = S.pending;
+    if (!pend || pend.kind !== 'ability') return;
+    S.pending = null;
+    useAbility(pend.unitId, pend.index, arg);
+  }
+
+  /* Where a reserve unit is allowed to arrive. */
+  function arrivalSpots(unitId) {
+    const u = unit(unitId);
+    const out = [];
+    for (let y = 1; y < S.board.h; y += 0.7) {
+      for (let x = 1; x < S.board.w; x += 0.7) {
+        const p = { x: x, y: y };
+        if (!Board.standable(S.board, p, u.radius)) continue;
+        if (alive().some(o => Board.dist(o, p) < o.radius + u.radius + 0.15)) continue;
+        out.push(p);
+      }
+    }
+    return out;
   }
 
   /* --------------------------------------------------------------- moving */
@@ -293,7 +685,7 @@ const Battle = (function () {
 
     /* Either walk to it, or walk into a piece of terrain and go up it. */
     let path = null, climb = null;
-    if (Board.canReach(field, to, u.move)) {
+    if (Board.canReach(field, to, moveOf(u))) {
       path = Board.pathTo(field, to);
     } else {
       climb = Board.climbFor(field, u.move, to);
@@ -348,6 +740,7 @@ const Battle = (function () {
       const c = legs[i++];
       if (i > 1) u.facing = Math.atan2(c.y - u.y, c.x - u.x);
       u.x = c.x; u.y = c.y;
+      if (S.relic && S.relic.carrier === u.id) { S.relic.x = u.x; S.relic.y = u.y; }
       const watchers = triggeredWatchers(u);
       if (watchers.length) { openOverwatch(u, watchers, step); return; }
       step();
@@ -455,6 +848,7 @@ const Battle = (function () {
     openChain(p);
     spend(p, 2);
     const rolled = roll();
+    announce(rolled, null, 'CHARGE');
     const fromHigh = Board.heightAt(S.board, a);
     log(S.players[p].name + ': ' + a.name + ' → CHARGE → ' + t.name +
         ' — rolls ' + rolled + '".', 'action');
@@ -497,6 +891,12 @@ const Battle = (function () {
   /* The defender gets 1 RP and a choice. */
   function offerReaction(atk) {
     const t = atk.target;
+    /* A marker is a thing, not a soldier: it gets no reaction points. */
+    if (t.noRP) {
+      log(t.name + ' cannot react.', 'muted');
+      resolveAttack(atk);
+      return;
+    }
     S.players[t.owner].rp = 1;
     const list = (atk.range === 'melee' ? RULES.meleeReactions : RULES.rangedReactions)
       .filter(r => !r.isSpecial)
@@ -506,6 +906,13 @@ const Battle = (function () {
         if (r.id === 'dodge' && !dodgeSpots(atk).length) why = 'nowhere to step';
         return { id: r.id, name: r.name, text: r.text, cost: r.cost, ok: !why, why: why };
       });
+    /* and whatever the defender's own card lets them do for RP */
+    (t.abilities || []).forEach(function (ab, i) {
+      if (ab.trigger !== 'rp') return;
+      if (ab.reactRange && ab.reactRange !== 'any' && ab.reactRange !== atk.range) return;
+      list.push({ id: 'ability:' + i, name: ab.name, text: ab.text || '',
+                  cost: ab.cost === undefined ? 1 : ab.cost, ok: true, ability: i });
+    });
     S.pending = { kind: 'reaction', atk: atk, options: list };
     emit();
   }
@@ -598,6 +1005,18 @@ const Battle = (function () {
       const offered = pend.options.find(o => o.id === id);
       if (!offered || !offered.ok) return;
       if (offered.cost > S.players[pend.atk.target.owner].rp) return;
+      /* the defender's own card, spent as a reaction */
+      if (offered.ability !== undefined) {
+        const t2 = pend.atk.target, ab = abilityOf(t2, offered.ability);
+        S.pending = null;
+        S.players[t2.owner].rp = 0;
+        log(t2.name + ' reacts: ' + ab.name + '.', 'reaction');
+        if (ab.text) log(ab.text, 'note');
+        const keepActor = pend.atk.actor;
+        runEffects(t2, ab, undefined, t2.owner);
+        resolveAttack(pend.atk);
+        return;
+      }
     }
     const atk = pend.atk;
     const t = atk.target;
@@ -669,6 +1088,45 @@ const Battle = (function () {
     afterAction(atk.actor === undefined ? S.turn.player : atk.actor, {});
   }
 
+  /* What this kill is worth, by the card being played. */
+  function killValue(t, a) {
+    const m = S.mission;
+    let vp = t.killVP || 1, why = '';
+    if (t.marker) why = t.name;
+    if (m && m.unitFlag && S.flags[t.id] === m.unitFlag.id) {
+      vp = m.unitFlag.killVP || vp;
+      why = m.unitFlag.label;
+    }
+    if (m && m.id === 'hill' && S.highGround && Board.inBox(S.highGround, t)) {
+      vp = Math.max(vp, m.unitFlag.killVP || 2);
+      why = 'on the HIGH GROUND';
+    }
+    /* AMBUSH: the defender is worth more for killing in their own ground. */
+    if (m && m.killZoneBonus) {
+      const defender = 0;
+      if (a.owner === defender && !t.marker && inZone(t, S.board.deploy[defender])) {
+        vp = m.killZoneBonus.vp;
+        why = 'killed in ' + m.killZoneBonus.zone;
+      }
+    }
+    if (t.killVPFor) {
+      const want = t.killVPFor === 'attacker' ? 1 : 0;
+      if (a.owner !== want) vp = 1;
+    }
+    return { vp: vp, why: why };
+  }
+
+  /* The RELIC falls where its carrier does. */
+  function dropRelicFrom(u, destroyed) {
+    if (!S.relic || S.relic.carrier !== u.id) return;
+    S.relic.carrier = null;
+    u.carryingRelic = false;
+    const spot = Board.nudgeToLegal(S.board, { x: u.x + (destroyed ? 0.8 : 0), y: u.y },
+                                    BASE, alive().map(o => ({ x: o.x, y: o.y, radius: BASE })));
+    S.relic.x = spot.x; S.relic.y = spot.y;
+    log(u.name + ' drops the RELIC.', 'note');
+  }
+
   function effectMod(u, key) {
     return (u.effects || []).reduce((n, e) => n + (Number(e[key]) || 0), 0);
   }
@@ -725,15 +1183,20 @@ const Battle = (function () {
 
     if (result.damage) {
       t.wounds = Math.max(0, t.wounds - result.damage);
+      if (t.wounds > 0) dropRelicFrom(t, false);
       log(t.name + ' takes ' + result.damage + ' — ' + t.wounds + '/' + t.maxWounds + ' W.', 'damage');
       if (t.wounds <= 0) {
         t.alive = false;
         killed = true;
         strike.killed = true;
         a.kills += 1;
-        S.players[a.owner].vp += (t.killVP || 1);
+        const worth = killValue(t, a);
+        S.players[a.owner].vp += worth.vp;
         log(t.name + ' is DESTROYED. ' + S.players[a.owner].name + ' scores ' +
-            (t.killVP || 1) + ' VP (now ' + S.players[a.owner].vp + ').', 'kill');
+            worth.vp + ' VP' + (worth.why ? ' (' + worth.why + ')' : '') +
+            ' (now ' + S.players[a.owner].vp + ').', 'kill');
+        if (t.endsGame) S.endNow = t.name + ' is destroyed';
+        dropRelicFrom(t, true);
       }
     }
     S.strikes.push(strike);
@@ -812,7 +1275,8 @@ const Battle = (function () {
     start, get, on, emit, log, BASE,
     unit, alive, mine, other, rangeTo,
     actionsFor, rangedTargets, meleeTargets, chargeTargets, moveField, weaponsOf, reachOf,
-    doMove, doShoot, doFight, doCharge, doOverwatch, doPass,
+    doMove, doShoot, doFight, doCharge, doOverwatch, doPass, doSecure, doRelic,
+    abilityActions, useAbility, confirmAbility, arrivalSpots, abilityOf, moveOf,
     chooseReaction, toggleWatcher, fireOverwatch, endTurn, placeMove,
     mustPass, elevation, diveEscapes, spotsWithin, fieldFor, snapMove
   };
