@@ -441,6 +441,10 @@ const GameUI = (function () {
       return;
     }
     if (Render3D.busy()) { bar.appendChild(el('div', 'prompt resolving', 'the shot is still in the air…')); return; }
+    if (S.pending && S.pending.kind === 'redirect') {
+      bar.appendChild(el('div', 'prompt', 'choosing who steps into it…'));
+      return;
+    }
     if (S.pending) { bar.appendChild(el('div', 'prompt', 'waiting on the reaction…')); return; }
 
     const head = el('div', 'ahead');
@@ -463,6 +467,7 @@ const GameUI = (function () {
       bar.appendChild(el('div', 'prompt', 'not yours to move right now'));
     } else {
       bar.appendChild(unitCard(u, S));
+      drawCard(bar, S, ctrl);
       const acts = Battle.actionsFor(u.id);
       const row = el('div', 'abtns');
       acts.filter(a => a.ability === undefined).forEach(function (a) {
@@ -526,6 +531,26 @@ const GameUI = (function () {
     if (Battle.mustPass() && !mode) {
       bar.appendChild(el('div', 'prompt warn', 'no AP left — you must pass'));
     }
+  }
+
+  /* The faction card, and what its pool will buy right now. */
+  function drawCard(bar, S, p) {
+    const card = S.cards[p];
+    if (!card) return;
+    const box = el('div', 'faccard');
+    const head = el('div', 'facthead');
+    head.appendChild(el('span', 'factname', card.name));
+    head.appendChild(el('span', 'factpool', card.value + ' ' + card.resource.name));
+    box.appendChild(head);
+    Battle.cardPowers(p).forEach(function (a) {
+      const b = el('button', 'factpow' + (a.ok ? '' : ' off'));
+      b.appendChild(el('span', 'pn', a.cost + ' ' + card.resource.name + ' — ' + a.name));
+      b.appendChild(el('span', 'pt', a.why || a.text));
+      b.disabled = !a.ok;
+      b.onclick = () => act(() => Battle.useCardPower(p, a.index), { t: 'power', p: p, i: a.index });
+      box.appendChild(b);
+    });
+    bar.appendChild(box);
   }
 
   function unitCard(u, S) {
@@ -620,10 +645,9 @@ const GameUI = (function () {
       if (!started) return;
       hover = null; render(Battle.get());
     });
-    cv.addEventListener('click', function (e) {
-      if (!started || e.shiftKey) return;
-      click(e.clientX, e.clientY);
-    });
+    /* the camera owns the pointer and tells us when a press was a click
+       rather than the start of a drag */
+    Render3D.setTap(function (x, y) { if (started) click(x, y); });
     $('startBtn').onclick = begin;
     $('againBtn').onclick = () => location.reload();
     $('viewP0').onclick = () => Render3D.viewFrom(0);
@@ -654,7 +678,7 @@ const GameUI = (function () {
     if (!p) return;
     const at = { x: p.x, y: p.y };
 
-    if (S.pending && S.pending.kind === 'ability') {
+    if (S.pending && (S.pending.kind === 'ability' || S.pending.kind === 'card')) {
       const pend = S.pending;
       if (pend.need === 'spot') {
         const spot = Render3D.pickNearest(cx, cy, pend.spots || [], 40) || at;
@@ -740,7 +764,9 @@ const GameUI = (function () {
   /* ------------------------------------------------------------ the modals */
 
   function drawPending(S) {
-    if (!S.pending || S.pending.kind === 'move') { closeModal(); return; }
+    if (!S.pending || S.pending.kind === 'move' || S.pending.kind === 'ability' ||
+        S.pending.kind === 'card') { closeModal(); return; }
+    if (S.pending.kind === 'redirect') return redirectModal(S);
     if (S.pending.kind === 'reaction') return reactionModal(S);
     if (S.pending.kind === 'overwatch') return overwatchModal(S);
   }
@@ -767,6 +793,20 @@ const GameUI = (function () {
       inches(Battle.rangeTo(a, t)) + ' — ' + atk.weapon.hit + '+ to hit, S' +
       atk.weapon.strength + ', D' + atk.weapon.damage + '.  You have ' + rp + ' RP.',
       opts, t.owner, true);
+  }
+
+  function redirectModal(S) {
+    const pend = S.pending;
+    const t = pend.atk.target;
+    modal(pend.ability, 'Choose which of your units is put in the way of ' +
+      pend.atk.attacker.name + '’s ' + pend.atk.weapon.name + '.',
+      pend.options.map(function (id) {
+        const x = Battle.unit(id);
+        return { label: x.name,
+                 sub: x.wounds + '/' + x.maxWounds + ' W · ' +
+                      inches(Battle.rangeTo(pend.atk.attacker, x)) + ' from the shooter',
+                 on: () => act(() => Battle.chooseRedirect(id), { t: 'redirect', id: id }) };
+      }), t.owner, true);
   }
 
   function overwatchModal(S) {
@@ -873,6 +913,8 @@ const GameUI = (function () {
     if (msg.t === 'relic')  Battle.doRelic(msg.id);
     if (msg.t === 'ability') Battle.useAbility(msg.id, msg.i);
     if (msg.t === 'abil2')  Battle.confirmAbility(msg.id !== undefined ? msg.id : msg.at);
+    if (msg.t === 'power')  Battle.useCardPower(msg.p, msg.i);
+    if (msg.t === 'redirect') Battle.chooseRedirect(msg.id);
     if (msg.t === 'pass')   Battle.doPass(false);
     if (msg.t === 'endturn') Battle.endTurn();
   }

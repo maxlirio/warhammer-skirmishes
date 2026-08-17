@@ -24,6 +24,7 @@ const Render3D = (function () {
   const cine = [];
   let playing = null;
   let seenStrike = -1;
+  let lastState = null;
   const seenClimb = {};
   let shake = 0;
 
@@ -50,40 +51,87 @@ const Render3D = (function () {
     camera.lookAt(cam.target);
   }
 
+  /* Dragging looks around the table. A click is a press and release that did
+     not go anywhere — so the left button both orbits and selects, which is what
+     everybody expects, rather than reserving it for clicks and hiding the
+     camera behind a modifier key. */
+  let onTap = null;
+  const setTap = fn => { onTap = fn; };
+
   function wireCamera() {
     let drag = null;
     canvas.addEventListener('contextmenu', e => e.preventDefault());
+
     canvas.addEventListener('pointerdown', function (e) {
-      if (e.button === 0 && !e.shiftKey) return;
-      drag = { x: e.clientX, y: e.clientY, pan: e.button === 2 };
+      drag = { x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY,
+               pan: e.button === 2 || e.shiftKey, moved: 0, id: e.pointerId };
       canvas.setPointerCapture(e.pointerId);
     });
+
     canvas.addEventListener('pointermove', function (e) {
       if (!drag) return;
-      want = null;
       const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+      drag.moved += Math.abs(dx) + Math.abs(dy);
       drag.x = e.clientX; drag.y = e.clientY;
+      if (drag.moved < 4) return;              /* still might be a click */
+      want = null;
+      userZoomed = true;
       if (drag.pan) {
-        const s = cam.dist * 0.0016;
+        const s2 = cam.dist * 0.0016;
         const right = new THREE.Vector3(Math.sin(cam.az), 0, -Math.cos(cam.az));
         const fwd = new THREE.Vector3(Math.cos(cam.az), 0, Math.sin(cam.az));
-        cam.target.addScaledVector(right, -dx * s).addScaledVector(fwd, -dy * s);
+        cam.target.addScaledVector(right, -dx * s2).addScaledVector(fwd, -dy * s2);
         clampTarget();
       } else {
-        cam.az += dx * 0.006;
-        cam.el = Math.max(0.12, Math.min(1.45, cam.el + dy * 0.005));
+        cam.az += dx * 0.007;
+        cam.el = Math.max(0.10, Math.min(1.48, cam.el + dy * 0.006));
       }
       placeCamera();
     });
-    const stop = () => { drag = null; };
-    canvas.addEventListener('pointerup', stop);
-    canvas.addEventListener('pointercancel', stop);
+
+    const release = function (e) {
+      if (!drag) return;
+      const wasClick = drag.moved < 5 && !drag.pan;
+      const d = drag;
+      drag = null;
+      if (wasClick && onTap) onTap(d.x0, d.y0);
+    };
+    canvas.addEventListener('pointerup', release);
+    canvas.addEventListener('pointercancel', function () { drag = null; });
+
     canvas.addEventListener('wheel', function (e) {
       e.preventDefault();
       userZoomed = true; want = null;
-      cam.dist = Math.max(6, Math.min(120, cam.dist * (1 + Math.sign(e.deltaY) * 0.11)));
+      cam.dist = Math.max(5, Math.min(140, cam.dist * (1 + Math.sign(e.deltaY) * 0.11)));
       placeCamera();
     }, { passive: false });
+
+    /* and the keyboard, for people who would rather not drag at all */
+    window.addEventListener('keydown', function (e) {
+      if (e.target && /input|textarea/i.test(e.target.tagName)) return;
+      const k = e.key.toLowerCase();
+      const pan = function (fx, fz) {
+        const step = cam.dist * 0.06;
+        const right = new THREE.Vector3(Math.sin(cam.az), 0, -Math.cos(cam.az));
+        const fwd = new THREE.Vector3(Math.cos(cam.az), 0, Math.sin(cam.az));
+        cam.target.addScaledVector(right, fx * step).addScaledVector(fwd, fz * step);
+        clampTarget();
+      };
+      let used = true;
+      if (k === 'a' || k === 'arrowleft') pan(-1, 0);
+      else if (k === 'd' || k === 'arrowright') pan(1, 0);
+      else if (k === 'w' || k === 'arrowup') pan(0, -1);
+      else if (k === 's' || k === 'arrowdown') pan(0, 1);
+      else if (k === 'q') cam.az -= 0.12;
+      else if (k === 'e') cam.az += 0.12;
+      else if (k === 'r') cam.el = Math.min(1.48, cam.el + 0.07);
+      else if (k === 'f') cam.el = Math.max(0.10, cam.el - 0.07);
+      else if (k === '=' || k === '+') cam.dist = Math.max(5, cam.dist * 0.9);
+      else if (k === '-' || k === '_') cam.dist = Math.min(140, cam.dist * 1.1);
+      else if (k === ' ') { userZoomed = false; frameTable(); used = true; }
+      else used = false;
+      if (used) { want = null; if (k !== ' ') userZoomed = true; placeCamera(); e.preventDefault(); }
+    });
   }
 
   function clampTarget() {
@@ -318,7 +366,9 @@ const Render3D = (function () {
     l.position.set(1, 2.2, 1.4);
     tray.add(l);
 
-    tray.rotation.set(-0.42, -0.5, 0);
+    /* tipped toward the viewer so you are looking into the bowl, not at
+       the back of it */
+    tray.rotation.set(0.62, -0.22, 0);
     tray.visible = false;
     camera.add(tray);
     scene.add(camera);
@@ -850,12 +900,28 @@ const Render3D = (function () {
       if (!node) {
         node = unitNodes[u.id] = makeUnit(u, S.players[u.owner].faction);
         unitGroup.add(node);
+        /* deployed rather than dropped in from nowhere */
+        node.userData.enter = 0;
       }
+      node.visible = !u.reserve;
+      if (u.reserve) return;
+
       /* while a strike involving this model is on screen, the shot owns it */
       if (playing && playing.holds[u.id]) return;
 
+      /* a route the engine walked: play the model along it */
+      if (u.route && node.userData.routeAt !== u.route.at) {
+        node.userData.routeAt = u.route.at;
+        node.userData.walk = { pts: u.route.pts.slice(), t: 0,
+                               climb: u.route.climb, done: false };
+        node.userData.walk.len = routeLength(node.userData.walk.pts);
+      }
+      const wk = node.userData.walk;
+      if (wk && !wk.done && u.alive) return;      /* the walk is driving it */
+
+      node.userData.aim = null;
       node.position.set(u.x, Board.heightAt(S.board, u), u.y);
-      node.rotation.set(0, -u.facing + Math.PI / 2, 0);
+      node.userData.wantRot = -u.facing + Math.PI / 2;
       node.userData.body.rotation.set(0, 0, 0);
       node.userData.body.position.set(0, 0.12, 0);
 
@@ -868,6 +934,7 @@ const Render3D = (function () {
         p.material.color.setHex(u.wounds === 1 ? 0xa8352a
           : u.wounds <= u.maxWounds / 2 ? 0xc9832a : COL.bone);
       });
+      node.userData.selected = (view0 && view0.selected === u.id);
       const tok = node.userData.token;
       tok.visible = !!u.overwatch;
       if (u.overwatch) {
@@ -1336,6 +1403,8 @@ const Render3D = (function () {
       }
     }
 
+    animateUnits(dt);
+
     if (want) {
       const k = 1 - Math.pow(want.ease || 0.006, dt);
       cam.target.lerp(want.target, k);
@@ -1361,10 +1430,121 @@ const Render3D = (function () {
     if (renderer && scene && camera) renderer.render(scene, camera);
   }
 
+  /* ------------------------------------------------------------ the models,
+     moving. The rules finished a while ago; this is the part you watch. */
+
+  function routeLength(pts) {
+    let n = 0;
+    for (let i = 1; i < pts.length; i++) n += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+    return n;
+  }
+
+  function alongRoute(pts, d) {
+    let acc = 0;
+    for (let i = 1; i < pts.length; i++) {
+      const seg = Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+      if (acc + seg >= d || i === pts.length - 1) {
+        const f = seg ? Math.min(1, (d - acc) / seg) : 1;
+        return { x: pts[i - 1].x + (pts[i].x - pts[i - 1].x) * f,
+                 y: pts[i - 1].y + (pts[i].y - pts[i - 1].y) * f,
+                 hx: pts[i].x - pts[i - 1].x, hy: pts[i].y - pts[i - 1].y };
+      }
+      acc += seg;
+    }
+    const last = pts[pts.length - 1];
+    return { x: last.x, y: last.y, hx: 1, hy: 0 };
+  }
+
+  const SPEED = 5.5;          /* inches a second — a walk, not a scuttle */
+
+  function animateUnits(dt) {
+    if (!lastState) return;
+    lastState.units.forEach(function (u) {
+      const node = unitNodes[u.id];
+      if (!node || u.reserve) return;
+      const body = node.userData.body;
+
+      /* arriving on the table for the first time */
+      if (node.userData.enter !== undefined && node.userData.enter < 1) {
+        node.userData.enter = Math.min(1, node.userData.enter + dt * 1.6);
+        const e = node.userData.enter;
+        const s2 = e < 1 ? 0.3 + 0.7 * (1 - Math.pow(1 - e, 3)) : 1;
+        body.scale.setScalar(s2);
+        node.userData.label.material.opacity = e;
+      }
+
+      /* walking a route */
+      const wk = node.userData.walk;
+      if (wk && !wk.done) {
+        if (!u.alive) { wk.done = true; }
+        else {
+          wk.t += dt * SPEED;
+          const at = alongRoute(wk.pts, wk.t);
+          node.position.set(at.x, Board.heightAt(board, { x: at.x, y: at.y }), at.y);
+          node.userData.wantRot = -Math.atan2(at.hy, at.hx) + Math.PI / 2;
+          /* stride: a bob and a slight roll, so it reads as walking */
+          const ph = wk.t * 3.4;
+          body.position.y = 0.12 + Math.abs(Math.sin(ph)) * 0.09;
+          body.rotation.z = Math.sin(ph * 2) * 0.055;
+          body.rotation.x = -0.09;
+          if (!wk.stepAt || wk.t - wk.stepAt > 0.85) { wk.stepAt = wk.t; Sfx.step(0.32); }
+          if (wk.t >= wk.len) {
+            /* and up onto whatever it walked into */
+            if (wk.climb && !wk.climbed) {
+              wk.climbed = true;
+              wk.hopT = 0;
+            }
+            if (wk.climb && wk.hopT !== undefined && wk.hopT < 1) {
+              wk.hopT = Math.min(1, wk.hopT + dt * 1.7);
+              const h = wk.hopT;
+              const from = wk.pts[wk.pts.length - 1];
+              node.position.set(from.x + (wk.climb.x - from.x) * h,
+                                Board.heightAt(board, from) + wk.climb.top * h +
+                                Math.sin(h * Math.PI) * 0.55,
+                                from.y + (wk.climb.y - from.y) * h);
+              body.rotation.x = -0.5 + h * 0.4;
+              return;
+            }
+            wk.done = true;
+            body.position.y = 0.12;
+            body.rotation.set(0, 0, 0);
+          }
+          return;
+        }
+      }
+
+      /* standing about: a slow breath, and a lift when selected */
+      if (u.alive) {
+        const t2 = performance.now() / 1000 + (u.id.charCodeAt(1) || 0);
+        body.position.y = 0.12 + Math.sin(t2 * 1.3) * 0.012;
+        const sel = node.userData.selected;
+        const target = sel ? 1.06 : 1;
+        const cur = body.scale.x;
+        if (node.userData.enter === undefined || node.userData.enter >= 1) {
+          body.scale.setScalar(cur + (target - cur) * Math.min(1, dt * 8));
+        }
+        node.userData.ring.material.emissiveIntensity =
+          sel ? 0.7 + Math.sin(t2 * 4) * 0.3 : 0.5;
+      }
+
+      /* turn to face where it means to, rather than snapping */
+      if (node.userData.wantRot !== undefined) {
+        let d = node.userData.wantRot - node.rotation.y;
+        while (d > Math.PI) d -= Math.PI * 2;
+        while (d < -Math.PI) d += Math.PI * 2;
+        node.rotation.y += d * Math.min(1, dt * 9);
+      }
+    });
+  }
+
   /* -------------------------------------------------------------- the state */
+
+  let view0 = null;
 
   function draw(S, view) {
     if (!board || board.id !== S.board.id) buildBoard(S.board);
+    view0 = view || {};
+    lastState = S;
     syncUnits(S);
     setOverlay(view);
 
@@ -1447,7 +1627,7 @@ const Render3D = (function () {
   const focusOn = p => leanIn(p, Math.max(18, cam.dist * 0.6));
 
   return {
-    attach, resize, draw, pick, pickUnit, pickNearest, viewFrom, focusOn,
+    attach, resize, draw, pick, pickUnit, pickNearest, viewFrom, focusOn, setTap,
     leanIn, leanOut, busy, COL, rollDie, rollingNow,
     get camera() { return camera; },
     get scene() { return scene; }

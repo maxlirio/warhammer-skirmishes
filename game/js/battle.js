@@ -72,7 +72,7 @@ const Battle = (function () {
       chain: { active: false, initiator: null, passes: 0 },
       control: { player: 0, forcedUnitId: null },
       pending: null,
-      log: [], strikes: [], dice: [], seq: 0,
+      log: [], strikes: [], dice: [], tokens: [], buffs: [[], []], cards: [null, null], seq: 0,
       winner: null,
       mission: null, flags: {}, control: { player: 0, forcedUnitId: null },
       secured: {}, relic: null, highGround: null,
@@ -120,11 +120,58 @@ const Battle = (function () {
       }
     });
 
+    fitObjectivesToCard(board);
     placeMissionPieces(board);
 
+    /* the faction cards, and their pools */
+    [0, 1].forEach(function (p) {
+      const f = PRESETS.find(x => x.id === cfg.factions[p]);
+      if (!f || !f.card) return;
+      S.cards[p] = Object.assign({}, f.card, { value: f.card.resource.start });
+      log(S.players[p].name + ' begins with ' + S.cards[p].value + ' ' +
+          f.card.resource.name + '.', 'note');
+    });
+
     log('— ' + map.name + ' —', 'big');
+    runGameStart();
     beginTurn(0, true);
     emit();
+  }
+
+  /* The battlefields are drawn with five markers on them, which is what a
+     card-less game uses. Every card says how many there should actually be, so
+     the table is cut down to match before anybody deploys:
+
+       SECURE THE AREA  three — the centre and one on each flank
+       ASSASSINATION    one, in the centre
+       everything else  none. Their scoring is markers you shoot, ground you
+                        stand on, or a relic you carry, and leaving spare
+                        objectives lying about would only confuse the issue. */
+  function fitObjectivesToCard(board) {
+    const m = S.mission;
+    const mid = { x: board.w / 2, y: board.h / 2 };
+    const byMiddle = board.objectives.slice()
+      .sort((a, b) => Board.dist(a, mid) - Board.dist(b, mid));
+
+    let keep;
+    if (!m) keep = board.objectives.slice();
+    else if (m.controlPoints) {
+      /* the centre, then the furthest one to either flank */
+      const centre = byMiddle[0];
+      const left = board.objectives.filter(o => o !== centre && o.x < mid.x)
+        .sort((a, b) => a.x - b.x)[0];
+      const right = board.objectives.filter(o => o !== centre && o.x > mid.x)
+        .sort((a, b) => b.x - a.x)[0];
+      keep = [centre, left, right].filter(Boolean);
+    } else if (m.id === 'assassination') keep = [byMiddle[0]];
+    else keep = [];
+
+    board.objectives = keep;
+    S.board.objectives = keep;
+    if (m) {
+      log(m.name + ': ' + (keep.length ? keep.length + ' objective marker' +
+          (keep.length === 1 ? '' : 's') + ' on the table' : 'no objective markers'), 'note');
+    }
   }
 
   /* Whatever the card puts on the table besides the two forces: markers you
@@ -219,6 +266,13 @@ const Battle = (function () {
     S.chain = { active: false, initiator: null, passes: 0 };
     S.control = { player: player, forcedUnitId: null };
     S.units.forEach(u => { u.effects = u.effects.filter(e => e.until !== 'chain'); });
+    detonate('turn');
+    /* a card's pool fills at the top of its owner's turn */
+    if (S.cards[player]) {
+      S.cards[player].value += S.cards[player].resource.perTurn || 0;
+      log(S.players[player].name + ' gains ' + (S.cards[player].resource.perTurn || 0) + ' ' +
+          S.cards[player].resource.name + ' (now ' + S.cards[player].value + ').', 'ap');
+    }
     log('— TURN ' + S.turn.number + ': ' + S.players[player].name + ' —', 'big');
     S.players[player].ap += 1;
     log(S.players[player].name + ' gains 1 AP for the Start Phase (now ' +
@@ -328,12 +382,31 @@ const Battle = (function () {
     }
   }
 
+  /* Anything a card does before the first turn — Da Hunta picking somebody. */
+  function runGameStart() {
+    S.units.forEach(function (u) {
+      abilitiesOf(u).forEach(function (ab) {
+        if (ab.trigger !== 'gamestart') return;
+        (ab.effects || []).forEach(function (e) {
+          if (e.kind !== 'mark') return;
+          /* the game can see the table: it picks the biggest threat it can see */
+          const pick = alive().filter(x => x.owner !== u.owner && !x.marker)
+            .sort((x, y) => (y.maxWounds * y.toughness) - (x.maxWounds * x.toughness))[0];
+          if (!pick) return;
+          pick.marks.push(e.label || 'MARKED');
+          log(u.name + ' — ' + ab.name + ': ' + pick.name + ' is ' + (e.label || 'MARKED') + '.', 'note');
+        });
+      });
+    });
+  }
+
   function closeChain(why) {
     if (!S.chain.active) return;
     S.chain.active = false;
     S.chain.passes = 0;
     S.control = { player: S.turn.player, forcedUnitId: null };
     S.units.forEach(u => { u.effects = u.effects.filter(e => e.until !== 'chain'); });
+    detonate('chain');
     log('Action chain ends — ' + why + '.', 'chain');
   }
 
@@ -347,6 +420,30 @@ const Battle = (function () {
     }
     S.control = { player: other(actor), forcedUnitId: opts.forcedUnitId || null };
     emit();
+  }
+
+  /* Tokens that go off, or go away, when their moment comes. */
+  function detonate(when) {
+    const going = S.tokens.filter(t => t.expiry === when);
+    going.forEach(function (tok) {
+      (tok.tokenEffects || []).forEach(function (e) {
+        if (e.kind !== 'damage') return;
+        alive().filter(x => rangeTo(x, tok) <= (tok.radius || 3)).forEach(function (x) {
+          x.wounds = Math.max(0, x.wounds - (Number(e.value) || 1));
+          log(tok.label + ': ' + x.name + ' takes ' + (e.value || 1) + ' — ' +
+              x.wounds + '/' + x.maxWounds + ' W.', 'damage');
+          S.strikes.push({ at: S.seq++, attacker: x.id, target: x.id, melee: true,
+                           weapon: tok.label,
+                           from: { x: tok.x, y: tok.y, z: Board.heightAt(S.board, tok) },
+                           to: { x: x.x, y: x.y, z: Board.heightAt(S.board, x) },
+                           hit: true, wound: true, damage: Number(e.value) || 1,
+                           killed: x.wounds <= 0, rolls: null });
+          if (x.wounds <= 0) { x.alive = false; log(x.name + ' is DESTROYED.', 'kill'); }
+        });
+      });
+      if (tok.label) log(tok.label + ' is removed.', 'token');
+    });
+    S.tokens = S.tokens.filter(t => t.expiry !== when);
   }
 
   const spend = (player, n) => { S.players[player].ap = Math.max(0, S.players[player].ap - n); };
@@ -492,6 +589,204 @@ const Battle = (function () {
     return { field: field, inches: inches, climbs: Board.climbSpots(field, inches) };
   }
 
+  /* ====================================================== WHAT THE CARDS DO
+     Every passive, aura and token on the table, gathered into the numbers an
+     attack actually uses. The companion app has to offer these as tick-boxes
+     because it cannot measure; this one measures, so they simply apply. */
+
+  const abilitiesOf = u => (u.abilities || []);
+  const hasPassive = (u, name) => abilitiesOf(u).some(a => a.name === name);
+
+  /* Everything with an aura effect that is currently on the table. */
+  function auras() {
+    const out = [];
+    alive().forEach(function (u) {
+      abilitiesOf(u).forEach(function (a) {
+        (a.effects || []).forEach(function (e) {
+          if (e.kind === 'aura') out.push({ src: u, ab: a, e: e });
+        });
+      });
+    });
+    return out;
+  }
+
+  /* Does this aura reach from its source to this unit? */
+  function auraApplies(au, subject, attacker, weapon, range) {
+    const e = au.e;
+    if (e.weapon && e.weapon !== 'any' && e.weapon !== range) return false;
+    const friendly = au.src.owner === subject.owner;
+    if (e.side === 'friendly' && !friendly) return false;
+    if (e.side === 'enemy' && friendly) return false;
+    /* `onlyVsOwner` means the aura is about the source itself being shot at */
+    if (e.onlyVsOwner && subject.id !== au.src.id) return false;
+    const d = e.onlyVsOwner ? rangeTo(attacker, au.src) : rangeTo(au.src, subject);
+    if (e.mode === 'within' && d > (e.range || 6)) return false;
+    if (e.mode === 'beyond' && d <= (e.range || 6)) return false;
+    return true;
+  }
+
+  /* Any token whose line of sight rule bites on this shot. */
+  function tokenHitMod(a, t, range) {
+    let mod = 0;
+    (S.tokens || []).forEach(function (tok) {
+      const au = tok.aura;
+      if (!au || au.mode !== 'los') return;
+      if (au.weapon && au.weapon !== 'any' && au.weapon !== range) return;
+      /* does the line from shooter to target pass within the token's cloud? */
+      const d = distPointToSegment(tok, a, t);
+      if (d <= (tok.radius || 1.5)) mod += Number(au.value) || 0;
+    });
+    return mod;
+  }
+
+  function distPointToSegment(p, a, b) {
+    const vx = b.x - a.x, vy = b.y - a.y;
+    const wx = p.x - a.x, wy = p.y - a.y;
+    const len = vx * vx + vy * vy;
+    let t = len ? (wx * vx + wy * vy) / len : 0;
+    t = Math.max(0, Math.min(1, t));
+    return Math.hypot(p.x - (a.x + vx * t), p.y - (a.y + vy * t));
+  }
+
+  /* The whole modifier stack for one attack, with a note for the log. */
+  function attackMods(a, t, weapon, range, opts) {
+    opts = opts || {};
+    const notes = [];
+    let hit = 0, wound = 0, damage = 0;
+
+    if (elevation(a, t) > 0 && range === 'ranged') { hit += 1; notes.push('high ground +1 hit'); }
+    if (opts.chargeHigh) { wound += 1; damage += 1; notes.push('charging downhill +1 wound, +1 damage'); }
+    if (opts.overwatch) { hit -= 1; notes.push('overwatch −1 hit'); }
+
+    auras().forEach(function (au) {
+      const e = au.e;
+      /* an aura on the shooter helps them; one on the target hinders them */
+      if (e.stat === 'hit' || e.stat === 'wound') {
+        const onTarget = e.onlyVsOwner || e.side === 'enemy';
+        const subject = onTarget ? t : a;
+        if (!auraApplies(au, subject, a, weapon, range)) return;
+        const v = Number(e.value) || 0;
+        if (e.stat === 'hit') hit += v; else wound += v;
+        notes.push(au.ab.name + ' ' + (v > 0 ? '+' : '') + v + ' ' + e.stat);
+      }
+    });
+
+    const tm = tokenHitMod(a, t, range);
+    if (tm) { hit += tm; notes.push('smoke ' + tm + ' hit'); }
+
+    /* Al's Bayonet is worth more when he charges home with it. */
+    if (opts.fromCharge && hasPassive(a, 'Bayonet Charge') && /bayonet/i.test(weapon.name)) {
+      damage += 1;
+      notes.push('Bayonet Charge +1 damage');
+    }
+    /* Da Hunta's Shoota hurts more once he has picked somebody out. */
+    abilitiesOf(a).forEach(function (ab) {
+      (ab.effects || []).forEach(function (e) {
+        if (e.kind !== 'markbonus') return;
+        if (e.weaponName && e.weaponName !== weapon.name) return;
+        if ((t.marks || []).indexOf(e.label || 'MARKED') < 0) return;
+        damage += Number(e.value) || 1;
+        notes.push(ab.name + ' +' + (e.value || 1) + ' damage vs ' + (e.label || 'MARKED'));
+      });
+    });
+
+    hit += effectMod(a, 'hit');
+    wound += effectMod(a, 'wound');
+    return { hit: hit, wound: wound, damage: damage, notes: notes };
+  }
+
+  /* How many dice this weapon throws. */
+  function diceFor(a, weapon) {
+    let n = 1, why = null;
+    abilitiesOf(a).forEach(function (ab) {
+      (ab.effects || []).forEach(function (e) {
+        if (e.kind !== 'dice') return;
+        if (e.weaponName && e.weaponName !== weapon.name) return;
+        if (e.condition === 'notmoved' && a.movedTurn === S.turn.number) return;
+        if (Number(e.value) > n) { n = Number(e.value); why = ab.name; }
+      });
+    });
+    /* a power bought off the faction card, spent by the attack that uses it */
+    const buffs = S.buffs && S.buffs[a.owner] ? S.buffs[a.owner] : [];
+    for (let i = 0; i < buffs.length; i++) {
+      const b = buffs[i];
+      if (b.kind === 'dice' && (!b.weaponName || b.weaponName === weapon.name)) {
+        if (Number(b.value) > n) { n = Number(b.value); why = b.from; }
+        buffs.splice(i, 1);
+        break;
+      }
+    }
+    return { n: n, why: why };
+  }
+
+  /* Reactions a card takes off the table before the defender even sees them. */
+  function blockedReactions(a, t, weapon) {
+    const out = {};
+    alive().forEach(function (u) {
+      abilitiesOf(u).forEach(function (ab) {
+        (ab.effects || []).forEach(function (e) {
+          if (e.kind !== 'blockreact') return;
+          if (e.weaponName && e.weaponName !== weapon.name) return;
+          if (e.scope === 'enemy') {
+            /* the attacker's card stopping the defender reacting */
+            if (u.id !== a.id) return;
+          } else {
+            /* a friendly card stopping its own squad — Briant's job */
+            if (u.owner !== t.owner) return;
+            if (e.range && rangeTo(u, t) > e.range) return;
+          }
+          out[e.reaction] = ab.name;
+        });
+      });
+    });
+    return out;
+  }
+
+  /* The faction card and its pool. Its powers are bought in your own Start
+     Phase, which is any point in your turn before the chain opens. */
+  function cardPowers(player) {
+    const card = S.cards[player];
+    if (!card) return [];
+    return (card.abilities || []).map(function (a, i) {
+      let why = null;
+      if (card.value < a.cost) why = 'needs ' + a.cost + ' ' + card.resource.name;
+      if (S.turn.player !== player) why = 'only in your own turn';
+      if (S.chain.active) why = 'the chain has already opened';
+      return { index: i, name: a.name, cost: a.cost, text: a.text || '', ok: !why, why: why };
+    });
+  }
+
+  function useCardPower(player, index, arg) {
+    const card = S.cards[player];
+    const a = card && (card.abilities || [])[index];
+    if (!a || card.value < a.cost || S.turn.player !== player || S.chain.active) return;
+    const need = (a.effects || []).some(e => e.kind === 'place') ? 'friend' : null;
+    if (need && arg === undefined) {
+      S.pending = { kind: 'card', player: player, index: index, need: need,
+                    name: a.name, text: a.text || '' };
+      emit();
+      return;
+    }
+    card.value -= a.cost;
+    log(S.players[player].name + ' spends ' + a.cost + ' ' + card.resource.name +
+        ': ' + a.name + '.', 'action');
+    if (a.text) log(a.text, 'note');
+
+    if (need === 'friend') {
+      const who = unit(arg);
+      if (who) {
+        S.pending = { kind: 'ability', unitId: who.id, index: -1, need: 'spot',
+                      name: a.name, text: 'Place ' + who.name + ' anywhere on the battlefield.',
+                      spots: arrivalSpots(who.id), cardEffect: a };
+        emit();
+        return;
+      }
+    }
+    runEffects({ id: null, owner: player, x: 0, y: 0, effects: [], abilities: [], marks: [] },
+               a, undefined, player);
+    emit();
+  }
+
   /* ============================================================= ABILITIES
      A unit's own card. Anything that costs AP is offered in its action list by
      name; anything that costs RP is offered when it is attacked. */
@@ -537,7 +832,8 @@ const Battle = (function () {
     const need = abilityNeeds(u, a);
     if (need && arg === undefined) {
       S.pending = { kind: 'ability', unitId: unitId, index: index, need: need,
-                    name: a.name, text: a.text || '' };
+                    name: a.name, text: a.text || '',
+                    spots: need === 'spot' ? arrivalSpots(unitId, index) : null };
       emit();
       return;
     }
@@ -576,6 +872,31 @@ const Battle = (function () {
           break;
         }
         case 'damage': {
+          if (e.pick === 'multi') {
+            /* everything within 6", this unit included, saves or takes it */
+            const hitters = alive().filter(x => rangeTo(u, x) <= 6);
+            hitters.forEach(function (x) {
+              const r = roll();
+              announce(r, 3, 'SAVE · ' + x.name.slice(0, 12).toUpperCase());
+              if (r >= 3) { log(x.name + ' saves on ' + r + '.', 'miss'); return; }
+              x.wounds = Math.max(0, x.wounds - (Number(e.value) || 1));
+              log(x.name + ' fails on ' + r + ' — takes ' + (e.value || 1) + '.', 'damage');
+              S.strikes.push({ at: S.seq++, attacker: u.id, target: x.id, melee: true,
+                               weapon: a.name,
+                               from: { x: u.x, y: u.y, z: Board.heightAt(S.board, u) },
+                               to: { x: x.x, y: x.y, z: Board.heightAt(S.board, x) },
+                               hit: true, wound: true, damage: Number(e.value) || 1,
+                               killed: x.wounds <= 0, rolls: null });
+              if (x.wounds <= 0) {
+                x.alive = false;
+                log(x.name + ' is DESTROYED.', 'kill');
+                if (x.id === u.id) log('Nobody scores for ' + u.name + '.', 'note');
+                else { u.kills += 1; S.players[p].vp += killValue(x, u).vp; }
+                dropRelicFrom(x, true);
+              }
+            });
+            break;
+          }
           if (!target) break;
           target.wounds = Math.max(0, target.wounds - (Number(e.value) || 1));
           log(target.name + ' takes ' + (e.value || 1) + ' — ' + target.wounds + '/' +
@@ -597,12 +918,14 @@ const Battle = (function () {
           }
           break;
         }
-        case 'mark':
-          if (target) {
-            target.marks.push(e.label || 'MARKED');
-            log(target.name + ' is ' + (e.label || 'MARKED') + '.', 'note');
+        case 'mark': {
+          const who = e.pick === 'attacker' ? (arg && arg.attackerUnit) || target : target;
+          if (who) {
+            who.marks.push(e.label || 'MARKED');
+            log(who.name + ' is ' + (e.label || 'MARKED') + '.', 'note');
           }
           break;
+        }
         case 'unmark':
           alive().filter(x => x.owner !== p).forEach(x => { x.marks = []; });
           break;
@@ -620,12 +943,66 @@ const Battle = (function () {
               key + ').', 'note');
           break;
         }
+        case 'wander': {
+          /* Unpredictable, and WAAAAAGH for the whole squad */
+          const r = roll();
+          announce(r, null, (e.everyone ? 'WAAAAGH' : 'MOVE') + ' D6');
+          const movers = e.everyone ? mine(p).filter(x => !isMarker(x)) : [u];
+          movers.forEach(function (mv) {
+            const f = fieldFor(mv);
+            const spots = Board.sampleReach(f, r, 0.5);
+            if (!spots.length) return;
+            /* toward the nearest enemy, which is what either card is for */
+            const foe = alive().filter(x => x.owner !== mv.owner && !isMarker(x))
+              .sort((x, y) => rangeTo(mv, x) - rangeTo(mv, y))[0];
+            const to = foe ? spots.sort((x, y) => rangeTo(x, foe) - rangeTo(y, foe))[0]
+                           : spots[spots.length - 1];
+            mv.facing = Math.atan2(to.y - mv.y, to.x - mv.x);
+            mv.x = to.x; mv.y = to.y;
+            mv.movedTurn = S.turn.number;
+            log(mv.name + ' moves ' + r + '".', 'note');
+          });
+          break;
+        }
+        case 'hook': {
+          /* Grappling Hook: straight at the nearest scenery, height ignored */
+          const near = S.board.terrain
+            .map(t2 => ({ t: t2, d: Board.distToBox(t2, u) }))
+            .filter(o => o.d <= 3)
+            .sort((x, y) => x.d - y.d)[0];
+          if (!near) { log('No terrain within 3".', 'muted'); break; }
+          const cx = near.t.x + near.t.w / 2, cy = near.t.y + near.t.h / 2;
+          const ang2 = Math.atan2(cy - u.y, cx - u.x);
+          let best = null;
+          for (let d = 5; d >= 0.5; d -= 0.25) {
+            const q = { x: u.x + Math.cos(ang2) * d, y: u.y + Math.sin(ang2) * d };
+            if (Board.standable(S.board, q, u.radius, Board.heightAt(S.board, q)) &&
+                !alive().some(o => o !== u && rangeTo(o, q) < o.radius + u.radius)) { best = q; break; }
+          }
+          if (best) {
+            u.facing = ang2;
+            u.x = best.x; u.y = best.y;
+            u.movedTurn = S.turn.number;
+            u.climbed = { top: Board.heightAt(S.board, u), at: S.seq++ };
+            log(u.name + ' hooks up onto the ' + (near.t.kind || 'terrain') + '.', 'note');
+          }
+          break;
+        }
         case 'place': {
           const spot = arg && arg.x !== undefined ? arg : null;
           if (!spot) break;
           if (u.reserve) { u.reserve = false; log(u.name + ' arrives on the battlefield.', 'note'); }
+          const was = { x: u.x, y: u.y };
           u.x = spot.x; u.y = spot.y;
-          if (e.noMoveTurn) u.noMoveTurn = S.turn.number;
+          u.movedTurn = S.turn.number;
+          if (e.noMoveThisTurn || e.noMoveTurn) u.noMoveTurn = S.turn.number;
+          u.climbed = { top: Board.heightAt(S.board, u), at: S.seq++ };
+          /* the card says it triggers overwatch, so it does */
+          const watchers = triggeredWatchers(u);
+          if (watchers.length) {
+            openOverwatch(u, watchers, function () { afterAction(p, {}); });
+            return;
+          }
           break;
         }
         case 'attack': {
@@ -641,6 +1018,41 @@ const Battle = (function () {
                           overwatch: true });
           break;
         }
+        case 'token': {
+          /* scattered by the dice the card asks for, and the bowl shows it */
+          const scatter = e.label === 'SMOKE BOMB' ? roll() + roll() : roll();
+          announce(scatter, null, e.label + ' SCATTER');
+          const ang = (roll() - 1) * (Math.PI / 3);
+          const want = { x: u.x + Math.cos(ang) * scatter, y: u.y + Math.sin(ang) * scatter };
+          const at = Board.nudgeToLegal(S.board, want, 0.3, []);
+          S.tokens.push({ id: 't' + S.seq++, label: e.label, owner: p, x: at.x, y: at.y,
+                          radius: e.label === 'SMOKE BOMB' ? 1.5 : 3,
+                          expiry: e.expiry || 'chain', aura: e.aura || null,
+                          tokenEffects: e.tokenEffects || null,
+                          turn: S.turn.number });
+          log(e.label + ' lands ' + scatter + '" away.', 'token');
+          break;
+        }
+        case 'resource': {
+          const card = S.cards[p];
+          if (card) {
+            card.value += Number(e.value) || 1;
+            log(S.players[p].name + ' gains ' + (e.value || 1) + ' ' + card.resource.name +
+                ' (now ' + card.value + ').', 'ap');
+          }
+          break;
+        }
+        case 'dice':
+          S.buffs[p].push({ kind: 'dice', value: e.value, weaponName: e.weaponName, from: a.name });
+          log('The next attack with the ' + (e.weaponName || 'weapon') + ' rolls ' +
+              e.value + ' dice.', 'note');
+          break;
+        case 'unmark':
+          alive().filter(x => x.owner !== p).forEach(function (x) {
+            if ((x.marks || []).length) log(x.name + ' is no longer ' + (e.label || 'MARKED') + '.', 'note');
+            x.marks = [];
+          });
+          break;
         case 'note':
           log(e.text || a.text || '', 'note');
           break;
@@ -655,20 +1067,50 @@ const Battle = (function () {
   /* Placing something: the ability is waiting for a spot or a unit. */
   function confirmAbility(arg) {
     const pend = S.pending;
-    if (!pend || pend.kind !== 'ability') return;
+    if (!pend) return;
+    if (pend.kind === 'card') { const p2 = pend.player, i = pend.index; S.pending = null;
+                                useCardPower(p2, i, arg); return; }
+    if (pend.kind !== 'ability') return;
+    /* a placement bought off the faction card, rather than a unit's own */
+    if (pend.index === -1 && pend.cardEffect) {
+      const who = unit(pend.unitId);
+      S.pending = null;
+      const spot = arg && arg.x !== undefined ? arg : null;
+      if (spot && who) {
+        who.x = spot.x; who.y = spot.y;
+        who.movedTurn = S.turn.number;
+        who.noMoveTurn = S.turn.number;
+        who.climbed = { top: Board.heightAt(S.board, who), at: S.seq++ };
+        log(who.name + ' is placed.', 'note');
+        const watchers = triggeredWatchers(who);
+        if (watchers.length) { openOverwatch(who, watchers, () => emit()); return; }
+      }
+      emit();
+      return;
+    }
     S.pending = null;
     useAbility(pend.unitId, pend.index, arg);
   }
 
-  /* Where a reserve unit is allowed to arrive. */
-  function arrivalSpots(unitId) {
+  /* Where an ability is allowed to put somebody — exactly what its card says.
+     "more than 6 inches from an enemy" and "any elevated part" are measured,
+     not left to the players to argue over. */
+  function arrivalSpots(unitId, index) {
     const u = unit(unitId);
+    const a = index === undefined ? null : abilityOf(u, index);
+    const e = a ? (a.effects || []).find(x => x.kind === 'place') : null;
+    const away = a && /6"/.test(a.text || '') ? 6 : 0;
+    const elevatedOnly = a && /elevated/i.test(a.text || '');
     const out = [];
-    for (let y = 1; y < S.board.h; y += 0.7) {
-      for (let x = 1; x < S.board.w; x += 0.7) {
+    for (let y = 0.8; y < S.board.h; y += 0.6) {
+      for (let x = 0.8; x < S.board.w; x += 0.6) {
         const p = { x: x, y: y };
-        if (!Board.standable(S.board, p, u.radius)) continue;
-        if (alive().some(o => Board.dist(o, p) < o.radius + u.radius + 0.15)) continue;
+        const lvl = Board.heightAt(S.board, p);
+        if (elevatedOnly && lvl <= 0.01) continue;
+        if (!Board.standable(S.board, p, u.radius, lvl)) continue;
+        if (alive().some(o => o.id !== u.id && Board.dist(o, p) < o.radius + u.radius + 0.15)) continue;
+        if (away && alive().some(o => o.owner !== u.owner && !isMarker(o) &&
+                                      Board.dist(o, p) <= away)) continue;
         out.push(p);
       }
     }
@@ -710,6 +1152,7 @@ const Battle = (function () {
      moment the model crosses into the arc rather than at the end of it. */
   function walk(u, points, climb, done) {
     if (typeof climb === 'function') { done = climb; climb = null; }
+    u.movedTurn = S.turn.number;
     if (u.overwatch) { u.overwatch = null; log(u.name + ' gives up its overwatch by moving.', 'muted'); }
     const STEP = 0.5;
     const legs = [];
@@ -721,10 +1164,13 @@ const Battle = (function () {
         legs.push({ x: a.x + (b.x - a.x) * k / n, y: a.y + (b.y - a.y) * k / n });
       }
     }
-    u.walking = { points: points.slice(), at: 0 };
+    /* the whole route, so the table can walk the model along it rather than
+       having it appear at the far end */
+    u.route = { pts: [{ x: u.x, y: u.y }].concat(legs), at: S.seq++,
+                climb: climb ? { x: climb.x, y: climb.y, top: climb.top } : null };
     let i = 0, mounted = false;
     (function step() {
-      if (!u.alive) { u.walking = null; done(); return; }
+      if (!u.alive) { done(); return; }
       if (i >= legs.length) {
         /* touched it, so go up it — and being up there is a move too, so
            anything watching gets one more look */
@@ -735,7 +1181,7 @@ const Battle = (function () {
           const w2 = triggeredWatchers(u);
           if (w2.length) { openOverwatch(u, w2, step); return; }
         }
-        u.walking = null; done(); return;
+        done(); return;
       }
       const c = legs[i++];
       if (i > 1) u.facing = Math.atan2(c.y - u.y, c.x - u.x);
@@ -749,11 +1195,15 @@ const Battle = (function () {
 
   function triggeredWatchers(mover) {
     return alive().filter(function (w) {
-      if (w.owner === mover.owner || !w.overwatch) return false;
-      if (rangeTo(mover, w.overwatch) > 3) return false;
+      if (w.owner === mover.owner) return false;
       if (!Board.canSee(S.board, w, mover)) return false;
       const d = rangeTo(w, mover) - w.radius - mover.radius;
-      return weaponsOf(w, 'ranged').some(g => d <= (g.range || 0));
+      if (!weaponsOf(w, 'ranged').some(g => d <= (g.range || 0))) return false;
+      /* a token placed by the OVERWATCH action */
+      if (w.overwatch && rangeTo(mover, w.overwatch) <= 3) return true;
+      /* or a card that does the same job — Fred's Snap Shot, once a game */
+      return abilitiesOf(w).some(ab => ab.trigger === 'overwatch' && !ab.spent &&
+                                       rangeTo(w, mover) <= 6);
     });
   }
 
@@ -782,7 +1232,11 @@ const Battle = (function () {
     (function next() {
       if (!queue.length) { resume(); emit(); return; }
       const w = unit(queue.shift());
-      if (!w || !w.overwatch) { next(); return; }
+      if (!w) { next(); return; }
+      const snap = !w.overwatch &&
+        abilitiesOf(w).find(ab => ab.trigger === 'overwatch' && !ab.spent);
+      if (!w.overwatch && !snap) { next(); return; }
+      if (snap) { snap.spent = true; log(w.name + ' uses ' + snap.name + '.', 'token'); }
       w.overwatch = null;
       if (!mover.alive) {
         log(w.name + '’s overwatch is wasted — ' + mover.name + ' is already down.', 'muted');
@@ -898,12 +1352,14 @@ const Battle = (function () {
       return;
     }
     S.players[t.owner].rp = 1;
+    const blocked = blockedReactions(atk.attacker, t, atk.weapon);
     const list = (atk.range === 'melee' ? RULES.meleeReactions : RULES.rangedReactions)
       .filter(r => !r.isSpecial)
       .map(function (r) {
         let why = null;
-        if (r.id === 'dive' && !diveEscapes(atk).length) why = 'nowhere to dive that ends the attack';
-        if (r.id === 'dodge' && !dodgeSpots(atk).length) why = 'nowhere to step';
+        if (blocked[r.id]) why = blocked[r.id] + ' takes this away';
+        if (r.id === 'dive' && !why && !diveEscapes(atk).length) why = 'nowhere to dive that ends the attack';
+        if (r.id === 'dodge' && !why && !dodgeSpots(atk).length) why = 'nowhere to step';
         return { id: r.id, name: r.name, text: r.text, cost: r.cost, ok: !why, why: why };
       });
     /* and whatever the defender's own card lets them do for RP */
@@ -1008,13 +1464,33 @@ const Battle = (function () {
       /* the defender's own card, spent as a reaction */
       if (offered.ability !== undefined) {
         const t2 = pend.atk.target, ab = abilityOf(t2, offered.ability);
+        const atk2 = pend.atk;
         S.pending = null;
         S.players[t2.owner].rp = 0;
         log(t2.name + ' reacts: ' + ab.name + '.', 'reaction');
         if (ab.text) log(ab.text, 'note');
-        const keepActor = pend.atk.actor;
-        runEffects(t2, ab, undefined, t2.owner);
-        resolveAttack(pend.atk);
+
+        /* "that unit is targeted instead" — the defender picks who takes it */
+        if ((ab.effects || []).some(e => e.kind === 'redirect')) {
+          const swaps = alive().filter(x => x.owner === t2.owner && x.id !== t2.id &&
+                                            !isMarker(x) && couldBeHit(atk2.attacker, x, atk2));
+          if (!swaps.length) { log('Nobody else can be put in the way.', 'muted'); resolveAttack(atk2); return; }
+          S.pending = { kind: 'redirect', atk: atk2, ability: ab.name,
+                        options: swaps.map(x => x.id) };
+          emit();
+          return;
+        }
+
+        /* "before their attack resolves" — this goes off first, and if it puts
+           the attacker down their attack never happens */
+        const interrupts = (ab.effects || []).some(e => e.kind === 'attack');
+        runEffects(t2, ab, { attackerUnit: atk2.attacker }, t2.owner);
+        if (interrupts && !atk2.attacker.alive) {
+          log(atk2.attacker.name + ' is down before the shot — nothing comes of it.', 'reaction');
+          afterAction(atk2.actor === undefined ? S.turn.player : atk2.actor, {});
+          return;
+        }
+        resolveAttack(atk2);
         return;
       }
     }
@@ -1072,6 +1548,28 @@ const Battle = (function () {
     resolveAttack(atk);
   }
 
+  /* Could this attack legally be pointed at that unit instead? */
+  function couldBeHit(a, x, atk) {
+    const d = rangeTo(a, x) - a.radius - x.radius;
+    if (atk.range === 'ranged') {
+      return Board.canSee(S.board, a, x) && d <= (atk.weapon.range || 0);
+    }
+    return d <= (atk.weapon.range || 1);
+  }
+
+  /* The defender names who steps into it. */
+  function chooseRedirect(id) {
+    const pend = S.pending;
+    if (!pend || pend.kind !== 'redirect') return;
+    const atk = pend.atk;
+    const to = unit(id);
+    S.pending = null;
+    if (!to || pend.options.indexOf(id) < 0) { resolveAttack(atk); return; }
+    log(to.name + ' is put in the way — the attack is against them instead.', 'reaction');
+    atk.target = to;
+    resolveAttack(atk);
+  }
+
   function stillResolvable(atk) {
     const a = atk.attacker, t = atk.target;
     const d = rangeTo(a, t) - a.radius - t.radius;
@@ -1116,6 +1614,22 @@ const Battle = (function () {
     return { vp: vp, why: why };
   }
 
+  /* Anything a card does the moment its owner puts somebody down. */
+  function onKill(a, t, weapon) {
+    abilitiesOf(a).forEach(function (ab) {
+      if (ab.trigger !== 'onkill') return;
+      if (ab.weaponName && weapon && ab.weaponName !== weapon.name) return;
+      /* Al's Kill Count only counts what he did with the Bayonet */
+      if (/kill count/i.test(ab.name) && weapon && !/bayonet/i.test(weapon.name)) return;
+      (ab.effects || []).forEach(function (e) {
+        if (e.kind !== 'stat') return;
+        a[e.stat] = (a[e.stat] || 0) + (Number(e.value) || 1);
+        log(a.name + ': ' + ab.name + ' — ' + e.stat.toUpperCase() + ' is now ' +
+            a[e.stat] + '.', 'note');
+      });
+    });
+  }
+
   /* The RELIC falls where its carrier does. */
   function dropRelicFrom(u, destroyed) {
     if (!S.relic || S.relic.carrier !== u.id) return;
@@ -1134,33 +1648,70 @@ const Battle = (function () {
   function resolveAttack(atk, done) {
     const a = atk.attacker, t = atk.target, w = atk.weapon;
     faceTo(a, t);
-    const hitMod = (atk.hitMod || 0) + effectMod(a, 'hit');
-    const woundMod = (atk.woundMod || 0) + effectMod(a, 'wound');
+
+    const mods = attackMods(a, t, w, atk.range, {
+      chargeHigh: atk.chargeHigh, fromCharge: atk.fromCharge, overwatch: atk.overwatch });
+    if (mods.notes.length) log(mods.notes.join(' · ') + '.', 'note');
+
+    const hitMod = mods.hit + (atk.hitMod || 0);
+    const woundMod = mods.wound + (atk.woundMod || 0);
     const hitTarget = RULES.applyMod(Number(w.hit), hitMod).target;
 
-    const r = roll();
-    atk.rolls = { hit: r, hitTarget: hitTarget };
+    /* How many dice this weapon throws — the bowl shows them one at a time. */
+    const shots = diceFor(a, w);
+    if (shots.n > 1) log(shots.why + ': ' + shots.n + ' dice.', 'note');
 
-    /* A one always fails, whatever the modifiers say. */
-    if (r === 1 || r < hitTarget) {
-      log(a.name + ' rolls ' + r + ' against ' + hitTarget + '+ — misses.', 'miss');
-      finish(atk, { hit: false }, done);
-      return;
+    let hits = 0;
+    const hitRolls = [];
+    for (let i = 0; i < shots.n; i++) {
+      const r = roll();
+      hitRolls.push(r);
+      if (r !== 1 && r >= hitTarget) hits++;
     }
-    log(a.name + ' rolls ' + r + ' against ' + hitTarget + '+ — hits.', 'hitline');
+    atk.rolls = { hit: hitRolls[0], hitTarget: hitTarget, hitRolls: hitRolls, shots: shots.n };
+    log(a.name + ' rolls ' + hitRolls.join(', ') + ' against ' + hitTarget + '+ — ' +
+        (hits ? hits + (shots.n > 1 ? ' hit' + (hits === 1 ? '' : 's') : ' — hits') : 'misses') + '.',
+        hits ? 'hitline' : 'miss');
+
+    if (!hits) { finish(atk, { hit: false }, done); return; }
 
     const wTarget = RULES.applyMod(
       RULES.woundTarget(Number(w.strength), t.toughness), woundMod).target;
-    const wRoll = roll();
-    atk.rolls.wound = wRoll; atk.rolls.woundTarget = wTarget;
-    if (wRoll === 1 || wRoll < wTarget) {
-      log('Wound roll ' + wRoll + ' against ' + wTarget + '+ — no wound.', 'miss');
+    let wounds = 0;
+    const woundRolls = [];
+    for (let i = 0; i < hits; i++) {
+      const r = roll();
+      woundRolls.push(r);
+      if (r !== 1 && r >= wTarget) wounds++;
+    }
+    atk.rolls.wound = woundRolls[0];
+    atk.rolls.woundTarget = wTarget;
+    atk.rolls.woundRolls = woundRolls;
+
+    if (!wounds) {
+      log('Wound rolls ' + woundRolls.join(', ') + ' against ' + wTarget + '+ — no wound.', 'miss');
       finish(atk, { hit: true }, done);
       return;
     }
-    const dmg = (Number(w.damage) || 1) + (atk.damageMod || 0);
-    log('Wound roll ' + wRoll + ' against ' + wTarget + '+ — ' + dmg + ' damage.', 'damage');
+    const per = weaponDamage(w) + mods.damage + (atk.damageMod || 0);
+    const dmg = per * wounds;
+    log('Wound rolls ' + woundRolls.join(', ') + ' against ' + wTarget + '+ — ' +
+        (wounds > 1 ? wounds + ' wounds × ' + per + ' = ' : '') + dmg + ' damage.', 'damage');
     finish(atk, { hit: true, wound: true, damage: dmg }, done);
+  }
+
+  /* A weapon whose card says D3 or D6 rolls for it. */
+  function weaponDamage(w) {
+    const d = w.damage;
+    if (typeof d === 'number') return d;
+    const m = String(d || '1').match(/^D(\d)$/i);
+    if (!m) return Number(d) || 1;
+    const faces = Number(m[1]);
+    const r = roll();
+    const v = faces === 3 ? Math.ceil(r / 2) : r;
+    announce(r, null, 'DAMAGE ' + d);
+    log('Damage ' + d + ' — ' + v + '.', 'damage');
+    return v;
   }
 
   function finish(atk, result, done) {
@@ -1178,6 +1729,7 @@ const Battle = (function () {
       to: { x: t.x, y: t.y, z: Board.heightAt(S.board, t) },
       hit: !!result.hit, wound: !!result.wound, damage: result.damage || 0,
       rolls: atk.rolls || null, overwatch: !!atk.overwatch,
+      shots: atk.rolls ? atk.rolls.shots : 1,
       killed: false
     };
 
@@ -1197,6 +1749,7 @@ const Battle = (function () {
             ' (now ' + S.players[a.owner].vp + ').', 'kill');
         if (t.endsGame) S.endNow = t.name + ' is destroyed';
         dropRelicFrom(t, true);
+        onKill(a, t, atk.weapon);
       }
     }
     S.strikes.push(strike);
@@ -1277,7 +1830,8 @@ const Battle = (function () {
     actionsFor, rangedTargets, meleeTargets, chargeTargets, moveField, weaponsOf, reachOf,
     doMove, doShoot, doFight, doCharge, doOverwatch, doPass, doSecure, doRelic,
     abilityActions, useAbility, confirmAbility, arrivalSpots, abilityOf, moveOf,
-    chooseReaction, toggleWatcher, fireOverwatch, endTurn, placeMove,
+    cardPowers, useCardPower, holderOf,
+    chooseReaction, chooseRedirect, toggleWatcher, fireOverwatch, endTurn, placeMove,
     mustPass, elevation, diveEscapes, spotsWithin, fieldFor, snapMove
   };
 })();

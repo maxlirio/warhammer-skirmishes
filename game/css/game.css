@@ -156,6 +156,23 @@ body::before {
   color: var(--gold); margin-top: 2px;
 }
 
+.faccard {
+  border: 1px solid var(--gold-dim, #6d5720); background: rgba(40,30,10,.35);
+  padding: 8px; margin-bottom: 8px;
+}
+.facthead { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
+.factname { font-family: var(--gothic); letter-spacing: .1em; font-size: 10px; color: var(--gold-lit); }
+.factpool { font-family: var(--display); font-size: 16px; color: var(--gold-lit); }
+.factpow {
+  display: flex; flex-direction: column; gap: 2px; width: 100%; text-align: left;
+  padding: 6px 8px; margin-bottom: 4px; cursor: pointer;
+  background: var(--panel); border: 1px solid var(--line); color: var(--bone);
+}
+.factpow:hover:not(.off) { border-color: var(--gold); }
+.factpow.off { opacity: .4; cursor: default; }
+.factpow .pn { font-family: var(--gothic); letter-spacing: .08em; font-size: 10px; }
+.factpow .pt { font-size: 9.5px; color: var(--dim); line-height: 1.4; }
+
 .asub {
   font-family: var(--gothic); letter-spacing: .18em; font-size: 9px;
   color: var(--gold); margin: 10px 0 5px;
