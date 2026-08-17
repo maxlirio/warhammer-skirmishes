@@ -1714,6 +1714,10 @@ const UI = (function () {
           '<div class="cname">RULES REFERENCE</div>' +
           '<div class="cdesc">Every Standard Action and Reaction, the wound table and the ' +
             'elevation bonuses, in full.</div></div></button>' +
+        '<a class="choice" href="game/index.html"><div class="cmain">' +
+          '<div class="cname">THE VIDEO GAME</div>' +
+          '<div class="cdesc">The same rules, played on a screen instead of a table — ' +
+            'it rolls its own dice and measures its own ranges.</div></div></a>' +
         '<button class="choice" data-act="showlog"><div class="cmain">' +
           '<div class="cname">FULL GAME LOG</div>' +
           '<div class="cdesc tip">Every AP, VP, wound and effect change since the first turn.</div></div></button>' +

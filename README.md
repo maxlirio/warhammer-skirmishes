@@ -31,6 +31,36 @@ Range, line of sight, movement legality, charge legality, whether an overwatch
 trigger occurred, and dice rolls. You decide all of that on the table and tell
 the app the outcome. It never asks "is the target in range?".
 
+## The video game
+
+`game/` is the same rules played on a screen instead of a table:
+**https://maxlirio.github.io/warhammer-skirmishes/game/**
+
+It is the companion app's opposite by design. The companion has no eyes and so
+must ask; the video game has a board, so it measures its own ranges, traces its
+own line of sight and rolls its own dice. Because it can see, it can answer the
+questions the companion has to put to you — whether a DUCK broke line of sight,
+whether a DIVE has anywhere to go that actually ends the attack.
+
+Both load the same `js/rules.js`, so costs, the wound table, the reaction lists
+and the elevation bonuses can never drift apart between them. House-rule the
+game by editing that one file and both change together.
+
+| | |
+|---|---|
+| **Three battlefields** | Drawn as ASCII in `game/js/maps.js`; one inch is one cell |
+| **MOVE** | Shows the arc you can reach — Dijkstra in eighths of an inch, no cutting a diagonal past the corner of a wall |
+| **SHOOT** | Shows everything you can see, blocked by terrain that stands higher than both ends of the look |
+| **OVERWATCH** | Place the token within 12"; its 3" trigger ring is drawn before you commit, and firing interrupts the mover mid-step |
+| **CHARGE** | Rolls the 1D6 and refuses gracefully if it cannot reach; charging down from high ground adds +1 Wound and +1 Damage |
+| **Models** | Placeholders — a based token with initials and a wound track. `Render.setArt(unitId, src)` drops a scan in when the scanner app is ready |
+
+Each map gives a side exactly one home objective it can hold cheaply; the rest
+sit on open lanes in sight of one another, so holding enough of them to win
+means standing where you can be shot. `node tools/checkmaps.js` asserts that
+against the geometry — reachability, sight-lines between objectives, and that
+neither side is handed two objectives it can hold without being shot at.
+
 ## Walkthrough or experienced
 
 The first thing setup asks is how much the app should explain.
