@@ -1,7 +1,11 @@
 /* =========================================================================
    THE SCREEN
    Menu, then the table. One player at a time has control — the HUD says who,
-   and nothing else will answer to a click until they are done.
+   and nothing else answers to a click until they are done.
+
+   Everything the player points at is a place on the table in inches, picked
+   off the 3D scene, so a move is measured with a tape and not counted out in
+   squares.
    ========================================================================= */
 
 const GameUI = (function () {
@@ -13,12 +17,14 @@ const GameUI = (function () {
     if (text != null) n.textContent = text;
     return n;
   };
+  const inches = n => n.toFixed(1) + '"';
 
-  /* What the player is in the middle of choosing. */
-  let mode = null;          // {kind, unitId, cells, targets, weapon}
-  let selected = null;      // unit id
-  let hover = null;         // {x,y}
+  let mode = null;          // what the player is in the middle of choosing
+  let selected = null;
+  let hover = null;         // {x, y} on the table
+  let hoverPx = { x: 0, y: 0 };
   let cfg = { mapId: null, factions: ['astra', 'orks'], names: ['Player One', 'Player Two'] };
+  let started = false;
 
   /* --------------------------------------------------------------- the menu */
 
@@ -30,17 +36,13 @@ const GameUI = (function () {
     const maps = $('mapPick');
     maps.innerHTML = '';
     MAPS.list.forEach(function (m) {
-      const dims = { w: Math.max.apply(null, m.rows.map(r => r.length)), h: m.rows.length };
       const card = el('button', 'mapcard');
-      card.innerHTML =
-        '<span class="mapname"></span>' +
-        '<span class="mapsize"></span>' +
-        '<span class="mapblurb"></span>';
-      card.querySelector('.mapname').textContent = m.name;
-      card.querySelector('.mapsize').textContent = dims.w + '" × ' + dims.h + '"  ·  ' +
-        m.rows.join('').split('').filter(c => c === 'o' || c === 'O').length + ' objectives';
-      card.querySelector('.mapblurb').textContent = m.blurb;
-      card.appendChild(thumb(m, dims));
+      card.appendChild(el('span', 'mapname', m.name));
+      card.appendChild(el('span', 'mapsize',
+        m.w + '" × ' + m.h + '"  ·  ' + m.objectives.length + ' objectives  ·  ' +
+        m.terrain.filter(t => t.blocks).length + ' pieces of blocking terrain'));
+      card.appendChild(el('span', 'mapblurb', m.blurb));
+      card.appendChild(thumb(m));
       if (cfg.mapId === m.id) card.classList.add('on');
       card.onclick = () => { cfg.mapId = m.id; showMenu(); };
       maps.appendChild(card);
@@ -57,37 +59,113 @@ const GameUI = (function () {
       });
       const roster = $('roster' + p);
       roster.innerHTML = '';
-      const f = PRESETS.find(x => x.id === cfg.factions[p]);
-      f.units.forEach(u => roster.appendChild(
+      PRESETS.find(x => x.id === cfg.factions[p]).units.forEach(u => roster.appendChild(
         el('li', null, u.name + '  ·  M' + u.move + '"  W' + u.maxWounds + '  T' + u.toughness +
                        (u.oc ? '  OC' + u.oc : ''))));
     });
 
-    $('startBtn').disabled = !cfg.mapId;
-    $('startBtn').textContent = cfg.mapId ? 'DEPLOY' : 'CHOOSE A BATTLEFIELD';
+    drawNet();
+    $('startBtn').disabled = !cfg.mapId || netMode !== 'local';
+    $('startBtn').textContent = !cfg.mapId ? 'CHOOSE A BATTLEFIELD'
+      : netMode === 'local' ? 'DEPLOY' : 'WAITING FOR THE ROOM';
   }
 
-  /* A little painted preview of the map, drawn straight from the ASCII. */
-  function thumb(m, dims) {
-    const c = el('canvas', 'thumb');
-    const s = 4;
-    c.width = dims.w * s; c.height = dims.h * s;
-    const g = c.getContext('2d');
-    for (let y = 0; y < dims.h; y++) {
-      for (let x = 0; x < dims.w; x++) {
-        const ch = m.rows[y][x] || '.';
-        g.fillStyle = ch === '#' ? '#0b0a09'
-          : ch === '^' || ch === 'O' ? '#5d4c37'
-          : ch === '1' ? '#2f4a63'
-          : ch === '2' ? '#5a2b24'
-          : '#26221b';
-        g.fillRect(x * s, y * s, s, s);
-        if (ch === 'o' || ch === 'O') {
-          g.fillStyle = '#b8912f';
-          g.fillRect(x * s + 1, y * s + 1, s - 2, s - 2);
-        }
+  /* ------------------------------------------------------- playing somebody */
+
+  let netMode = 'local';
+
+  function drawNet() {
+    ['netLocal', 'netHost', 'netJoin'].forEach(function (id, i) {
+      $(id).classList.toggle('on', netMode === ['local', 'host', 'join'][i]);
+    });
+    const panel = $('netPanel');
+    if (netMode === 'local') { panel.hidden = true; return; }
+    panel.hidden = false;
+    panel.innerHTML = '';
+
+    if (netMode === 'host') {
+      const st = Net.status();
+      if (st === 'offline') {
+        panel.appendChild(el('p', 'nhint',
+          'You pick the battlefield and both forces, then read the code out to ' +
+          'your opponent. The dice are seeded from here so you both see the ' +
+          'same rolls.'));
+        const go = el('button', 'netgo', 'OPEN THE ROOM');
+        go.disabled = !cfg.mapId;
+        go.onclick = function () {
+          Net.host(cfg, function (dealt, seat) { cfg = dealt; startNet(seat); });
+          drawNet();
+        };
+        panel.appendChild(go);
+      } else if (/error/.test(st)) {
+        panel.appendChild(el('p', 'nerr', 'Could not open the room: ' + st.slice(6) +
+          '. Check you are online.'));
+      } else {
+        panel.appendChild(el('div', 'ncode', Net.code() || '····'));
+        panel.appendChild(el('p', 'nhint', st === 'waiting'
+          ? 'Read that out. The game starts the moment they join.'
+          : 'Opening the room…'));
       }
+      return;
     }
+
+    const st = Net.status();
+    if (st === 'offline' || /error/.test(st)) {
+      panel.appendChild(el('p', 'nhint',
+        'Type the code your opponent read out. Their choice of battlefield and ' +
+        'forces is the one you will play — yours above is ignored.'));
+      const row = el('div', 'nrow');
+      const inp = el('input', 'ncodein');
+      inp.maxLength = 4;
+      inp.placeholder = 'CODE';
+      inp.autocapitalize = 'characters';
+      inp.oninput = () => { inp.value = inp.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); };
+      const go = el('button', 'netgo', 'JOIN');
+      go.onclick = function () {
+        if (inp.value.length < 4) return;
+        Net.join(inp.value, function (dealt, seat) { cfg = dealt; startNet(seat); });
+        drawNet();
+      };
+      row.appendChild(inp); row.appendChild(go);
+      panel.appendChild(row);
+      if (/error/.test(st)) {
+        panel.appendChild(el('p', 'nerr', 'No room answered on that code (' +
+          st.slice(6) + '). Check the code and that you are online.'));
+      }
+    } else {
+      panel.appendChild(el('p', 'nhint', 'Connecting to ' + Net.code() + '…'));
+    }
+  }
+
+  function startNet(seat) {
+    const names = cfg.names.slice();
+    names[seat] = names[seat] + ' (you)';
+    cfg = Object.assign({}, cfg, { names: names });
+    begin();
+  }
+
+  /* A plan of the table, drawn from the same boxes the game measures. */
+  function thumb(m) {
+    const c = el('canvas', 'thumb');
+    const s = 5;
+    c.width = m.w * s; c.height = m.h * s;
+    const g = c.getContext('2d');
+    g.fillStyle = '#26221b';
+    g.fillRect(0, 0, c.width, c.height);
+    m.deploy.forEach(function (z, i) {
+      g.fillStyle = i === 0 ? 'rgba(47,74,99,.75)' : 'rgba(90,43,36,.75)';
+      g.fillRect(z.x * s, z.y * s, z.w * s, z.h * s);
+    });
+    m.terrain.forEach(function (t) {
+      g.fillStyle = t.blocks ? '#0b0a09' : '#5d4c37';
+      g.fillRect(t.x * s, t.y * s, t.w * s, t.h * s);
+    });
+    m.objectives.forEach(function (o) {
+      g.strokeStyle = '#b8912f'; g.lineWidth = 2;
+      g.beginPath(); g.arc(o.x * s, o.y * s, 3 * s * 0.5, 0, Math.PI * 2); g.stroke();
+      g.fillStyle = '#b8912f';
+      g.beginPath(); g.arc(o.x * s, o.y * s, 2.4, 0, Math.PI * 2); g.fill();
+    });
     return c;
   }
 
@@ -96,69 +174,128 @@ const GameUI = (function () {
   function begin() {
     $('menu').hidden = true;
     $('battle').hidden = false;
-    Render.attach($('board'));
+    Render3D.attach($('board'));
+    resize();                      /* size the canvas before the table is framed */
     Battle.on(render);
     Battle.start(cfg);
+    started = true;
     window.addEventListener('resize', resize);
     resize();
+    if (window.Net) Net.onStart(cfg);
   }
 
   function resize() {
-    const S = Battle.get();
-    if (!S) return;
     const wrap = $('boardwrap');
-    Render.fit(S.board, wrap.clientWidth - 4, wrap.clientHeight - 4);
-    render(S);
+    Render3D.resize(wrap.clientWidth, wrap.clientHeight);
   }
 
-  /* Everything the canvas should be showing, worked out from `mode`. */
+  /* ---------------------------------------------------- what the table shows */
+
   function view(S) {
-    const v = { selected: selected, ready: readyUnits(S) };
+    const v = {};
+    const pend = S.pending;
+
+    /* A reaction that moves you: the table is waiting for a destination. */
+    if (pend && pend.kind === 'move') {
+      v.area = pend.spots;
+      v.areaColour = Render3D.COL.goldLit;
+      v.areaOpacity = 0.5;
+      v.areaCell = pend.step || 0.22;
+      v.areaGlow = true;
+      const u = Battle.unit(pend.unitId);
+      v.focus = u;
+      const land = hover
+        ? (Battle.snapMove(pend, hover) || Render3D.pickNearest(hoverPx.x, hoverPx.y, pend.spots))
+        : null;
+      if (land) {
+        v.tape = tape(u, land, Board.costTo(pend.field, land));
+        v.marks = [{ x: land.x, y: land.y, r: u.radius + 0.35,
+                     colour: Render3D.COL.goldLit }];
+      }
+      return v;
+    }
     if (!mode) return v;
     const u = Battle.unit(mode.unitId);
     if (!u) return v;
+    v.focus = u;
 
     if (mode.kind === 'move') {
-      v.cells = mode.field.cells;
-      v.fill = Render.COL.move; v.edge = Render.COL.moveEdge;
+      v.area = mode.spots;
+      v.areaColour = Render3D.COL.move;
+      v.areaOpacity = 0.3;
+      v.areaCell = 0.4;
+      if (hover && Board.canReach(mode.field, hover, mode.inches)) {
+        v.tape = tape(u, hover, Board.costTo(mode.field, hover));
+      }
     } else if (mode.kind === 'shoot') {
-      v.cells = mode.sight;
-      v.fill = Render.COL.sight; v.edge = Render.COL.sightEdge;
-      v.targets = mode.targets;
+      v.area = mode.sight;
+      v.areaColour = Render3D.COL.sight;
+      v.areaOpacity = 0.22;
+      v.areaCell = 0.5;
+      v.marks = mode.targets.map(id => mark(Battle.unit(id)));
+      const t = hoveredTarget(S);
+      if (t) v.tape = tape(u, t, Battle.rangeTo(u, t), '#e8c65c');
     } else if (mode.kind === 'fight' || mode.kind === 'charge') {
-      v.targets = mode.targets;
-      if (mode.kind === 'charge') {
-        v.ring = { x: u.x, y: u.y, r: 6 };
-        v.ringColour = Render.COL.moveEdge;
-      }
+      v.marks = mode.targets.map(id => mark(Battle.unit(id)));
+      if (mode.kind === 'charge') v.ring = { x: u.x, y: u.y, r: 6 };
+      const t = hoveredTarget(S);
+      if (t) v.tape = tape(u, t, Battle.rangeTo(u, t), '#e8c65c');
     } else if (mode.kind === 'overwatch') {
-      v.cells = mode.cells;
-      v.fill = Render.COL.watch; v.edge = Render.COL.watchEdge;
-      if (hover && mode.keys[hover.x + ',' + hover.y]) {
+      v.area = mode.spots;
+      v.areaColour = Render3D.COL.watch;
+      v.areaOpacity = 0.2;
+      v.areaCell = 0.6;
+      if (hover && Battle.rangeTo(u, hover) <= 12) {
         v.ring = { x: hover.x, y: hover.y, r: 3 };
-        v.ringColour = Render.COL.watchEdge;
+        v.ringColour = Render3D.COL.watch;
+        v.tape = tape(u, hover, Battle.rangeTo(u, hover));
       }
-    }
-    if (hover && v.targets) {
-      const t = S.units.find(t => t.alive && t.x === hover.x && t.y === hover.y);
-      if (t && v.targets.indexOf(t.id) >= 0) { v.threatFrom = u; v.threatTo = t; }
     }
     return v;
   }
 
-  function readyUnits(S) {
-    if (S.pending || S.winner !== null) return [];
-    return Battle.mine(S.control.player)
-      .filter(u => Battle.actionsFor(u.id).some(a => a.ok))
-      .map(u => u.id);
+  function tape(from, to, len, colour) {
+    const S = Battle.get();
+    return {
+      from: { x: from.x, y: Board.heightAt(S.board, from), z: from.y },
+      to: { x: to.x, y: Board.heightAt(S.board, to), z: to.y },
+      label: inches(len), colour: colour
+    };
   }
+
+  const mark = u => ({ x: u.x, y: u.y, r: u.radius + 0.55, colour: Render3D.COL.watch });
+
+  function hoveredTarget(S) {
+    if (!hover || !mode || !mode.targets) return null;
+    let best = null, bestD = 1.4;
+    mode.targets.forEach(function (id) {
+      const t = Battle.unit(id);
+      const d = Math.hypot(t.x - hover.x, t.y - hover.y);
+      if (d < bestD) { bestD = d; best = t; }
+    });
+    return best;
+  }
+
+  let leaning = false;
 
   function render(S) {
     if (S.winner !== null) { showVictory(S); return; }
-    Render.draw(S, view(S));
+    /* Come in close while somebody is placing a model, then pull back out. */
+    const placing = S.pending && S.pending.kind === 'move';
+    if (placing && !leaning) {
+      leaning = true;
+      Render3D.leanIn(Battle.unit(S.pending.unitId), 22);
+    } else if (!placing && leaning) {
+      leaning = false;
+      Render3D.leanOut();
+    }
+    Render3D.draw(S, Object.assign(view(S), { selected: selected }));
     drawHUD(S);
     drawPending(S);
+    if (window.Net) Net.onState(S);
   }
+
+  /* ------------------------------------------------------------------ HUD */
 
   function drawHUD(S) {
     const ctrl = S.control.player;
@@ -181,13 +318,11 @@ const GameUI = (function () {
                                 (selected === u.id ? ' sel' : ''));
         row.appendChild(el('span', 'uname', u.name));
         const pips = el('span', 'pips');
-        for (let i = 0; i < u.maxWounds; i++) {
-          pips.appendChild(el('i', i < u.wounds ? 'pip on' : 'pip'));
-        }
+        for (let i = 0; i < u.maxWounds; i++) pips.appendChild(el('i', i < u.wounds ? 'pip on' : 'pip'));
         row.appendChild(pips);
         if (u.overwatch) row.appendChild(el('span', 'tag', 'OW'));
         if (u.kills) row.appendChild(el('span', 'tag kills', '☠' + u.kills));
-        row.onclick = () => { if (u.alive) { select(u.id); } };
+        row.onclick = () => { if (u.alive) { select(u.id); Render3D.focusOn(u); } };
         list.appendChild(row);
       });
     });
@@ -196,40 +331,53 @@ const GameUI = (function () {
     drawLog(S);
   }
 
+  function myTurnBlocked(S) {
+    return window.Net && Net.active() && Net.seat() !== S.control.player;
+  }
+
   function drawActions(S) {
     const bar = $('actions');
     bar.innerHTML = '';
     const ctrl = S.control.player;
 
-    if (S.pending) {
-      bar.appendChild(el('div', 'prompt', 'waiting on the reaction…'));
+    if (S.pending && S.pending.kind === 'move') {
+      const pend = S.pending;
+      bar.appendChild(el('div', 'ahead2', pend.label));
+      bar.appendChild(el('div', 'prompt', pend.hint));
+      bar.appendChild(el('div', 'prompt warn', 'Click the table to place ' +
+        Battle.unit(pend.unitId).name + '.'));
       return;
     }
+    if (S.pending) { bar.appendChild(el('div', 'prompt', 'waiting on the reaction…')); return; }
 
     const head = el('div', 'ahead');
     head.appendChild(el('span', 'who', S.players[ctrl].name + ' to act'));
     if (S.control.forcedUnitId) {
-      const f = Battle.unit(S.control.forcedUnitId);
-      head.appendChild(el('span', 'forced', 'the chain is on ' + f.name));
+      head.appendChild(el('span', 'forced',
+        'the chain is on ' + Battle.unit(S.control.forcedUnitId).name));
     }
     bar.appendChild(head);
 
+    if (myTurnBlocked(S)) {
+      bar.appendChild(el('div', 'prompt warn', 'Waiting for your opponent.'));
+      return;
+    }
+
     const u = selected ? Battle.unit(selected) : null;
     if (!u || !u.alive) {
-      bar.appendChild(el('div', 'prompt', 'pick one of your models'));
+      bar.appendChild(el('div', 'prompt', 'click one of your models on the table'));
     } else if (u.owner !== ctrl) {
       bar.appendChild(el('div', 'prompt', 'not yours to move right now'));
     } else {
       bar.appendChild(unitCard(u, S));
-      const acts = Battle.actionsFor(u.id);
       const row = el('div', 'abtns');
-      acts.forEach(function (a) {
+      Battle.actionsFor(u.id).forEach(function (a) {
         const def = RULES.actionById(a.id);
         const b = el('button', 'abtn' + (a.ok ? '' : ' off') +
                                (mode && mode.kind === a.id && mode.unitId === u.id ? ' on' : ''));
         b.appendChild(el('span', 'an', def ? def.name : a.id.toUpperCase()));
         b.appendChild(el('span', 'ac', a.cost + ' AP'));
-        b.title = a.why ? a.why : (def ? def.short || def.text : '');
+        b.title = a.why || (def ? def.short || def.text : '');
         if (a.why) b.appendChild(el('span', 'awhy', a.why));
         b.disabled = !a.ok;
         b.onclick = () => enter(a.id, u.id);
@@ -239,12 +387,12 @@ const GameUI = (function () {
     }
 
     const foot = el('div', 'afoot');
-    const pass = el('button', 'pass', S.chain.active ? 'PASS' : 'PASS');
-    pass.onclick = () => { mode = null; Battle.doPass(false); };
+    const pass = el('button', 'pass', 'PASS');
+    pass.onclick = () => { mode = null; act(() => Battle.doPass(false), { t: 'pass' }); };
     foot.appendChild(pass);
     if (ctrl === S.turn.player) {
       const end = el('button', 'endturn', 'END TURN');
-      end.onclick = () => { mode = null; selected = null; Battle.endTurn(); };
+      end.onclick = () => { mode = null; selected = null; act(() => Battle.endTurn(), { t: 'endturn' }); };
       foot.appendChild(end);
     }
     if (mode) {
@@ -262,10 +410,10 @@ const GameUI = (function () {
   function unitCard(u, S) {
     const c = el('div', 'ucard');
     c.appendChild(el('div', 'ucname', u.name));
+    const up = Board.heightAt(S.board, u);
     c.appendChild(el('div', 'ustats',
       'M ' + u.move + '"   W ' + u.wounds + '/' + u.maxWounds + '   T ' + u.toughness +
-      '   OC ' + (u.oc || 0) +
-      (Board.heightAt(S.board, u.x, u.y) === Board.RAISED ? '   ▲ HIGH GROUND' : '')));
+      '   OC ' + (u.oc || 0) + (up > 0 ? '   ▲ ' + inches(up) + ' UP' : '')));
     const w = el('div', 'uweaps');
     u.weapons.forEach(function (wp) {
       if (wp.hit == null) return;
@@ -284,7 +432,7 @@ const GameUI = (function () {
     const box = $('log');
     const atBottom = box.scrollTop + box.clientHeight >= box.scrollHeight - 30;
     box.innerHTML = '';
-    S.log.slice(-70).forEach(l => box.appendChild(el('div', 'l ' + l.cls, l.text)));
+    S.log.slice(-80).forEach(l => box.appendChild(el('div', 'l ' + l.cls, l.text)));
     if (atBottom) box.scrollTop = box.scrollHeight;
   }
 
@@ -300,73 +448,128 @@ const GameUI = (function () {
     const S = Battle.get();
     if (mode && mode.kind === kind && mode.unitId === unitId) { mode = null; render(S); return; }
     const u = Battle.unit(unitId);
+
     if (kind === 'move') {
-      mode = { kind: 'move', unitId: unitId, field: Battle.moveField(unitId) };
+      const mf = Battle.moveField(unitId);
+      mode = { kind: 'move', unitId: unitId, field: mf.field, inches: mf.inches,
+               spots: Board.sampleReach(mf.field, mf.inches, 0.4) };
     } else if (kind === 'shoot') {
-      const targets = Battle.rangedTargets(unitId);
       const guns = Battle.weaponsOf(u, 'ranged');
-      const reach = Math.max(...guns.map(g => g.range || 0));
-      mode = {
-        kind: 'shoot', unitId: unitId, targets: targets,
-        sight: Board.visibleCells(S.board, u, reach)
-      };
+      const reach = Math.max.apply(null, guns.map(g => g.range || 0));
+      mode = { kind: 'shoot', unitId: unitId, targets: Battle.rangedTargets(unitId),
+               sight: Board.sampleSight(S.board, u, reach, 0.5) };
     } else if (kind === 'fight') {
       mode = { kind: 'fight', unitId: unitId, targets: Battle.meleeTargets(unitId) };
     } else if (kind === 'charge') {
       mode = { kind: 'charge', unitId: unitId, targets: Battle.chargeTargets(unitId) };
     } else if (kind === 'overwatch') {
-      /* The token goes anywhere within 12" — measured, not walked. */
-      const cells = Board.within(S.board, u, 12, false);
-      const keys = {};
-      cells.forEach(c => { keys[c.x + ',' + c.y] = true; });
-      mode = { kind: 'overwatch', unitId: unitId, cells: cells, keys: keys };
+      /* The token is placed within 12" — measured, not walked. */
+      const spots = [];
+      for (let dy = -12; dy <= 12; dy += 0.6) {
+        for (let dx = -12; dx <= 12; dx += 0.6) {
+          if (dx * dx + dy * dy > 144) continue;
+          const p = { x: u.x + dx, y: u.y + dy };
+          if (!Board.inside(S.board, p)) continue;
+          spots.push(p);
+        }
+      }
+      mode = { kind: 'overwatch', unitId: unitId, spots: spots };
     }
     render(S);
   }
 
-  /* ---------------------------------------------------------- canvas input */
+  /* ---------------------------------------------------------- table input */
 
   function wire() {
     const cv = $('board');
-    cv.addEventListener('mousemove', function (e) {
-      const r = cv.getBoundingClientRect();
-      const c = Render.cellAt(e.clientX - r.left, e.clientY - r.top);
-      if (!hover || hover.x !== c.x || hover.y !== c.y) { hover = c; render(Battle.get()); }
+    cv.addEventListener('pointermove', function (e) {
+      if (!started || e.buttons) return;
+      const p = Render3D.pick(e.clientX, e.clientY);
+      if (!p) return;
+      hoverPx = { x: e.clientX, y: e.clientY };
+      if (!hover || Math.hypot(hover.x - p.x, hover.y - p.y) > 0.12) {
+        hover = { x: p.x, y: p.y };
+        render(Battle.get());
+      }
     });
-    cv.addEventListener('mouseleave', () => { hover = null; render(Battle.get()); });
+    cv.addEventListener('pointerleave', function () {
+      if (!started) return;
+      hover = null; render(Battle.get());
+    });
     cv.addEventListener('click', function (e) {
-      const r = cv.getBoundingClientRect();
-      const c = Render.cellAt(e.clientX - r.left, e.clientY - r.top);
-      click(c);
+      if (!started || e.shiftKey) return;
+      click(e.clientX, e.clientY);
     });
     $('startBtn').onclick = begin;
     $('againBtn').onclick = () => location.reload();
+    $('viewP0').onclick = () => Render3D.viewFrom(0);
+    $('viewP1').onclick = () => Render3D.viewFrom(1);
+    $('netLocal').onclick = () => { Net.hangUp(); netMode = 'local'; showMenu(); };
+    $('netHost').onclick  = () => { Net.hangUp(); netMode = 'host';  showMenu(); };
+    $('netJoin').onclick  = () => { Net.hangUp(); netMode = 'join';  showMenu(); };
+    Net.onChange(() => { if (!started) drawNet(); });
   }
 
-  function click(c) {
+  /* Run a move locally and tell the other end about it. */
+  function act(fn, wire) {
+    fn();
+    if (window.Net && Net.active() && wire) Net.send(wire);
+  }
+
+  function click(cx, cy) {
     const S = Battle.get();
-    if (!S || S.pending || S.winner !== null) return;
-    const hit = S.units.find(u => u.alive && u.x === c.x && u.y === c.y);
+    if (!S || S.winner !== null) return;
+    const p = Render3D.pick(cx, cy);
+    if (!p) return;
+    const at = { x: p.x, y: p.y };
+
+    /* Placing a model after a reaction that moves it. */
+    if (S.pending && S.pending.kind === 'move') {
+      if (myTurnBlocked(S) && Net.seat() !== Battle.unit(S.pending.unitId).owner) return;
+      const spot = Battle.snapMove(S.pending, at) ||
+                   Render3D.pickNearest(cx, cy, S.pending.spots);
+      if (!spot) return;
+      act(() => Battle.placeMove(spot), { t: 'place', at: spot });
+      return;
+    }
+    if (S.pending) return;
+    if (myTurnBlocked(S)) return;
+
+    const hit = Render3D.pickUnit(cx, cy, S);
 
     if (mode) {
-      const inField = f => f && f.cost[c.y * S.board.w + c.x] !== Infinity;
-      if (mode.kind === 'move' && inField(mode.field)) {
-        const id = mode.unitId; mode = null;
-        Battle.doMove(id, c);
-        return;
+      if (mode.kind === 'move') {
+        const to = Board.canReach(mode.field, at, mode.inches) ? at
+                 : Render3D.pickNearest(cx, cy, mode.spots, 30);
+        if (to) {
+          const id = mode.unitId; mode = null;
+          act(() => Battle.doMove(id, to), { t: 'move', id: id, at: to });
+          return;
+        }
       }
-      if (mode.kind === 'overwatch' && mode.keys[c.x + ',' + c.y]) {
-        const id = mode.unitId; mode = null;
-        Battle.doOverwatch(id, c);
-        return;
+      if (mode.kind === 'overwatch') {
+        const u = Battle.unit(mode.unitId);
+        const to = Battle.rangeTo(u, at) <= 12 ? at
+                 : Render3D.pickNearest(cx, cy, mode.spots, 30);
+        if (to) {
+          const id = mode.unitId; mode = null;
+          act(() => Battle.doOverwatch(id, to), { t: 'ow', id: id, at: to });
+          return;
+        }
       }
       if (hit && mode.targets && mode.targets.indexOf(hit.id) >= 0) {
         const id = mode.unitId, kind = mode.kind;
-        if (kind === 'charge') { mode = null; Battle.doCharge(id, hit.id); return; }
+        if (kind === 'charge') {
+          mode = null;
+          act(() => Battle.doCharge(id, hit.id), { t: 'charge', id: id, tid: hit.id });
+          return;
+        }
         pickWeapon(id, hit.id, kind === 'shoot' ? 'ranged' : 'melee', function (name) {
           mode = null;
-          if (kind === 'shoot') Battle.doShoot(id, hit.id, name);
-          else Battle.doFight(id, hit.id, name);
+          if (kind === 'shoot') act(() => Battle.doShoot(id, hit.id, name),
+                                    { t: 'shoot', id: id, tid: hit.id, w: name });
+          else act(() => Battle.doFight(id, hit.id, name),
+                   { t: 'fight', id: id, tid: hit.id, w: name });
         });
         return;
       }
@@ -374,14 +577,13 @@ const GameUI = (function () {
     if (hit) select(hit.id);
   }
 
-  /* One weapon and it just fires; more than one and you choose. */
   function pickWeapon(attackerId, targetId, type, then) {
     const a = Battle.unit(attackerId), t = Battle.unit(targetId);
-    const d = Board.dist(a, t);
+    const d = Battle.rangeTo(a, t) - a.radius - t.radius;
     const usable = Battle.weaponsOf(a, type)
       .filter(w => d <= (w.range || (type === 'melee' ? 1 : 0)));
     if (usable.length <= 1) { then(usable.length ? usable[0].name : null); return; }
-    modal('CHOOSE A WEAPON', a.name + ' → ' + t.name + ', ' + d.toFixed(1) + '" away',
+    modal('CHOOSE A WEAPON', a.name + ' → ' + t.name + ', ' + inches(Battle.rangeTo(a, t)) + ' away',
       usable.map(w => ({
         label: w.name,
         sub: (w.range || 1) + '"  ·  ' + w.hit + '+ to hit  ·  S' + w.strength + '  ·  D' + w.damage,
@@ -392,7 +594,7 @@ const GameUI = (function () {
   /* ------------------------------------------------------------ the modals */
 
   function drawPending(S) {
-    if (!S.pending) { closeModal(); return; }
+    if (!S.pending || S.pending.kind === 'move') { closeModal(); return; }
     if (S.pending.kind === 'reaction') return reactionModal(S);
     if (S.pending.kind === 'overwatch') return overwatchModal(S);
   }
@@ -400,42 +602,51 @@ const GameUI = (function () {
   function reactionModal(S) {
     const atk = S.pending.atk;
     const t = atk.target, a = atk.attacker;
+    if (window.Net && Net.active() && Net.seat() !== t.owner) {
+      modal(atk.range === 'melee' ? 'MELEE REACTION' : 'RANGED REACTION',
+        a.name + ' attacks ' + t.name + '. Waiting for ' + S.players[t.owner].name + '.',
+        [], t.owner, true);
+      return;
+    }
     const rp = S.players[t.owner].rp;
-    const opts = S.pending.options.map(function (o) {
-      return {
-        label: o.name,
-        sub: o.why ? o.why : o.text,
-        off: !o.ok || o.cost > rp,
-        on: () => Battle.chooseReaction(o.id)
-      };
-    });
-    opts.push({ label: 'NO REACTION', sub: 'let it come', on: () => Battle.chooseReaction('none') });
-    modal(
-      atk.range === 'melee' ? 'MELEE REACTION' : 'RANGED REACTION',
-      a.name + ' attacks ' + t.name + ' with the ' + atk.weapon.name +
-      ' — ' + atk.weapon.hit + '+ to hit, S' + atk.weapon.strength + ', D' + atk.weapon.damage +
-      '.  You have ' + rp + ' RP.',
+    const opts = S.pending.options.map(o => ({
+      label: o.name, sub: o.why || o.text,
+      off: !o.ok || o.cost > rp,
+      on: () => act(() => Battle.chooseReaction(o.id), { t: 'react', r: o.id })
+    }));
+    opts.push({ label: 'NO REACTION', sub: 'let it come',
+                on: () => act(() => Battle.chooseReaction('none'), { t: 'react', r: 'none' }) });
+    modal(atk.range === 'melee' ? 'MELEE REACTION' : 'RANGED REACTION',
+      a.name + ' attacks ' + t.name + ' with the ' + atk.weapon.name + ' at ' +
+      inches(Battle.rangeTo(a, t)) + ' — ' + atk.weapon.hit + '+ to hit, S' +
+      atk.weapon.strength + ', D' + atk.weapon.damage + '.  You have ' + rp + ' RP.',
       opts, t.owner, true);
   }
 
   function overwatchModal(S) {
     const mover = Battle.unit(S.pending.moverId);
+    const owner = Battle.unit(S.pending.watchers[0]).owner;
+    if (window.Net && Net.active() && Net.seat() !== owner) {
+      modal('OVERWATCH TRIGGERED', mover.name + ' walked into a watched arc. Waiting for ' +
+        S.players[owner].name + '.', [], owner, true);
+      return;
+    }
     const rows = S.pending.watchers.map(function (id) {
       const w = Battle.unit(id);
       const on = S.pending.queue.indexOf(id) >= 0;
       return {
         label: (on ? '✓ ' : '') + w.name,
-        sub: 'fires at −1 to hit, then the token is spent',
-        cls: on ? 'picked' : '',
-        keep: true,
-        on: () => Battle.toggleWatcher(id)
+        sub: 'fires at −1 to hit from ' + inches(Battle.rangeTo(w, mover)) +
+             ', then the token is spent',
+        cls: on ? 'picked' : '', keep: true,
+        on: () => act(() => Battle.toggleWatcher(id), { t: 'watch', id: id })
       };
     });
     rows.push({ label: 'RESOLVE', sub: 'fire the ones you picked and carry on', cls: 'go',
-                on: () => Battle.fireOverwatch() });
+                on: () => act(() => Battle.fireOverwatch(), { t: 'fire' }) });
     modal('OVERWATCH TRIGGERED',
       mover.name + ' has walked into a watched arc. Choose which tokens fire.',
-      rows, Battle.unit(S.pending.watchers[0]).owner, true);
+      rows, owner, true);
   }
 
   let modalOpen = false;
@@ -469,15 +680,14 @@ const GameUI = (function () {
 
   function report(S) {
     const w = S.winner, l = Battle.other(w);
-    const force = S.units.filter(u => u.owner === w).length;
-    const losses = S.units.filter(u => u.owner === w && !u.alive).length;
     const deadliest = S.units.filter(u => u.owner === w && u.kills > 0)
       .sort((a, b) => b.kills - a.kills)[0];
     return {
       winner: S.players[w].name, loser: S.players[l].name,
       winnerVP: S.players[w].vp, loserVP: S.players[l].vp,
       wipedOut: S.units.filter(u => u.owner === l).every(u => !u.alive),
-      force: force, losses: losses,
+      force: S.units.filter(u => u.owner === w).length,
+      losses: S.units.filter(u => u.owner === w && !u.alive).length,
       deadliest: deadliest ? { name: deadliest.name, kills: deadliest.kills } : null,
       turns: S.turn.number, missionId: null
     };
@@ -485,7 +695,7 @@ const GameUI = (function () {
 
   let victoryShown = false;
   function showVictory(S) {
-    Render.draw(S, {});
+    Render3D.draw(S, {});
     drawHUD(S);
     closeModal();
     if (victoryShown) return;
@@ -501,10 +711,28 @@ const GameUI = (function () {
     requestAnimationFrame(() => v.classList.add('run'));
   }
 
-  return { showMenu, wire, begin };
+  /* What the other end replays when a move arrives over the wire. */
+  function apply(msg) {
+    if (!msg) return;
+    if (msg.t === 'move')   Battle.doMove(msg.id, msg.at);
+    if (msg.t === 'shoot')  Battle.doShoot(msg.id, msg.tid, msg.w);
+    if (msg.t === 'fight')  Battle.doFight(msg.id, msg.tid, msg.w);
+    if (msg.t === 'charge') Battle.doCharge(msg.id, msg.tid);
+    if (msg.t === 'ow')     Battle.doOverwatch(msg.id, msg.at);
+    if (msg.t === 'place')  Battle.placeMove(msg.at);
+    if (msg.t === 'react')  Battle.chooseReaction(msg.r);
+    if (msg.t === 'watch')  Battle.toggleWatcher(msg.id);
+    if (msg.t === 'fire')   Battle.fireOverwatch();
+    if (msg.t === 'pass')   Battle.doPass(false);
+    if (msg.t === 'endturn') Battle.endTurn();
+  }
+
+  return { showMenu, wire, begin, apply, cfg: () => cfg, setCfg: c => { cfg = c; } };
 })();
 
-window.addEventListener('DOMContentLoaded', function () {
+function bootGame() {
   GameUI.wire();
   GameUI.showMenu();
-});
+}
+if (window.Render3D) bootGame();
+else window.addEventListener('render3d-ready', bootGame);

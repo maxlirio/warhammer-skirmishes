@@ -177,7 +177,55 @@ body::before {
   min-width: 0; padding: 8px;
   background: radial-gradient(ellipse at 50% 45%, #191512 0%, #080706 100%);
 }
-#board { border: 1px solid var(--line); box-shadow: 0 0 50px rgba(0,0,0,.85); cursor: crosshair; }
+#board { display: block; width: 100%; height: 100%; cursor: crosshair; touch-action: none; }
+.boardwrap { position: relative; padding: 0; }
+
+.camhint {
+  position: absolute; left: 10px; bottom: 10px; z-index: 75;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+.cambtn {
+  padding: 6px 10px; cursor: pointer; font-family: var(--gothic);
+  letter-spacing: .12em; font-size: 10px;
+  background: rgba(16,13,11,.82); color: var(--dim); border: 1px solid var(--line);
+}
+.cambtn:hover { color: var(--bone); border-color: var(--gold); }
+.camhint .hint { font-size: 10px; color: var(--dim); opacity: .75; }
+
+/* ---------------------------------------------------------- playing online */
+
+.netbox { max-width: 1100px; margin: 0 auto; }
+.netrow { display: flex; gap: 6px; flex-wrap: wrap; }
+.netrow .fbtn { flex: 1 1 180px; }
+.netpanel {
+  margin-top: 10px; padding: 14px; border: 1px solid var(--line);
+  background: rgba(0,0,0,.35); text-align: center;
+}
+.nhint { font-size: 11.5px; color: var(--dim); line-height: 1.6; margin: 0 0 10px; }
+.nerr { font-size: 11.5px; color: var(--blood); margin: 8px 0 0; }
+.ncode {
+  font-family: var(--display); font-size: 54px; letter-spacing: .28em;
+  color: var(--gold-lit); text-shadow: 0 2px 0 #000, 0 0 30px rgba(232,198,92,.3);
+  margin: 4px 0 10px; padding-left: .28em;
+}
+.nrow { display: flex; gap: 8px; justify-content: center; }
+.ncodein {
+  width: 150px; padding: 10px; text-align: center;
+  font-family: var(--display); font-size: 26px; letter-spacing: .22em;
+  background: var(--panel); color: var(--gold-lit); border: 1px solid var(--gold);
+}
+.netgo {
+  padding: 10px 22px; cursor: pointer; font-family: var(--gothic);
+  letter-spacing: .18em; font-size: 12px;
+  background: linear-gradient(180deg, #4a3a12, #241c08);
+  color: var(--gold-lit); border: 1px solid var(--gold);
+}
+.netgo:disabled { opacity: .4; cursor: default; }
+
+.ahead2 {
+  font-family: var(--gothic); letter-spacing: .16em; font-size: 12px;
+  color: var(--gold-lit); margin-bottom: 6px;
+}
 
 .side {
   width: 320px; flex: 0 0 320px; display: flex; flex-direction: column;

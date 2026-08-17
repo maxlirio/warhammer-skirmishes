@@ -1,12 +1,13 @@
 /* Headless check on the battlefields themselves. The rules can be right and
-   the game still be dull, so this asserts the properties that make a map worth
-   playing on rather than anything about the engine:
+   the game still be dull, so this asserts the properties that make a table
+   worth playing on, and the geometry that measures it:
 
-     · every objective can actually be walked to, from both ends of the table
-     · objectives can see one another, so contesting the board means exposure
-     · no side gets more than one objective it can hold without being shot at
-     · the maps are left-right symmetric, so neither player starts ahead
+     · nothing is walled off — every marker can be walked to from both ends
+     · markers can see one another, so contesting the table means exposure
+     · neither side gets more than one marker it can hold without being shot at
+     · the tables are symmetric left to right, so neither player starts ahead
 
+   Everything here is in inches. There is no grid.
    Run:  node tools/checkmaps.js                                           */
 
 const fs = require('fs');
@@ -24,6 +25,7 @@ vm.createContext(sandbox);
 vm.runInContext('globalThis.__mods = { MAPS: MAPS, Board: Board };', sandbox);
 const { MAPS, Board } = sandbox.__mods;
 
+const BASE = 0.5;        // a 25mm base is just under an inch across
 const MAX_GUN = 18;      // the longest ranged weapon in any preset faction
 let checks = 0, failed = 0;
 
@@ -34,47 +36,47 @@ function ok(cond, label) {
   console.log('  ✗ ' + label);
 }
 
-function zoneOf(b, p) {
-  const z = [];
-  for (let y = 0; y < b.h; y++) {
-    for (let x = 0; x < b.w; x++) {
-      if (b.deploy[y * b.w + x] === p && b.height[y * b.w + x] !== Board.SOLID) z.push({ x: x, y: y });
-    }
-  }
-  return z;
+/* Nearest point of a deployment rectangle to a spot on the table. */
+function nearZone(z, p) {
+  const cx = Math.min(Math.max(p.x, z.x), z.x + z.w);
+  const cy = Math.min(Math.max(p.y, z.y), z.y + z.h);
+  return Math.hypot(p.x - cx, p.y - cy);
 }
-
-const nearest = (zone, o) => Math.min.apply(null, zone.map(c => Board.dist(c, o)));
+const zoneMid = z => ({ x: z.x + z.w / 2, y: z.y + z.h / 2 });
 
 MAPS.list.forEach(function (m) {
   const b = Board.build(m);
   const O = b.objectives;
-  console.log('\n== ' + m.name + '  ' + b.w + '×' + b.h + '"  ' + O.length + ' objectives');
+  console.log('\n== ' + m.name + '  ' + b.w + '" × ' + b.h + '"  ' +
+              O.length + ' objectives, ' + b.terrain.length + ' pieces of terrain');
 
-  /* Every row the same width, and the same read backwards as forwards. */
-  const w = Math.max.apply(null, m.rows.map(r => r.length));
-  ok(m.rows.every(r => r.length === w), 'every row is ' + w + ' wide');
-  ok(m.rows.every(function (r) {
-    /* mirrored, with the two deployment zones swapping places */
-    const flip = r.split('').reverse()
-      .map(c => c === '1' ? '2' : c === '2' ? '1' : c).join('');
-    return flip === r;
-  }), 'left-right symmetric, deployment zones included');
+  /* Mirror symmetry, in the geometry rather than in a string. */
+  const flip = t => ({ x: b.w - t.x - t.w, y: t.y, w: t.w, h: t.h, top: t.top, blocks: t.blocks });
+  const same = (a, c) => ['x', 'y', 'w', 'h', 'top'].every(k => Math.abs(a[k] - c[k]) < 1e-6) &&
+                         a.blocks === c.blocks;
+  ok(b.terrain.every(t => b.terrain.some(o => same(flip(t), o))),
+     'every piece of terrain has its mirror image');
+  ok(O.every(o => O.some(p => Math.abs(p.x - (b.w - o.x)) < 1e-6 && Math.abs(p.y - o.y) < 1e-6)),
+     'every objective has its mirror image');
+  ok(Math.abs(b.deploy[0].w - b.deploy[1].w) < 1e-6 &&
+     Math.abs(b.deploy[0].x - (b.w - b.deploy[1].x - b.deploy[1].w)) < 1e-6,
+     'the two deployment zones are mirror images');
 
   ok(O.length >= 4, 'at least four objectives (' + O.length + ')');
+  ok(O.every(o => Board.standable(b, o, BASE)),
+     'a model can actually stand on every objective');
 
-  /* Walkable to, from both sides. */
+  /* Nothing walled off: with no limit on the move, everything is reachable. */
   [0, 1].forEach(function (p) {
-    const zone = zoneOf(b, p);
-    const start = zone[Math.floor(zone.length / 2)];
-    const field = Board.reachable(b, start, 1e4, null);
-    const unreachable = O.filter(o => field.cost[o.y * b.w + o.x] === Infinity);
-    ok(unreachable.length === 0,
+    const start = Board.nudgeToLegal(b, zoneMid(b.deploy[p]), BASE, []);
+    const field = Board.moveField(b, start, BASE, []);
+    const stranded = O.filter(o => !isFinite(Board.costTo(field, o)));
+    ok(stranded.length === 0,
        'P' + (p + 1) + ' can walk to every objective' +
-       (unreachable.length ? ' (stranded: ' + unreachable.map(o => o.x + ',' + o.y).join(' ') + ')' : ''));
+       (stranded.length ? ' (stranded: ' + stranded.map(o => o.x + ',' + o.y).join(' ') + ')' : ''));
   });
 
-  /* Sight between objectives — the reason holding ground costs you something. */
+  /* Sight between markers — the reason holding ground costs you something. */
   const pairs = [];
   for (let i = 0; i < O.length; i++) {
     for (let j = i + 1; j < O.length; j++) {
@@ -82,43 +84,65 @@ MAPS.list.forEach(function (m) {
     }
   }
   ok(pairs.length >= 3, 'objectives in sight of one another: ' + pairs.length + ' pairs');
-  ok(O.every(function (o, i) {
-    return pairs.some(s => s.split('↔').indexOf(String(i)) >= 0);
-  }), 'no objective is out of sight of every other one');
+  ok(O.every((o, i) => pairs.some(s => s.split('↔').indexOf(String(i)) >= 0)),
+     'no objective is out of sight of every other one');
 
-  /* A home objective is fine. Two is a free two points a turn. */
+  /* One home marker is fine. Two is a free two points a turn. */
   [0, 1].forEach(function (p) {
-    const mine = zoneOf(b, p), theirs = zoneOf(b, 1 - p);
-    const free = O.filter(o => nearest(mine, o) < 10 && nearest(theirs, o) > MAX_GUN);
+    const free = O.filter(o => nearZone(b.deploy[p], o) < 10 &&
+                               nearZone(b.deploy[1 - p], o) > MAX_GUN);
     ok(free.length <= 1, 'P' + (p + 1) + ' has ' + free.length + ' objective(s) it can hold uncontested');
   });
 
   O.forEach(function (o, i) {
-    console.log('    obj' + i + ' (' + o.x + ',' + o.y + ')  h' + Board.heightAt(b, o.x, o.y) +
-                '   P1 ' + nearest(zoneOf(b, 0), o).toFixed(0) + '"' +
-                '   P2 ' + nearest(zoneOf(b, 1), o).toFixed(0) + '"');
+    console.log('    obj' + i + ' (' + o.x + ', ' + o.y + ')  ' +
+                Board.heightAt(b, o).toFixed(1) + '" up' +
+                '   P1 ' + nearZone(b.deploy[0], o).toFixed(1) + '"' +
+                '   P2 ' + nearZone(b.deploy[1], o).toFixed(1) + '"');
   });
 });
 
-/* The shrine's whole promise: blind across the nave from the floor, and from
-   the top of it you see the lot. */
+/* ------------------------------------------------------------------ geometry */
+
+console.log('\n== measuring');
+const tl = Board.build(MAPS.byId('trenchline'));
+ok(Math.abs(Board.dist({ x: 0, y: 0 }, { x: 3, y: 4 }) - 5) < 1e-9,
+   'distance is the straight line, not a count of squares (3,4 → 5")');
+
+/* A move goes round a wall, so it must cost more than the straight line does. */
+const wall = tl.terrain.find(t => t.blocks && t.kind === 'trench');
+const a = { x: wall.x + wall.w / 2, y: wall.y - 2 };
+const c = { x: wall.x + wall.w / 2, y: wall.y + wall.h + 2 };
+const f = Board.moveField(tl, a, BASE, []);
+const straight = Board.dist(a, c);
+const walked = Board.costTo(f, c);
+ok(walked > straight + 0.5,
+   'walking round a wall costs more than the straight line (' +
+   walked.toFixed(2) + '" vs ' + straight.toFixed(2) + '")');
+ok(isFinite(walked), 'and it is still reachable');
+
+/* In the open, the two are the same thing. */
+const openA = { x: 20, y: 2 }, openB = { x: 26, y: 2 };
+const fo = Board.moveField(tl, openA, BASE, []);
+ok(Math.abs(Board.costTo(fo, openB) - Board.dist(openA, openB)) < 1e-6,
+   'in the open, a move measures exactly the straight line');
+
+/* You cannot stand inside a wall, or half inside one. */
+ok(!Board.standable(tl, { x: wall.x + 1, y: wall.y + 1 }, BASE), 'you cannot stand inside a wall');
+ok(!Board.standable(tl, { x: wall.x + 1, y: wall.y - 0.25 }, BASE),
+   'nor with your base overlapping one');
+ok(Board.standable(tl, { x: wall.x + 1, y: wall.y - 0.75 }, BASE),
+   'but you can stand right up against it');
+
 console.log('\n== the shrine specifically');
 const sh = Board.build(MAPS.byId('shrine'));
-ok(!Board.canSee(sh, { x: 6, y: 10 }, { x: 30, y: 10 }),
+ok(!Board.canSee(sh, { x: 8, y: 14 }, { x: 32, y: 14 }),
    'the floor cannot see across the nave');
-ok(Board.canSee(sh, { x: 18, y: 10 }, { x: 6, y: 10 }) &&
-   Board.canSee(sh, { x: 18, y: 10 }, { x: 30, y: 10 }),
+ok(Board.canSee(sh, { x: 20, y: 14 }, { x: 8, y: 14 }) &&
+   Board.canSee(sh, { x: 20, y: 14 }, { x: 32, y: 14 }),
    'standing on the nave sees both home objectives');
-
-/* Movement must not be clipped by anything other than terrain — a Float32 cost
-   array used to end the search early and cut the arc short with no wall in it. */
-console.log('\n== movement');
-const tl = Board.build(MAPS.byId('trenchline'));
-const open = Board.reachable(tl, { x: 0, y: 11 }, 1e4, null);
-let passable = 0;
-for (let i = 0; i < tl.w * tl.h; i++) if (tl.height[i] !== Board.SOLID) passable++;
-ok(open.cells.length === passable - 1,
-   'an unlimited move reaches every passable cell (' + (open.cells.length + 1) + '/' + passable + ')');
+ok(Board.heightAt(sh, { x: 20, y: 14 }) > Board.heightAt(sh, { x: 8, y: 14 }),
+   'and the nave really is the high ground');
 
 console.log('\n== summary\n' + (checks - failed) + '/' + checks + ' checks passed');
 process.exit(failed ? 1 : 0);

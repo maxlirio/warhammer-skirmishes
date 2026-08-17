@@ -42,3 +42,27 @@ even for commercial purposes, all without asking permission."*
 Drop a new file in with the same name and it is picked up — the CSS refers to
 them by path only. Keep them dark: they sit underneath the panel gradients, not
 on top.
+
+# Libraries (the video game)
+
+Both are committed under `game/vendor/` rather than fetched from a CDN, so the
+game still opens from `file://` with the network off. Only playing somebody else
+needs to be online.
+
+| File | Source | Licence |
+|---|---|---|
+| `three.module.js` | [three.js r165](https://github.com/mrdoob/three.js) | MIT |
+| `three.global.js` | generated from the above by `tools/buildthree.js` | MIT |
+| `peerjs.min.js` | [PeerJS 1.5.4](https://github.com/peers/peerjs) | MIT |
+
+**Why there are two copies of three.js:** it ships as an ES module only, and a
+module cannot be imported from a `file://` page — the origin is opaque, so the
+browser refuses it. `tools/buildthree.js` wraps the module into a classic script
+that hangs `THREE` on the window. Edit `three.module.js` (or drop in a new
+release) and re-run the tool; it refuses if the file stops being a single
+`export {…}` with no imports of its own.
+
+PeerJS uses its own public broker to introduce the two browsers to each other.
+Nothing of the game passes through it once they are connected, and no game state
+passes through it at all — only a four-letter room code and the decisions the
+players make.

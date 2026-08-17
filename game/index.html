@@ -33,6 +33,16 @@
     </div>
   </div>
 
+  <h3 class="sect">WHO ARE YOU PLAYING</h3>
+  <div class="netbox">
+    <div class="netrow">
+      <button id="netLocal" class="fbtn on">BOTH OF US, HERE</button>
+      <button id="netHost" class="fbtn">HOST A ROOM</button>
+      <button id="netJoin" class="fbtn">JOIN A ROOM</button>
+    </div>
+    <div id="netPanel" class="netpanel" hidden></div>
+  </div>
+
   <button id="startBtn" class="start" disabled>CHOOSE A BATTLEFIELD</button>
   <p class="note">
     Models are placeholders until the scanner lands — the base, the initials
@@ -66,7 +76,14 @@
   </div>
 
   <div class="main">
-    <div id="boardwrap" class="boardwrap"><canvas id="board"></canvas></div>
+    <div id="boardwrap" class="boardwrap">
+      <canvas id="board"></canvas>
+      <div class="camhint">
+        <button id="viewP0" class="cambtn">VIEW: P1 END</button>
+        <button id="viewP1" class="cambtn">VIEW: P2 END</button>
+        <span class="hint">shift-drag or right-drag to move the camera · wheel to zoom</span>
+      </div>
+    </div>
     <aside class="side">
       <div id="actions" class="actions"></div>
       <div id="log" class="log"></div>
@@ -128,12 +145,16 @@
   <button id="againBtn" class="start">FIGHT IT AGAIN</button>
 </section>
 
+<script src="vendor/three.global.js?v=2026-08-17a"></script>
+<script src="vendor/peerjs.min.js?v=2026-08-17a"></script>
 <script src="../js/rules.js?v=2026-08-17a"></script>
 <script src="../js/state.js?v=2026-08-17a"></script>
 <script src="js/maps.js?v=2026-08-17a"></script>
 <script src="js/board.js?v=2026-08-17a"></script>
 <script src="js/battle.js?v=2026-08-17a"></script>
-<script src="js/render.js?v=2026-08-17a"></script>
+<script src="js/render3d.js?v=2026-08-17a"></script>
+<script src="js/net.js?v=2026-08-17a"></script>
 <script src="js/ui.js?v=2026-08-17a"></script>
+
 </body>
 </html>

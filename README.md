@@ -37,7 +37,7 @@ the app the outcome. It never asks "is the target in range?".
 **https://maxlirio.github.io/warhammer-skirmishes/game/**
 
 It is the companion app's opposite by design. The companion has no eyes and so
-must ask; the video game has a board, so it measures its own ranges, traces its
+must ask; the video game has a table, so it measures its own ranges, traces its
 own line of sight and rolls its own dice. Because it can see, it can answer the
 questions the companion has to put to you — whether a DUCK broke line of sight,
 whether a DIVE has anywhere to go that actually ends the attack.
@@ -46,20 +46,70 @@ Both load the same `js/rules.js`, so costs, the wound table, the reaction lists
 and the elevation bonuses can never drift apart between them. House-rule the
 game by editing that one file and both change together.
 
+### There is no grid
+
+Nothing is measured in squares. A model stands at a pair of floats on a base
+half an inch across; a range is the straight line between two of them; a move is
+the length of tape it takes to walk there, **around** terrain if terrain is in
+the way — a shortest path through the plane, computed on a visibility graph over
+the corners of the scenery. Walking round a 8"-wide trench wall to reach a point
+6" away costs 12.6", and the game charges you for every inch of it.
+
+Terrain is boxes with real heights. You see over anything that does not stand
+higher than the higher of the two of you, so a 3.4" trench wall stops mattering
+the moment you climb the 2.2" redoubt — and two models on the floor still cannot
+see each other across it.
+
+### In three dimensions
+
+The table is a three.js scene where one world unit is one inch, so nothing is
+converted anywhere: a model at (22, 15) stands at (22, ground, 15). Drag with
+shift or the right button to move the camera, wheel to zoom, or jump to either
+player's end of the table.
+
 | | |
 |---|---|
-| **Three battlefields** | Drawn as ASCII in `game/js/maps.js`; one inch is one cell |
-| **MOVE** | Shows the arc you can reach — Dijkstra in eighths of an inch, no cutting a diagonal past the corner of a wall |
-| **SHOOT** | Shows everything you can see, blocked by terrain that stands higher than both ends of the look |
-| **OVERWATCH** | Place the token within 12"; its 3" trigger ring is drawn before you commit, and firing interrupts the mover mid-step |
-| **CHARGE** | Rolls the 1D6 and refuses gracefully if it cannot reach; charging down from high ground adds +1 Wound and +1 Damage |
-| **Models** | Placeholders — a based token with initials and a wound track. `Render.setArt(unitId, src)` drops a scan in when the scanner app is ready |
+| **MOVE** | Shades every point you can reach and runs a tape measure to the cursor, reading the real walked distance |
+| **SHOOT** | Shades everything the model can see, with the shadows terrain casts cut out of it, and measures the range to the target |
+| **OVERWATCH** | Place the token anywhere within 12"; its 3" trigger circle is drawn before you commit, and it fires mid-move, interrupting the walk |
+| **CHARGE** | Rolls the 1D6 on the table, finds the closest legal spot that puts a blade on the target, and declines gracefully if it cannot reach |
+| **Dice** | Thrown where the action is, tumbling, settling on the face that was actually rolled, on a gold pad if they passed and a red one if they failed |
+| **Attacks** | Tracer, muzzle flash, sparks off the target and a jolt of the camera; melee gets a slash instead |
+| **Models** | Placeholders — a based figure in the player's colour with its initials over it and a wound track. `Render3D.setArt(unitId, src)` drops a scan in when the scanner app is ready |
 
-Each map gives a side exactly one home objective it can hold cheaply; the rest
-sit on open lanes in sight of one another, so holding enough of them to win
-means standing where you can be shot. `node tools/checkmaps.js` asserts that
-against the geometry — reachability, sight-lines between objectives, and that
-neither side is handed two objectives it can hold without being shot at.
+### Reactions move where you say
+
+DODGE, DIVE and WITHDRAW all move the model, and **you choose where**. The table
+leans in, shades the ground that is legal, and runs the tape to wherever you are
+pointing. For DIVE that ground is only the places that genuinely end the attack —
+out of sight of the shooter, or out of the weapon's reach — which the game can
+work out because it can see the table.
+
+### Playing somebody else
+
+One of you hosts a room and reads out a four-letter code; the other types it in.
+It is peer to peer over PeerJS's public broker: there is no server of ours in the
+middle and nothing to deploy.
+
+What crosses the wire is the **decision**, never the board. Both ends run the
+same rules over the same seeded dice in the same order, so both arrive at the
+same table. `node tools/checklockstep.js` runs two independent games through 300+
+identical decisions and compares the entire table after every one.
+
+### Checking it
+
+| | |
+|---|---|
+| `node tools/checkmaps.js` | The tables: symmetry, that nothing is walled off, sight-lines between markers, that neither side gets two objectives it can hold uncontested — and the geometry itself, that a move round a wall costs more than the straight line and that you cannot stand with your base inside one |
+| `node tools/checklockstep.js` | That two games fed the same decisions stay identical, which is what multiplayer rests on |
+| `node tools/buildthree.js` | Rebuilds `game/vendor/three.global.js` from the three.js module — see below |
+
+three.js and PeerJS are **committed, not fetched**, so the game still opens from
+`file://` with the network off (only playing somebody else needs to be online).
+three.js ships as an ES module, and a module cannot be imported from a `file://`
+page, so `tools/buildthree.js` wraps it into a plain script that hangs `THREE` on
+the window. The transform refuses to run if a future three.js stops being a
+single `export {…}` with no imports of its own.
 
 ## Walkthrough or experienced
 
