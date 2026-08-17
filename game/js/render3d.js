@@ -91,9 +91,55 @@ const Render3D = (function () {
     userZoomed = false;
     cam.az = player === 0 ? Math.PI : 0;
     cam.el = 0.78;
-    cam.dist = fitDistance();
     cam.target.set(board.w / 2, 0, board.h / 2);
+    frameTable();
+  }
+
+  /* Centring on the middle of the table wastes the frame: looking down at it
+     from one end, the near edge spreads wide and low while the far edge
+     converges, so the near edge alone decides the distance and everything
+     above it is sky. Aim at the middle of what actually lands on screen.
+
+     The step is tried and kept only if it helped, so no sign convention in
+     here can send it off across the table. */
+  function frameTable() {
+    const err = function () {
+      cam.dist = fitDistance();
+      placeCamera();
+      const box = projectedBox();
+      return Math.abs((box.miny + box.maxy) / 2) + Math.abs((box.minx + box.maxx) / 2);
+    };
+    let best = err();
+    const ground = new THREE.Vector3(Math.cos(cam.az), 0, Math.sin(cam.az));
+    const right = new THREE.Vector3(Math.sin(cam.az), 0, -Math.cos(cam.az));
+    let stepF = board.h * 0.25, stepR = board.w * 0.12;
+    for (let pass = 0; pass < 22 && best > 0.004; pass++) {
+      let moved = false;
+      [[ground, stepF], [ground, -stepF], [right, stepR], [right, -stepR]]
+        .forEach(function (t) {
+          if (moved) return;
+          const keep = cam.target.clone();
+          cam.target.addScaledVector(t[0], t[1]);
+          clampTarget();
+          const e = err();
+          if (e < best - 1e-4) { best = e; moved = true; }
+          else { cam.target.copy(keep); }
+        });
+      if (!moved) { stepF *= 0.5; stepR *= 0.5; if (stepF < 0.02) break; }
+    }
+    cam.dist = fitDistance();
     placeCamera();
+  }
+
+  function projectedBox() {
+    const v = new THREE.Vector3();
+    let minx = 9, maxx = -9, miny = 9, maxy = -9;
+    [0, board.w].forEach(x => [0, board.h].forEach(z => {
+      v.set(x, 0, z).project(camera);
+      minx = Math.min(minx, v.x); maxx = Math.max(maxx, v.x);
+      miny = Math.min(miny, v.y); maxy = Math.max(maxy, v.y);
+    }));
+    return { minx, maxx, miny, maxy };
   }
 
   /* How far back the whole table fits in the frame. A tilted perspective
@@ -191,7 +237,7 @@ const Render3D = (function () {
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
-    if (board && !userZoomed) { cam.dist = fitDistance(); placeCamera(); }
+    if (board && !userZoomed) frameTable();
   }
 
   /* -------------------------------------------------------------- the table */
