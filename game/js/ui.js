@@ -319,7 +319,7 @@ const GameUI = (function () {
         row.appendChild(pips);
         if (u.overwatch) row.appendChild(el('span', 'tag', 'OW'));
         if (u.kills) row.appendChild(el('span', 'tag kills', '☠' + u.kills));
-        row.onclick = () => { if (u.alive) { select(u.id); Render3D.focusOn(u); } };
+        row.onclick = () => { if (u.alive) { select(u.id); Render3D.leanIn(u, 26); } };
         list.appendChild(row);
       });
     });

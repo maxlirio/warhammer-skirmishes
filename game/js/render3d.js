@@ -972,6 +972,7 @@ const Render3D = (function () {
      Eased rather than cut, so the player keeps their bearings. */
   function leanIn(p, dist) {
     if (!board) return;
+    userZoomed = true;
     want = {
       target: new THREE.Vector3(p.x, Board.heightAt(board, p), p.y),
       dist: dist || 20
@@ -980,7 +981,13 @@ const Render3D = (function () {
 
   function leanOut() {
     if (!board) return;
-    want = { target: new THREE.Vector3(board.w / 2, 0, board.h / 2), dist: fitDistance() };
+    /* back to the framing the table gets on its own */
+    const keepT = cam.target.clone(), keepD = cam.dist;
+    frameTable();
+    want = { target: cam.target.clone(), dist: cam.dist };
+    cam.target.copy(keepT); cam.dist = keepD;
+    placeCamera();
+    userZoomed = false;
   }
 
   return {
