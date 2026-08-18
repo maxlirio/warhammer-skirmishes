@@ -90,6 +90,15 @@ player's end of the table.
 | **Scenery** | Real models — Kenney's Space Kit, CC0. The mass of a piece is the rules box exactly, so nothing on the table is cover the rules do not know about; the models are what make it worth looking at |
 | **Sound** | Synthesised in the browser rather than sampled: nothing to download and nothing to licence |
 
+### You put your own models down
+
+Nobody is deployed for you. Before turn one the two of you take it in turns to
+choose where each model stands inside your own zone, one at a time, with the
+camera swinging to whoever's go it is. Markers go down first, so the thing you
+have to keep alive is placed before the models meant to guard it. AMBUSH is the
+exception, because its card says so: the defender sets up entirely first, BAIT
+and all, and the attacker answers.
+
 ### The Mission Cards, each with its own battlefield
 
 You do not pick a table and a card separately. A table that suits KING OF THE

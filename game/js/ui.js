@@ -106,33 +106,7 @@ const GameUI = (function () {
         go.disabled = cfg.missionId === undefined;
         go.onclick = function () {
           Net.host(cfg, function (dealt, seat) { cfg = dealt; startNet(seat); });
-          const miss = $('missionPick');
-    miss.innerHTML = '';
-    [{ id: null, name: 'NO CARD', flavour: '“Just fight.”',
-       objective: ['Hold objectives at the end of your turn, first to 10 VP.'] }]
-      .concat(RULES.missions).forEach(function (m) {
-        const card = el('button', 'misscard');
-        card.appendChild(el('span', 'missname', m.name));
-        card.appendChild(el('span', 'missflav', m.flavour || ''));
-        const ul = el('ul', 'missobj');
-        (m.objective || []).forEach(t => ul.appendChild(el('li', null, t)));
-        card.appendChild(ul);
-        /* the table this card is played on comes with it */
-        const map = MAPS.forMission(m.id);
-        const strip = el('div', 'missmap');
-        strip.appendChild(el('span', 'missmapname', map.name));
-        strip.appendChild(el('span', 'missmapsize',
-          map.w + '" × ' + map.h + '"  ·  ' +
-          (map.objectives.length ? map.objectives.length + ' markers' : 'no markers')));
-        card.appendChild(strip);
-        card.appendChild(thumb(map));
-        if (m.endsShort) card.appendChild(el('span', 'missends', m.endsShort));
-        if (cfg.missionId === m.id) card.classList.add('on');
-        card.onclick = () => { cfg.missionId = m.id; showMenu(); };
-        miss.appendChild(card);
-      });
-
-    drawNet();
+          drawNet();
         };
         panel.appendChild(go);
       } else if (/error/.test(st)) {
@@ -162,33 +136,7 @@ const GameUI = (function () {
       go.onclick = function () {
         if (inp.value.length < 4) return;
         Net.join(inp.value, function (dealt, seat) { cfg = dealt; startNet(seat); });
-        const miss = $('missionPick');
-    miss.innerHTML = '';
-    [{ id: null, name: 'NO CARD', flavour: '“Just fight.”',
-       objective: ['Hold objectives at the end of your turn, first to 10 VP.'] }]
-      .concat(RULES.missions).forEach(function (m) {
-        const card = el('button', 'misscard');
-        card.appendChild(el('span', 'missname', m.name));
-        card.appendChild(el('span', 'missflav', m.flavour || ''));
-        const ul = el('ul', 'missobj');
-        (m.objective || []).forEach(t => ul.appendChild(el('li', null, t)));
-        card.appendChild(ul);
-        /* the table this card is played on comes with it */
-        const map = MAPS.forMission(m.id);
-        const strip = el('div', 'missmap');
-        strip.appendChild(el('span', 'missmapname', map.name));
-        strip.appendChild(el('span', 'missmapsize',
-          map.w + '" × ' + map.h + '"  ·  ' +
-          (map.objectives.length ? map.objectives.length + ' markers' : 'no markers')));
-        card.appendChild(strip);
-        card.appendChild(thumb(map));
-        if (m.endsShort) card.appendChild(el('span', 'missends', m.endsShort));
-        if (cfg.missionId === m.id) card.classList.add('on');
-        card.onclick = () => { cfg.missionId = m.id; showMenu(); };
-        miss.appendChild(card);
-      });
-
-    drawNet();
+        drawNet();
       };
       row.appendChild(inp); row.appendChild(go);
       panel.appendChild(row);
@@ -265,6 +213,17 @@ const GameUI = (function () {
   function view(S) {
     const v = {};
     const pend = S.pending;
+
+    /* Putting a model down at the start of the game. */
+    if (pend && pend.kind === 'deploy') {
+      v.area = pend.spots;
+      v.areaColour = pend.owner === 0 ? Render3D.COL.p0 : Render3D.COL.p1;
+      v.areaOpacity = 0.4;
+      v.areaCell = 0.6;
+      const land = hover ? Render3D.pickNearest(hoverPx.x, hoverPx.y, pend.spots, 70) : null;
+      if (land) v.marks = [{ x: land.x, y: land.y, r: 0.9, colour: Render3D.COL.goldLit }];
+      return v;
+    }
 
     /* Placing something the card told you to place. */
     if (pend && pend.kind === 'put') {
@@ -402,6 +361,7 @@ const GameUI = (function () {
   }
 
   let leaning = false;
+  let deployingFor = null;
 
   function render(S) {
     if (S.winner !== null) { showVictory(S); return; }
@@ -416,6 +376,15 @@ const GameUI = (function () {
       Render3D.leanOut();
     }
     Render3D.draw(S, Object.assign(view(S), { selected: selected }));
+
+    /* Deployment is watched from the end of the table whose go it is — after
+       the table exists, not before it. */
+    if (S.pending && S.pending.kind === 'deploy') {
+      if (deployingFor !== S.pending.owner) {
+        deployingFor = S.pending.owner;
+        Render3D.viewFrom(S.pending.owner);
+      }
+    } else { deployingFor = null; }
     drawHUD(S);
     drawPending(S);
     if (window.Net) Net.onState(S);
@@ -481,6 +450,13 @@ const GameUI = (function () {
       bar.appendChild(el('div', 'prompt', pend.hint));
       bar.appendChild(el('div', 'prompt warn', 'Click the table to place ' +
         Battle.unit(pend.unitId).name + '.'));
+      return;
+    }
+    if (pend && pend.kind === 'deploy') {
+      bar.appendChild(el('div', 'ahead2', pend.label));
+      bar.appendChild(el('div', 'prompt', pend.hint));
+      bar.appendChild(el('div', 'prompt warn',
+        'Click your deployment zone. ' + pend.left + ' still to put down.'));
       return;
     }
     if (pend && pend.kind === 'put') {
@@ -771,6 +747,15 @@ const GameUI = (function () {
     if (!p) return;
     const at = { x: p.x, y: p.y };
 
+    /* Deployment: your zone, your choice, and only on your go. */
+    if (S.pending && S.pending.kind === 'deploy') {
+      const pend = S.pending;
+      if (window.Net && Net.active() && Net.seat() !== pend.owner) return;
+      const spot = Render3D.pickNearest(cx, cy, pend.spots, 70) || at;
+      act(() => Battle.placeDeploy(spot), { t: 'deploy', at: spot });
+      return;
+    }
+
     if (S.pending && (S.pending.kind === 'ability' || S.pending.kind === 'card')) {
       const pend = S.pending;
       if (pend.need === 'spot') {
@@ -859,7 +844,8 @@ const GameUI = (function () {
   function drawPending(S) {
     if (!S.pending || S.pending.kind === 'move' || S.pending.kind === 'ability' ||
         S.pending.kind === 'card' || S.pending.kind === 'put' ||
-        S.pending.kind === 'pick' || S.pending.kind === 'endability') { closeModal(); return; }
+        S.pending.kind === 'pick' || S.pending.kind === 'endability' ||
+        S.pending.kind === 'deploy') { closeModal(); return; }
     if (S.pending.kind === 'redirect') return redirectModal(S);
     if (S.pending.kind === 'reaction') return reactionModal(S);
     if (S.pending.kind === 'overwatch') return overwatchModal(S);
@@ -1007,6 +993,7 @@ const GameUI = (function () {
     if (msg.t === 'relic')  Battle.doRelic(msg.id);
     if (msg.t === 'ability') Battle.useAbility(msg.id, msg.i);
     if (msg.t === 'abil2')  Battle.confirmAbility(msg.id !== undefined ? msg.id : msg.at);
+    if (msg.t === 'deploy') Battle.placeDeploy(msg.at);
     if (msg.t === 'put')    Battle.placePut(msg.at);
     if (msg.t === 'endab')  Battle.answerEndAbility(!!msg.v);
     if (msg.t === 'pick')   Battle.choosePick(msg.id);

@@ -121,8 +121,10 @@ function rollSeries(seed) {
   const S = G.Battle.get();
   /* a card may open the game by asking its owner something */
   let g0 = 0;
-  while (S.pending && S.pending.kind === 'pick' && g0++ < 4) {
-    G.Battle.choosePick(S.pending.options[0]);
+  while (S.pending && g0++ < 40) {
+    if (S.pending.kind === 'deploy') G.Battle.placeDeploy(S.pending.spots[0]);
+    else if (S.pending.kind === 'pick') G.Battle.choosePick(S.pending.options[0]);
+    else break;
   }
   const a = G.Battle.unit('u0_0'), t = G.Battle.unit('u1_0');
   a.x = 20; a.y = 6; t.x = 20.9; t.y = 6;
@@ -132,6 +134,7 @@ function rollSeries(seed) {
     const p = G.Battle.get().pending;
     if (p && p.kind === 'reaction') { G.Battle.chooseReaction('none'); continue; }
     if (p && p.kind === 'move') { G.Battle.placeMove(p.spots[0]); continue; }
+    if (p && p.kind === 'deploy') { G.Battle.placeDeploy(p.spots[0]); continue; }
     if (p && p.kind === 'put') { G.Battle.placePut(p.spots[0]); continue; }
     if (p && p.kind === 'pick') { G.Battle.choosePick(p.options[0]); continue; }
     if (p) break;

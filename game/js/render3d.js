@@ -205,6 +205,7 @@ const Render3D = (function () {
   }
 
   function viewFrom(player) {
+    if (!board) return;              /* nothing to frame yet */
     userZoomed = false;
     want = null;
     cam.az = player === 0 ? Math.PI : 0;
@@ -735,13 +736,29 @@ const Render3D = (function () {
       /* Steps go on whichever side has open ground to come up from, facing
          out, with their top against the deck — not on a fixed edge where they
          end up backwards, or buried in the next piece of terrain along. */
-      if (Assets.has('stairs') && t.top > 1) {
-        const depth = Math.min(2.6, Math.max(1.4, t.top * 1.5));
-        const side = bestApproach(t, depth);
+      /* Steps, at the angle the model was built at. Squashing a 35° flight
+         into whatever depth was going spare made a 60° ladder and distorted
+         every tread; scaling it evenly keeps the treads square and lets the
+         run be whatever the height needs. The whole flight sits OUTSIDE the
+         footprint, with its top edge against the deck. */
+      if (Assets.has('stairs') && t.top > 0.9) {
+        const nat = Assets.size('stairs');
+        /* A piece standing on another only needs steps for the difference —
+           the sanctum sits on the nave, so its flight climbs 2.8", not 5.2". */
+        const probe = bestApproach(t, (nat.z / nat.y) * t.top);
+        const from = probe ? probe.level : 0;
+        const rise = Math.max(0.6, t.top - from);
+        let run = (nat.z / (nat.y || 1)) * rise;
+        /* let it be as long as the climb needs — a tall piece whose foot
+           lands off the edge of what it stands on gets a long flight, which
+           is what a long flight looks like */
+        if (run > 7.6) run = 7.6;
+        const wide = (nat.x / (nat.y || 1)) * rise;
+        const side = bestApproach(t, run);
         if (side) {
-          const st = Assets.fitted('stairs', 1.7, depth, t.top);
+          const st = Assets.fitted('stairs', Math.max(1.1, wide), run, rise);
           st.rotation.y = side.turn;
-          st.position.set(side.x, 0, side.z);
+          st.position.set(side.x, side.level, side.z);
           st.userData.stairsFor = t;
           g.add(st);
         }
@@ -788,14 +805,27 @@ const Render3D = (function () {
           const pz = t.y + t.h / 2 + s2.nz * (half + d) + (s2.nz ? 0 : a * t.h * 0.7);
           if (px < 0.5 || pz < 0.5 || px > board.w - 0.5 || pz > board.h - 0.5) continue;
           const p = { x: px, y: pz };
-          if (board.terrain.some(o => o !== t && Board.inBox(o, p))) continue;
+          /* something taller than this piece in the way is not an approach */
+          const over = board.terrain.some(o => o !== t && Board.inBox(o, p) && o.top >= t.top);
+          if (over) continue;
+          /* but standing ON something lower is fine — that is where the steps start */
           clear++;
         }
       }
+      /* The bottom step lands at one place, not an average of the approach —
+         so read the ground there, at the foot of the flight. */
+      const footX = t.x + t.w / 2 + s2.nx * (half + depth);
+      const footZ = t.y + t.h / 2 + s2.nz * (half + depth);
+      const level = board.terrain.reduce(function (n, o) {
+        return (o !== t && !o.blocks && Board.inBox(o, { x: footX, y: footZ }) && o.top < t.top)
+               ? Math.max(n, o.top) : n;
+      }, 0);
       if (!best || clear > best.clear) {
-        best = { clear: clear, turn: s2.turn,
-                 x: s2.nx * (t.w / 2 + depth / 2 - 0.05),
-                 z: s2.nz * (t.h / 2 + depth / 2 - 0.05) };
+        /* half the run beyond the face, so the flight is wholly outside the
+           piece and only its top step meets the edge */
+        best = { clear: clear, turn: s2.turn, level: level,
+                 x: s2.nx * (t.w / 2 + depth / 2),
+                 z: s2.nz * (t.h / 2 + depth / 2) };
       }
     });
     return best && best.clear >= 6 ? best : null;

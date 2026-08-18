@@ -37,7 +37,7 @@ const Battle = (function () {
   }
   const d6 = () => 1 + Math.floor(rng() * 6);
   const unit = id => S.units.find(u => u.id === id) || null;
-  const alive = () => S.units.filter(u => u.alive && !u.reserve);
+  const alive = () => S.units.filter(u => u.alive && !u.reserve && u.deployed !== false);
   const mine = p => alive().filter(u => u.owner === p);
   const other = p => 1 - p;
   const others = exceptId => alive().filter(u => u.id !== exceptId);
@@ -93,13 +93,10 @@ const Battle = (function () {
 
     [0, 1].forEach(function (p) {
       const faction = PRESETS.find(f => f.id === cfg.factions[p]);
-      const onTable = faction.units.filter(u => !u.reserve);
-      const spots = deploySpots(board, p, onTable.length);
-      let k = 0;
       faction.units.forEach(function (spec, i) {
         /* A unit held in reserve is alive but nowhere — it arrives by its own
            ability rather than being deployed. */
-        const at = spec.reserve ? { x: -50, y: -50 } : (spots[k++] || spots[spots.length - 1]);
+        const at = { x: -60, y: -60 };          /* placed during deployment */
         const mod = (S.mission && S.mission.rosterMod) || null;
         let w = spec.maxWounds;
         if (mod && mod.woundsDelta) w = Math.max(mod.woundsMin || 1, w + mod.woundsDelta);
@@ -114,6 +111,7 @@ const Battle = (function () {
             { effects: (a.effects || []).map(e => Object.assign({}, e)) })),
           notes: spec.notes || '',
           reserve: !!spec.reserve,
+          deployed: !!spec.reserve,       /* a reserve unit has nowhere to be put */
           alive: true, kills: 0, overwatch: null, effects: [], marks: []
         });
       });
@@ -137,9 +135,7 @@ const Battle = (function () {
 
     log('— ' + map.name + ' —', 'big');
     S.setupAsks = [];
-    runGameStart();
-    beginTurn(0, true);
-    nextSetupAsk();
+    beginDeployment();
     emit();
   }
 
@@ -162,7 +158,7 @@ const Battle = (function () {
     const marker = function (owner, spec, at) {
       S.units.push({
         id: 'm' + owner + '_' + S.units.length, owner: owner, name: spec.label,
-        x: at.x, y: at.y, facing: 0, radius: BASE,
+        x: -60, y: -60, facing: 0, radius: BASE, deployed: false,
         move: 0, maxWounds: spec.wounds, wounds: spec.wounds,
         toughness: spec.toughness, oc: 0,
         killVP: spec.killVP || 1, killVPFor: spec.killVPFor || null,
@@ -171,7 +167,6 @@ const Battle = (function () {
         marker: true, noRP: true,
         alive: true, kills: 0, overwatch: null, effects: [], marks: []
       });
-      log(spec.label + ' is placed in ' + S.players[owner].name + '’s deployment area.', 'note');
     };
 
     (m.markersPerPlayer || []).forEach(function (spec) {
@@ -219,6 +214,108 @@ const Battle = (function () {
     if (m.controlPoints) {
       board.objectives.forEach(o => { S.secured[o.id] = null; });
     }
+  }
+
+  /* ------------------------------------------------------------ DEPLOYMENT
+     Nobody is put down for you. The two of you take it in turns to choose
+     where each model stands, inside your own zone — which is the first real
+     decision of the game and used to be made by a loop. */
+  function beginDeployment() {
+    const waiting = [[], []];
+    S.units.forEach(function (u) {
+      if (!u.deployed) waiting[u.owner].push(u.id);
+    });
+    /* a marker goes down before the models that are meant to guard it */
+    [0, 1].forEach(function (p) {
+      waiting[p].sort(function (a, b) {
+        return (unit(b).marker ? 1 : 0) - (unit(a).marker ? 1 : 0);
+      });
+    });
+
+    const order = [];
+    if (S.mission && S.mission.roles) {
+      /* AMBUSH says the defender sets up first, and all of them */
+      order.push.apply(order, waiting[0]);
+      order.push.apply(order, waiting[1]);
+      log(S.mission.name + ': the DEFENDER sets up first, the ATTACKER second.', 'note');
+    } else {
+      let i = 0;
+      while (waiting[0].length || waiting[1].length) {
+        const p = i % 2;
+        if (waiting[p].length) order.push(waiting[p].shift());
+        else if (waiting[1 - p].length) order.push(waiting[1 - p].shift());
+        i++;
+      }
+      log('Deployment: take it in turns to put a model down.', 'note');
+    }
+
+    S.deploy = { order: order, at: 0 };
+    askDeploy();
+  }
+
+  /* Everywhere inside your zone a model of this size could stand. */
+  function deployField(u) {
+    const z = S.board.deploy[u.owner];
+    const out = [];
+    for (let y = z.y + 0.6; y <= z.y + z.h - 0.6; y += 0.6) {
+      for (let x = z.x + 0.6; x <= z.x + z.w - 0.6; x += 0.6) {
+        const p = { x: x, y: y };
+        if (!Board.standable(S.board, p, u.radius, Board.heightAt(S.board, p))) continue;
+        if (S.units.some(o => o.deployed && o.alive && !o.reserve &&
+                              Board.dist(o, p) < o.radius + u.radius + 0.1)) continue;
+        out.push(p);
+      }
+    }
+    return out;
+  }
+
+  function askDeploy() {
+    const d = S.deploy;
+    if (!d || d.at >= d.order.length) {
+      S.deploy = null;
+      S.pending = null;
+      log('Both forces are on the table.', 'note');
+      runGameStart();
+      beginTurn(0, true);
+      nextSetupAsk();
+      emit();
+      return;
+    }
+    const u = unit(d.order[d.at]);
+    const spots = deployField(u);
+    if (!spots.length) { d.at++; askDeploy(); return; }
+    S.control = { player: u.owner, forcedUnitId: null };
+    S.pending = {
+      kind: 'deploy', unitId: u.id, owner: u.owner, spots: spots,
+      label: 'DEPLOY — ' + u.name,
+      hint: S.players[u.owner].name + ', put ' + u.name + ' anywhere in your zone.' +
+            (u.marker ? ' This is the thing you have to keep alive.' : ''),
+      left: d.order.length - d.at
+    };
+    emit();
+  }
+
+  function placeDeploy(at) {
+    const pend = S.pending;
+    if (!pend || pend.kind !== 'deploy') return;
+    const u = unit(pend.unitId);
+    let to = at;
+    if (!pend.spots.some(sp => Board.dist(sp, at) < 0.35)) {
+      let best = null, bestD = 2.5;
+      pend.spots.forEach(function (sp) {
+        const dd = Board.dist(sp, at);
+        if (dd < bestD) { bestD = dd; best = sp; }
+      });
+      if (!best) return;
+      to = best;
+    }
+    u.x = to.x; u.y = to.y;
+    u.deployed = true;
+    u.facing = u.owner === 0 ? 0 : Math.PI;
+    log(S.players[u.owner].name + ' deploys ' + u.name + '.', 'action');
+    S.deploy.at++;
+    S.pending = null;
+    askDeploy();
   }
 
   const onTable = u => u.alive && !u.reserve;
@@ -2069,7 +2166,7 @@ const Battle = (function () {
     abilityActions, useAbility, confirmAbility, arrivalSpots, abilityOf, moveOf,
     cardPowers, useCardPower, holderOf, attackMods, diceFor, blockedReactions,
     chooseReaction, chooseRedirect, toggleWatcher, fireOverwatch, endTurn, placeMove,
-    placePut, choosePick, answerEndAbility,
+    placePut, choosePick, answerEndAbility, placeDeploy,
     mustPass, elevation, diveEscapes, spotsWithin, fieldFor, snapMove
   };
 })();

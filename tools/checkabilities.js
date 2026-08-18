@@ -45,8 +45,10 @@ function scene(f0, f1, opts) {
   /* a card may open the game by asking its owner something (Da Hunta picks a
      mark) — answer it so the scene starts with a clear table */
   let guard = 0;
-  while (S.pending && S.pending.kind === 'pick' && guard++ < 4) {
-    G.Battle.choosePick(S.pending.options[0]);
+  while (S.pending && guard++ < 40) {
+    if (S.pending.kind === 'deploy') G.Battle.placeDeploy(S.pending.spots[0]);
+    else if (S.pending.kind === 'pick') G.Battle.choosePick(S.pending.options[0]);
+    else break;
   }
   return G;
 }
@@ -371,11 +373,16 @@ console.log('\n== Orks');
 }
 {
   const G = makeGame();
-  G.Battle.start({ mapId: 'trenchline', factions: ['orks', 'astra'],
-                   names: ['P1', 'P2'], seed: 12345, missionId: null });
-  G.Battle.get().players[0].ap = 40; G.Battle.get().players[1].ap = 40;
-  const hunta = find(G, 'Da Hunta');
+  G.Battle.start({ factions: ['orks', 'astra'], names: ['P1', 'P2'],
+                   seed: 12345, missionId: null });
   const Sd = G.Battle.get();
+  Sd.players[0].ap = 40; Sd.players[1].ap = 40;
+  /* get both forces on the table first — Da Hunta's question comes after */
+  let dg = 0;
+  while (Sd.pending && Sd.pending.kind === 'deploy' && dg++ < 40) {
+    G.Battle.placeDeploy(Sd.pending.spots[0]);
+  }
+  const hunta = find(G, 'Da Hunta');
   ok(Sd.pending && Sd.pending.kind === 'pick',
      'Da Hunta asks his owner which enemy to mark',
      Sd.pending ? Sd.pending.kind : 'nothing pending');
