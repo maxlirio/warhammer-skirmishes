@@ -563,6 +563,26 @@ console.log('\n== the small print');
   }
 }
 
+/* Every question the engine can ask must have something written to ask it
+   with. A prompt that silently falls through reads as "waiting on the
+   reaction" when the game is really waiting on you. */
+console.log('\n== every question has a prompt');
+{
+  const fs2 = require('fs');
+  const engine = fs2.readFileSync(path.join(__dirname, '..', 'game', 'js', 'battle.js'), 'utf8');
+  const screen = fs2.readFileSync(path.join(__dirname, '..', 'game', 'js', 'ui.js'), 'utf8');
+  /* only the kinds the engine actually parks a QUESTION under — `kind` is also
+     used for effect rows, which are nobody's prompt */
+  const kinds = {};
+  engine.replace(/S\.pending\s*=\s*\{\s*kind:\s*'([a-z]+)'/g,
+                 function (_, k) { kinds[k] = true; return _; });
+  Object.keys(kinds).sort().forEach(function (k) {
+    const asked = new RegExp("pend(?:ing)?\\.kind === '" + k + "'").test(screen) ||
+                  new RegExp("kind === '" + k + "'").test(screen);
+    ok(asked, 'the screen knows what to say when the engine asks for “' + k + '”');
+  });
+}
+
 /* --------------------------------------------------------------- the score */
 
 console.log('\n== summary\n' + (checks - failed) + '/' + checks + ' checks passed');

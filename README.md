@@ -90,7 +90,28 @@ player's end of the table.
 | **Scenery** | Real models — Kenney's Space Kit, CC0. The mass of a piece is the rules box exactly, so nothing on the table is cover the rules do not know about; the models are what make it worth looking at |
 | **Sound** | Synthesised in the browser rather than sampled: nothing to download and nothing to licence |
 
-### The Mission Cards
+### The Mission Cards, each with its own battlefield
+
+You do not pick a table and a card separately. A table that suits KING OF THE
+HILL is the wrong shape for SABOTAGE, so each card brings its own:
+
+| | | |
+|---|---|---|
+| NO CARD | RUINED MANUFACTORUM | five markers, since holding them is all there is to do |
+| SABOTAGE | SUPPLY LINES | covered lanes down both flanks, an open middle, and a blockhouse at each end to put your objective behind |
+| KING OF THE HILL | THE PINNACLE | one massif far taller than anything else, with three ways up |
+| AMBUSH | THE KILL ZONE | a nest of cover at either end and bare ground between |
+| ASSASSINATION | THE CROSSROADS | four lanes onto one marker, and corners deep enough to hide a name in |
+| SECURE THE AREA | THREE STATIONS | three raised stations, one to each flank and one higher in the middle |
+| THE RELIC | THE LONG WALK | a plaza to fight over and a gauntlet of half-cover each way home |
+
+`node tools/checkmaps.js` checks each table against its own card: that it
+carries exactly the markers that card calls for, that the HIGH GROUND really is
+the tallest thing near the middle, that AMBUSH has more cover at the ends than
+in the crossing, that SECURE's three stations are spread out and worth standing
+on, and that both players can reach the middle.
+
+### What each card does
 
 All six are on the menu and all six are played out, because the game can see the
 table and does not have to ask. SABOTAGE and AMBUSH put markers you can shoot in

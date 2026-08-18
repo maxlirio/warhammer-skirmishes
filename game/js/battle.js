@@ -59,7 +59,9 @@ const Battle = (function () {
   /* ------------------------------------------------------------- setting up */
 
   function start(cfg) {
-    const map = MAPS.byId(cfg.mapId);
+    /* The card decides the ground. A table that suits KING OF THE HILL is the
+       wrong shape for SABOTAGE, so they are not chosen separately. */
+    const map = MAPS.forMission(cfg.missionId || null);
     const board = Board.build(map);
     rng = mulberry32(cfg.seed || 1);
     S = {
@@ -141,40 +143,14 @@ const Battle = (function () {
     emit();
   }
 
-  /* The battlefields are drawn with five markers on them, which is what a
-     card-less game uses. Every card says how many there should actually be, so
-     the table is cut down to match before anybody deploys:
-
-       SECURE THE AREA  three — the centre and one on each flank
-       ASSASSINATION    one, in the centre
-       everything else  none. Their scoring is markers you shoot, ground you
-                        stand on, or a relic you carry, and leaving spare
-                        objectives lying about would only confuse the issue. */
+  /* Each table is authored for its own card, so the markers on it are already
+     the ones that card calls for. This only says so in the log. */
   function fitObjectivesToCard(board) {
     const m = S.mission;
-    const mid = { x: board.w / 2, y: board.h / 2 };
-    const byMiddle = board.objectives.slice()
-      .sort((a, b) => Board.dist(a, mid) - Board.dist(b, mid));
-
-    let keep;
-    if (!m) keep = board.objectives.slice();
-    else if (m.controlPoints) {
-      /* the centre, then the furthest one to either flank */
-      const centre = byMiddle[0];
-      const left = board.objectives.filter(o => o !== centre && o.x < mid.x)
-        .sort((a, b) => a.x - b.x)[0];
-      const right = board.objectives.filter(o => o !== centre && o.x > mid.x)
-        .sort((a, b) => b.x - a.x)[0];
-      keep = [centre, left, right].filter(Boolean);
-    } else if (m.id === 'assassination') keep = [byMiddle[0]];
-    else keep = [];
-
-    board.objectives = keep;
-    S.board.objectives = keep;
-    if (m) {
-      log(m.name + ': ' + (keep.length ? keep.length + ' objective marker' +
-          (keep.length === 1 ? '' : 's') + ' on the table' : 'no objective markers'), 'note');
-    }
+    if (!m) return;
+    const n = board.objectives.length;
+    log(m.name + ' — ' + (n ? n + ' objective marker' + (n === 1 ? '' : 's')
+                            : 'no objective markers') + ' on ' + board.name + '.', 'note');
   }
 
   /* Whatever the card puts on the table besides the two forces: markers you

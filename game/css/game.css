@@ -147,6 +147,11 @@ body::before {
 .missflav { font-size: 11px; color: var(--gold); font-style: italic; }
 .missobj { margin: 4px 0 0; padding-left: 15px; font-size: 11px; color: var(--dim); line-height: 1.5; }
 .missobj li { margin-bottom: 3px; }
+.missmap { display: flex; justify-content: space-between; align-items: baseline;
+            margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line); }
+.missmapname { font-family: var(--gothic); letter-spacing: .1em; font-size: 10px; color: var(--bone); }
+.missmapsize { font-size: 9px; color: var(--gold); letter-spacing: .06em; }
+.missgrid .thumb { margin-top: 5px; }
 .missends {
   margin-top: auto; font-family: var(--gothic); letter-spacing: .16em;
   font-size: 9px; color: var(--gold-lit);

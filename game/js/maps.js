@@ -1,6 +1,10 @@
 /* =========================================================================
    BATTLEFIELDS
-   Measured in inches, like the table they stand in for. Terrain is boxes:
+   One per Mission Card, built for what that card asks of the ground. You do
+   not choose a table and a card separately — the card brings its own, because
+   a table that suits KING OF THE HILL is the wrong shape for SABOTAGE.
+
+   Measured in inches. Terrain is boxes:
 
      blocks: true    a ruin or blockhouse. You cannot walk through it, and you
                      cannot see past it unless you are standing higher than
@@ -8,9 +12,12 @@
      blocks: false   a platform. You walk onto it and it puts your eye at
                      `top`, which is what the elevation rules are about.
 
-   Every table is symmetric left to right, gives each player exactly one
-   objective they can hold cheaply, and puts the rest where holding them means
-   standing in somebody's line of fire. `node tools/checkmaps.js` enforces it.
+   All terrain is climbable either way; `blocks` is about sight and about
+   whether you can walk THROUGH it, not whether you can get on top.
+
+   Every table is symmetric left to right so neither player starts ahead, and
+   carries exactly the objective markers its card calls for.
+   `node tools/checkmaps.js` enforces both.
    ========================================================================= */
 
 const MAPS = (function () {
@@ -27,95 +34,198 @@ const MAPS = (function () {
     return out;
   }
 
-  function manufactorum() {
+  /* ----------------------------------------------------------- no card at all
+     Objectives all over, because holding them is the only thing to do. */
+  function openGround() {
     const w = 44, h = 30;
     return {
-      id: 'manufactorum', name: 'RUINED MANUFACTORUM',
+      id: 'open', missionId: null, name: 'RUINED MANUFACTORUM',
       blurb: 'A killing floor straight down the middle with three markers on it, ' +
              'and a gantry north and south that shoots down into everything.',
       w: w, h: h,
       deploy: [{ x: 0, y: 0, w: 7, h: h }, { x: w - 7, y: 0, w: 7, h: h }],
       terrain: mirrored([
-        /* the gantries that overlook the killing floor */
         { x: 17, y: 3,  w: 10, h: 6, top: 1.6, blocks: false, kind: 'gantry' },
         { x: 17, y: 21, w: 10, h: 6, top: 1.6, blocks: false, kind: 'gantry' },
-        /* blockhouses in the four quadrants, clear of every firing lane */
         { x: 12, y: 4,  w: 4, h: 5, top: 4.5, blocks: true, kind: 'blockhouse' },
         { x: 12, y: 21, w: 4, h: 5, top: 4.5, blocks: true, kind: 'blockhouse' },
-        /* slabs to cross the open ground behind */
         { x: 6,  y: 9,  w: 2, h: 4, top: 3.2, blocks: true, kind: 'slab' },
         { x: 6,  y: 17, w: 2, h: 4, top: 3.2, blocks: true, kind: 'slab' },
-        /* spoil heaps flanking the centre marker — cover, not a wall */
         { x: 19, y: 12,   w: 6, h: 1.5, top: 1.1, blocks: false, kind: 'rubble' },
         { x: 19, y: 16.5, w: 6, h: 1.5, top: 1.1, blocks: false, kind: 'rubble' }
       ], w),
-      objectives: [
-        { x: 9,  y: 15 }, { x: 35, y: 15 },     /* one home marker each */
-        { x: 22, y: 15 },                        /* the middle of the floor */
-        { x: 22, y: 6 },  { x: 22, y: 24 }       /* up on the gantries */
-      ]
+      objectives: [{ x: 9, y: 15 }, { x: 35, y: 15 }, { x: 22, y: 15 },
+                   { x: 22, y: 6 }, { x: 22, y: 24 }]
     };
   }
 
-  function trenchline() {
-    const w = 40, h = 28;
+  /* --------------------------------------------------------------- SABOTAGE
+     Each side has something in its own deployment zone that the other has to
+     reach and destroy. So: covered lanes down both flanks to get across, an
+     open middle that punishes the short route, and a blockhouse at each end to
+     put the thing behind. No objective markers — the target IS the objective. */
+  function supplyLines() {
+    const w = 46, h = 30;
     return {
-      id: 'trenchline', name: 'THE TRENCH LINE',
-      blurb: 'One long open lane between the two home markers, and a redoubt in ' +
-             'the middle of it that you cannot see across from the floor.',
+      id: 'supply', missionId: 'sabotage', name: 'SUPPLY LINES',
+      blurb: 'Covered lanes down both flanks and a wide open middle. There is a ' +
+             'quick way to their objective and a way you might survive.',
+      w: w, h: h,
+      deploy: [{ x: 0, y: 0, w: 7, h: h }, { x: w - 7, y: 0, w: 7, h: h }],
+      terrain: mirrored([
+        /* the blockhouse each objective sits behind */
+        { x: 8,  y: 11, w: 4, h: 8, top: 4.6, blocks: true, kind: 'bunker' },
+        /* the flank lanes: staggered walls you weave between */
+        { x: 13, y: 3,  w: 7, h: 2, top: 3.6, blocks: true, kind: 'wall' },
+        { x: 13, y: 25, w: 7, h: 2, top: 3.6, blocks: true, kind: 'wall' },
+        { x: 22, y: 6,  w: 6, h: 2, top: 3.6, blocks: true, kind: 'wall' },
+        { x: 22, y: 22, w: 6, h: 2, top: 3.6, blocks: true, kind: 'wall' },
+        /* a gantry over each lane, for whoever wants to shoot down it */
+        { x: 14, y: 7,  w: 5, h: 4, top: 2.0, blocks: false, kind: 'gantry' },
+        { x: 14, y: 19, w: 5, h: 4, top: 2.0, blocks: false, kind: 'gantry' },
+        /* and almost nothing in the middle */
+        { x: 21, y: 13.5, w: 4, h: 3, top: 1.1, blocks: false, kind: 'rubble' }
+      ], w),
+      objectives: []
+    };
+  }
+
+  /* ----------------------------------------------------------- KING OF THE HILL
+     The card says the tallest terrain near the centre is the HIGH GROUND, so
+     the table has to make that obvious: one massif, far taller than anything
+     else, with more than one way up and open ground around it. */
+  function pinnacle() {
+    const w = 42, h = 30;
+    return {
+      id: 'pinnacle', missionId: 'hill', name: 'THE PINNACLE',
+      blurb: 'One massif in the middle, taller than anything else on the table, ' +
+             'with three ways up it and nowhere to hide at its foot.',
       w: w, h: h,
       deploy: [{ x: 0, y: 0, w: 6, h: h }, { x: w - 6, y: 0, w: 6, h: h }],
       terrain: mirrored([
-        { x: 16, y: 10, w: 8, h: 8, top: 2.2, blocks: false, kind: 'redoubt' },
-        /* the trench walls, with the centre left open to cross */
-        { x: 10, y: 6,  w: 8, h: 2, top: 3.4, blocks: true, kind: 'trench' },
-        { x: 10, y: 20, w: 8, h: 2, top: 3.4, blocks: true, kind: 'trench' },
-        /* bunkers back near the deployment lines */
-        { x: 5,  y: 2,  w: 3, h: 4, top: 4.2, blocks: true, kind: 'bunker' },
-        { x: 5,  y: 22, w: 3, h: 4, top: 4.2, blocks: true, kind: 'bunker' },
-        /* a firing step to either flank of the redoubt */
-        { x: 12, y: 13, w: 2, h: 2, top: 1.4, blocks: false, kind: 'step' }
+        /* the hill itself, in two steps so it can be climbed twice */
+        { x: 14, y: 9,  w: 14, h: 12, top: 2.4, blocks: false, kind: 'nave' },
+        { x: 17, y: 11, w: 8,  h: 8,  top: 5.2, blocks: false, kind: 'sanctum' },
+        /* cover at its foot, which is lower than the hill by a long way */
+        { x: 10, y: 5,  w: 4, h: 3, top: 3.2, blocks: true, kind: 'slab' },
+        { x: 10, y: 22, w: 4, h: 3, top: 3.2, blocks: true, kind: 'slab' },
+        { x: 8,  y: 13, w: 2.5, h: 4, top: 2.8, blocks: true, kind: 'pillar' },
+        { x: 19, y: 3,  w: 4, h: 2, top: 2.6, blocks: true, kind: 'wall' },
+        { x: 19, y: 25, w: 4, h: 2, top: 2.6, blocks: true, kind: 'wall' }
       ], w),
-      objectives: [
-        { x: 8,  y: 14 }, { x: 32, y: 14 },
-        { x: 20, y: 14 },
-        { x: 20, y: 5 },  { x: 20, y: 23 }
-      ]
+      objectives: []
     };
   }
 
-  function shrine() {
+  /* ----------------------------------------------------------------- AMBUSH
+     One side is dug in with the BAIT and the other has to come and get it, so
+     the ground that matters is the ground in between: both ends are a nest of
+     cover and the middle is bare. */
+  function killZone() {
+    const w = 46, h = 28;
+    return {
+      id: 'killzone', missionId: 'ambush', name: 'THE KILL ZONE',
+      blurb: 'A nest of cover at either end and nothing worth the name in ' +
+             'between. Whoever crosses first is the one in the open.',
+      w: w, h: h,
+      deploy: [{ x: 0, y: 0, w: 8, h: h }, { x: w - 8, y: 0, w: 8, h: h }],
+      terrain: mirrored([
+        { x: 5,  y: 4,  w: 4, h: 4, top: 4.2, blocks: true, kind: 'bunker' },
+        { x: 5,  y: 20, w: 4, h: 4, top: 4.2, blocks: true, kind: 'bunker' },
+        { x: 9,  y: 12, w: 3, h: 4, top: 3.4, blocks: true, kind: 'wall' },
+        { x: 12, y: 5,  w: 5, h: 3, top: 2.0, blocks: false, kind: 'gantry' },
+        { x: 12, y: 20, w: 5, h: 3, top: 2.0, blocks: false, kind: 'gantry' },
+        /* the crossing: two thin things and a great deal of nothing */
+        { x: 20, y: 2,  w: 2, h: 5, top: 3.0, blocks: true, kind: 'pillar' },
+        { x: 20, y: 21, w: 2, h: 5, top: 3.0, blocks: true, kind: 'pillar' },
+        { x: 21.5, y: 12.5, w: 3, h: 3, top: 1.1, blocks: false, kind: 'rubble' }
+      ], w),
+      objectives: []
+    };
+  }
+
+  /* ---------------------------------------------------------- ASSASSINATION
+     One marker in the middle and a named head on each side, so the table wants
+     long lanes onto the centre and corners deep enough to keep a TARGET out of
+     sight until it matters. */
+  function crossroads() {
     const w = 40, h = 28;
     return {
-      id: 'shrine', name: 'SHRINE OF THE SILENT SAINT',
-      blurb: 'A raised nave you cannot see across from the floor, and from the top ' +
-             'of which you can see the whole shrine. Everything else is open ground.',
+      id: 'crossroads', missionId: 'assassination', name: 'THE CROSSROADS',
+      blurb: 'Four lanes meeting on one marker, and a blockhouse in each corner ' +
+             'deep enough to keep a name out of sight.',
       w: w, h: h,
       deploy: [{ x: 0, y: 0, w: 6, h: h }, { x: w - 6, y: 0, w: 6, h: h }],
       terrain: mirrored([
-        /* the nave, and the sanctum standing higher again at the middle of it */
-        { x: 14, y: 8,  w: 12, h: 12, top: 2.4, blocks: false, kind: 'nave' },
-        { x: 17, y: 11, w: 6,  h: 6,  top: 3.6, blocks: false, kind: 'sanctum' },
-        /* the reliquary walls, open to north and south */
-        { x: 14, y: 4,  w: 3, h: 2, top: 4.6, blocks: true, kind: 'wall' },
-        { x: 14, y: 22, w: 3, h: 2, top: 4.6, blocks: true, kind: 'wall' },
-        /* cloister pillars */
-        { x: 11, y: 5,  w: 2,   h: 2, top: 5.2, blocks: true, kind: 'pillar' },
-        { x: 11, y: 21, w: 2,   h: 2, top: 5.2, blocks: true, kind: 'pillar' },
-        /* kept clear of the y=14 lane, so the nave can still see the home markers */
-        { x: 10, y: 9,  w: 1.6, h: 3, top: 5.2, blocks: true, kind: 'pillar' },
-        { x: 10, y: 16, w: 1.6, h: 3, top: 5.2, blocks: true, kind: 'pillar' }
+        { x: 8,  y: 3,  w: 6, h: 6, top: 4.4, blocks: true, kind: 'blockhouse' },
+        { x: 8,  y: 19, w: 6, h: 6, top: 4.4, blocks: true, kind: 'blockhouse' },
+        { x: 16, y: 9,  w: 3, h: 3, top: 2.2, blocks: false, kind: 'step' },
+        { x: 16, y: 16, w: 3, h: 3, top: 2.2, blocks: false, kind: 'step' },
+        { x: 7,  y: 12, w: 2, h: 4, top: 3.0, blocks: true, kind: 'pillar' }
       ], w),
-      objectives: [
-        { x: 8,  y: 14 }, { x: 32, y: 14 },
-        { x: 20, y: 14 },
-        { x: 20, y: 5 },  { x: 20, y: 23 }
-      ]
+      objectives: [{ x: 20, y: 14 }]
     };
   }
 
-  const list = [manufactorum(), trenchline(), shrine()];
+  /* -------------------------------------------------------- SECURE THE AREA
+     Three markers, one in the middle and one to each flank, and each of them
+     wants to be somewhere worth standing rather than a spot on bare floor. */
+  function threeStations() {
+    const w = 46, h = 28;
+    return {
+      id: 'stations', missionId: 'secure', name: 'THREE STATIONS',
+      blurb: 'Three raised stations — one to each flank and one in the middle. ' +
+             'Holding two means standing where the third can see you.',
+      w: w, h: h,
+      deploy: [{ x: 0, y: 0, w: 6, h: h }, { x: w - 6, y: 0, w: 6, h: h }],
+      terrain: mirrored([
+        /* the flank stations */
+        { x: 9,  y: 10, w: 7, h: 8, top: 2.2, blocks: false, kind: 'redoubt' },
+        /* the middle one, higher, so it overlooks both */
+        { x: 19, y: 10, w: 8, h: 8, top: 3.2, blocks: false, kind: 'nave' },
+        /* cover on the way between them */
+        { x: 8,  y: 3,  w: 5, h: 2, top: 3.4, blocks: true, kind: 'wall' },
+        { x: 8,  y: 23, w: 5, h: 2, top: 3.4, blocks: true, kind: 'wall' },
+        { x: 17, y: 4,  w: 3, h: 3, top: 3.8, blocks: true, kind: 'blockhouse' },
+        { x: 17, y: 21, w: 3, h: 3, top: 3.8, blocks: true, kind: 'blockhouse' }
+      ], w),
+      objectives: [{ x: 12.5, y: 14 }, { x: 33.5, y: 14 }, { x: 23, y: 14 }]
+    };
+  }
+
+  /* -------------------------------------------------------------- THE RELIC
+     Picked up in the middle and carried home, so what matters is the run back:
+     a plaza to fight over and a gauntlet of half-cover each way. */
+  function longWalk() {
+    const w = 46, h = 30;
+    return {
+      id: 'longwalk', missionId: 'relic', name: 'THE LONG WALK',
+      blurb: 'A plaza in the middle worth fighting over, and a gauntlet of ' +
+             'half-cover between it and either end. Carrying it is the hard part.',
+      w: w, h: h,
+      deploy: [{ x: 0, y: 0, w: 7, h: h }, { x: w - 7, y: 0, w: 7, h: h }],
+      terrain: mirrored([
+        /* the plaza the relic sits on */
+        { x: 19, y: 11, w: 8, h: 8, top: 1.8, blocks: false, kind: 'redoubt' },
+        /* the gauntlet: staggered walls, none of them long enough to hide behind */
+        { x: 9,  y: 7,  w: 6, h: 2, top: 3.6, blocks: true, kind: 'wall' },
+        { x: 9,  y: 21, w: 6, h: 2, top: 3.6, blocks: true, kind: 'wall' },
+        { x: 14, y: 13, w: 3, h: 4, top: 3.2, blocks: true, kind: 'slab' },
+        { x: 8,  y: 13, w: 2, h: 4, top: 2.6, blocks: true, kind: 'pillar' },
+        /* somewhere to shoot the carrier from */
+        { x: 15, y: 2,  w: 5, h: 3, top: 2.4, blocks: false, kind: 'gantry' },
+        { x: 15, y: 25, w: 5, h: 3, top: 2.4, blocks: false, kind: 'gantry' }
+      ], w),
+      objectives: []
+    };
+  }
+
+  const list = [openGround(), supplyLines(), pinnacle(), killZone(),
+                crossroads(), threeStations(), longWalk()];
+
   const byId = id => list.find(m => m.id === id) || list[0];
+  const forMission = missionId =>
+    list.find(m => m.missionId === (missionId || null)) || list[0];
 
-  return { list, byId };
+  return { list, byId, forMission };
 })();

@@ -23,7 +23,7 @@ const GameUI = (function () {
   let selected = null;
   let hover = null;         // {x, y} on the table
   let hoverPx = { x: 0, y: 0 };
-  let cfg = { mapId: null, missionId: null,
+  let cfg = { missionId: undefined,
               factions: ['astra', 'orks'], names: ['Player One', 'Player Two'] };
   let started = false;
 
@@ -33,21 +33,6 @@ const GameUI = (function () {
     $('menu').hidden = false;
     $('battle').hidden = true;
     $('victory').hidden = true;
-
-    const maps = $('mapPick');
-    maps.innerHTML = '';
-    MAPS.list.forEach(function (m) {
-      const card = el('button', 'mapcard');
-      card.appendChild(el('span', 'mapname', m.name));
-      card.appendChild(el('span', 'mapsize',
-        m.w + '" × ' + m.h + '"  ·  ' + m.objectives.length + ' objectives  ·  ' +
-        m.terrain.filter(t => t.blocks).length + ' pieces of blocking terrain'));
-      card.appendChild(el('span', 'mapblurb', m.blurb));
-      card.appendChild(thumb(m));
-      if (cfg.mapId === m.id) card.classList.add('on');
-      card.onclick = () => { cfg.mapId = m.id; showMenu(); };
-      maps.appendChild(card);
-    });
 
     [0, 1].forEach(function (p) {
       const box = $('faction' + p);
@@ -76,6 +61,15 @@ const GameUI = (function () {
         const ul = el('ul', 'missobj');
         (m.objective || []).forEach(t => ul.appendChild(el('li', null, t)));
         card.appendChild(ul);
+        /* the table this card is played on comes with it */
+        const map = MAPS.forMission(m.id);
+        const strip = el('div', 'missmap');
+        strip.appendChild(el('span', 'missmapname', map.name));
+        strip.appendChild(el('span', 'missmapsize',
+          map.w + '" × ' + map.h + '"  ·  ' +
+          (map.objectives.length ? map.objectives.length + ' markers' : 'no markers')));
+        card.appendChild(strip);
+        card.appendChild(thumb(map));
         if (m.endsShort) card.appendChild(el('span', 'missends', m.endsShort));
         if (cfg.missionId === m.id) card.classList.add('on');
         card.onclick = () => { cfg.missionId = m.id; showMenu(); };
@@ -83,8 +77,8 @@ const GameUI = (function () {
       });
 
     drawNet();
-    $('startBtn').disabled = !cfg.mapId || netMode !== 'local';
-    $('startBtn').textContent = !cfg.mapId ? 'CHOOSE A BATTLEFIELD'
+    $('startBtn').disabled = cfg.missionId === undefined || netMode !== 'local';
+    $('startBtn').textContent = cfg.missionId === undefined ? 'CHOOSE A MISSION CARD'
       : netMode === 'local' ? 'DEPLOY' : 'WAITING FOR THE ROOM';
   }
 
@@ -109,7 +103,7 @@ const GameUI = (function () {
           'your opponent. The dice are seeded from here so you both see the ' +
           'same rolls.'));
         const go = el('button', 'netgo', 'OPEN THE ROOM');
-        go.disabled = !cfg.mapId;
+        go.disabled = cfg.missionId === undefined;
         go.onclick = function () {
           Net.host(cfg, function (dealt, seat) { cfg = dealt; startNet(seat); });
           const miss = $('missionPick');
@@ -123,6 +117,15 @@ const GameUI = (function () {
         const ul = el('ul', 'missobj');
         (m.objective || []).forEach(t => ul.appendChild(el('li', null, t)));
         card.appendChild(ul);
+        /* the table this card is played on comes with it */
+        const map = MAPS.forMission(m.id);
+        const strip = el('div', 'missmap');
+        strip.appendChild(el('span', 'missmapname', map.name));
+        strip.appendChild(el('span', 'missmapsize',
+          map.w + '" × ' + map.h + '"  ·  ' +
+          (map.objectives.length ? map.objectives.length + ' markers' : 'no markers')));
+        card.appendChild(strip);
+        card.appendChild(thumb(map));
         if (m.endsShort) card.appendChild(el('span', 'missends', m.endsShort));
         if (cfg.missionId === m.id) card.classList.add('on');
         card.onclick = () => { cfg.missionId = m.id; showMenu(); };
@@ -170,6 +173,15 @@ const GameUI = (function () {
         const ul = el('ul', 'missobj');
         (m.objective || []).forEach(t => ul.appendChild(el('li', null, t)));
         card.appendChild(ul);
+        /* the table this card is played on comes with it */
+        const map = MAPS.forMission(m.id);
+        const strip = el('div', 'missmap');
+        strip.appendChild(el('span', 'missmapname', map.name));
+        strip.appendChild(el('span', 'missmapsize',
+          map.w + '" × ' + map.h + '"  ·  ' +
+          (map.objectives.length ? map.objectives.length + ' markers' : 'no markers')));
+        card.appendChild(strip);
+        card.appendChild(thumb(map));
         if (m.endsShort) card.appendChild(el('span', 'missends', m.endsShort));
         if (cfg.missionId === m.id) card.classList.add('on');
         card.onclick = () => { cfg.missionId = m.id; showMenu(); };
@@ -459,20 +471,74 @@ const GameUI = (function () {
     bar.innerHTML = '';
     const ctrl = S.control.player;
 
-    if (S.pending && S.pending.kind === 'move') {
-      const pend = S.pending;
+    /* Whatever the game is waiting on, say so plainly. Every kind of pending
+       question needs its own line here — the fallback at the bottom is a bug
+       report, not a prompt. */
+    const pend = S.pending;
+
+    if (pend && pend.kind === 'move') {
       bar.appendChild(el('div', 'ahead2', pend.label));
       bar.appendChild(el('div', 'prompt', pend.hint));
       bar.appendChild(el('div', 'prompt warn', 'Click the table to place ' +
         Battle.unit(pend.unitId).name + '.'));
       return;
     }
+    if (pend && pend.kind === 'put') {
+      bar.appendChild(el('div', 'ahead2', pend.label));
+      bar.appendChild(el('div', 'prompt', pend.hint));
+      bar.appendChild(el('div', 'prompt warn', 'Click the table to place it.'));
+      return;
+    }
+    if (pend && pend.kind === 'pick') {
+      bar.appendChild(el('div', 'ahead2', pend.label));
+      bar.appendChild(el('div', 'prompt', pend.hint));
+      bar.appendChild(el('div', 'prompt warn', 'Click the model you mean.'));
+      const skip = el('div', 'afoot');
+      const none = el('button', 'pass', 'NONE OF THEM');
+      none.onclick = () => act(() => Battle.choosePick(null), { t: 'pick', id: null });
+      skip.appendChild(none);
+      bar.appendChild(skip);
+      return;
+    }
+    if (pend && (pend.kind === 'ability' || pend.kind === 'card')) {
+      bar.appendChild(el('div', 'ahead2', pend.name));
+      if (pend.text) bar.appendChild(el('div', 'prompt', pend.text));
+      bar.appendChild(el('div', 'prompt warn',
+        pend.need === 'spot' ? 'Click the table to place ' + Battle.unit(pend.unitId).name + '.'
+        : pend.need === 'friend' ? 'Click one of your own models.'
+        : 'Click an enemy model.'));
+      return;
+    }
+    if (pend && pend.kind === 'endability') {
+      bar.appendChild(el('div', 'ahead2', 'END PHASE — ' + pend.name));
+      bar.appendChild(el('div', 'prompt', pend.text));
+      const row = el('div', 'afoot');
+      const yes = el('button', 'endturn', 'USE IT');
+      yes.onclick = () => act(() => Battle.answerEndAbility(true), { t: 'endab', v: 1 });
+      const no = el('button', 'pass', 'SKIP');
+      no.onclick = () => act(() => Battle.answerEndAbility(false), { t: 'endab', v: 0 });
+      row.appendChild(yes); row.appendChild(no);
+      bar.appendChild(row);
+      return;
+    }
     if (Render3D.busy()) { bar.appendChild(el('div', 'prompt resolving', 'the shot is still in the air…')); return; }
-    if (S.pending && S.pending.kind === 'redirect') {
+    if (pend && pend.kind === 'redirect') {
       bar.appendChild(el('div', 'prompt', 'choosing who steps into it…'));
       return;
     }
-    if (S.pending) { bar.appendChild(el('div', 'prompt', 'waiting on the reaction…')); return; }
+    if (pend && pend.kind === 'reaction') {
+      bar.appendChild(el('div', 'prompt', 'waiting on the reaction…'));
+      return;
+    }
+    if (pend && pend.kind === 'overwatch') {
+      bar.appendChild(el('div', 'prompt', 'waiting on the overwatch…'));
+      return;
+    }
+    if (pend) {
+      bar.appendChild(el('div', 'prompt warn',
+        'waiting on “' + pend.kind + '”, which has no prompt written for it'));
+      return;
+    }
 
     const head = el('div', 'ahead');
     head.appendChild(el('span', 'who', S.players[ctrl].name + ' to act'));

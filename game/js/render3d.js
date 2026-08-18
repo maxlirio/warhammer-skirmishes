@@ -742,6 +742,7 @@ const Render3D = (function () {
           const st = Assets.fitted('stairs', 1.7, depth, t.top);
           st.rotation.y = side.turn;
           st.position.set(side.x, 0, side.z);
+          st.userData.stairsFor = t;
           g.add(st);
         }
       }
@@ -766,11 +767,16 @@ const Render3D = (function () {
      clear table is in front of it. Returns a local offset and a turn, or null
      if the piece is boxed in on every side. */
   function bestApproach(t, depth) {
+    /* The kit's stairs rise toward +Z — measured off the mesh, not guessed —
+       so the turn has to bring their HIGH end round to face the deck. Sitting
+       on the north face the model is already right way round; on the south it
+       needs turning about. Every one of these was reversed, which is why they
+       all ran the wrong way. */
     const sides = [
-      { nx: 0, nz: -1, turn: Math.PI },        /* north face */
-      { nx: 0, nz: 1, turn: 0 },               /* south face */
-      { nx: -1, nz: 0, turn: -Math.PI / 2 },   /* west face */
-      { nx: 1, nz: 0, turn: Math.PI / 2 }      /* east face */
+      { nx: 0, nz: -1, turn: 0 },               /* north face: rise is +Z, into the deck */
+      { nx: 0, nz: 1, turn: Math.PI },          /* south face */
+      { nx: -1, nz: 0, turn: Math.PI / 2 },     /* west face: +Z round to +X */
+      { nx: 1, nz: 0, turn: -Math.PI / 2 }      /* east face */
     ];
     let best = null;
     sides.forEach(function (s2) {

@@ -44,11 +44,24 @@ function nearZone(z, p) {
 }
 const zoneMid = z => ({ x: z.x + z.w / 2, y: z.y + z.h / 2 });
 
+/* What each card needs on the ground, beyond the things every table needs. */
+const WANTS = {
+  null:            { markers: 5, note: 'objectives everywhere, since holding them is all there is' },
+  sabotage:        { markers: 0, note: 'the targets are units in the deployment zones' },
+  hill:            { markers: 0, note: 'one obviously tallest piece near the middle' },
+  ambush:          { markers: 0, note: 'cover at both ends, open ground between' },
+  assassination:   { markers: 1, note: 'one marker, in the middle' },
+  secure:          { markers: 3, note: 'three markers, one to each flank and one central' },
+  relic:           { markers: 0, note: 'the relic starts in the middle' }
+};
+
 MAPS.list.forEach(function (m) {
   const b = Board.build(m);
   const O = b.objectives;
-  console.log('\n== ' + m.name + '  ' + b.w + '" × ' + b.h + '"  ' +
-              O.length + ' objectives, ' + b.terrain.length + ' pieces of terrain');
+  const mid = { x: b.w / 2, y: b.h / 2 };
+  const want = WANTS[String(m.missionId)];
+  console.log('\n== ' + m.name + '  (' + (m.missionId || 'no card') + ')  ' +
+              b.w + '" × ' + b.h + '"  ' + b.terrain.length + ' pieces');
 
   /* Mirror symmetry, in the geometry rather than in a string. */
   const flip = t => ({ x: b.w - t.x - t.w, y: t.y, w: t.w, h: t.h, top: t.top, blocks: t.blocks });
@@ -62,12 +75,16 @@ MAPS.list.forEach(function (m) {
      Math.abs(b.deploy[0].x - (b.w - b.deploy[1].x - b.deploy[1].w)) < 1e-6,
      'the two deployment zones are mirror images');
 
-  ok(O.length >= 4, 'at least four objectives (' + O.length + ')');
+  ok(!!want, 'the card this table is for is one of the seven');
+  if (want) {
+    ok(O.length === want.markers,
+       'it carries the ' + want.markers + ' marker(s) its card calls for — ' + want.note,
+       'found ' + O.length);
+  }
   ok(O.every(o => Board.standable(b, o, BASE)),
-     'a model can actually stand on every objective');
+     'a model can stand on every marker it does carry');
 
-  /* Nothing walled off. All terrain is climbable, but a climb ends your move,
-     so getting somewhere high takes more than one — expand a few moves out. */
+  /* Nothing walled off, and the middle reachable from both ends. */
   [0, 1].forEach(function (p) {
     const start = Board.nudgeToLegal(b, zoneMid(b.deploy[p]), BASE, []);
     let frontier = [start];
@@ -88,56 +105,98 @@ MAPS.list.forEach(function (m) {
       seen.push.apply(seen, frontier);
       frontier = next;
     }
-    const stranded = O.filter(o => !got(o));
+    const targets = O.concat([Board.nudgeToLegal(b, mid, BASE, [])]);
+    const stranded = targets.filter(o => !got(o));
     ok(stranded.length === 0,
-       'P' + (p + 1) + ' can reach every objective, climbing where it has to' +
-       (stranded.length ? ' (stranded: ' + stranded.map(o => o.x + ',' + o.y).join(' ') + ')' : ''));
+       'P' + (p + 1) + ' can reach the middle and every marker, climbing where it has to',
+       stranded.length ? 'stranded: ' + stranded.map(o => o.x + ',' + o.y).join(' ') : '');
   });
 
-  /* Sight between markers — the reason holding ground costs you something. */
-  const pairs = [];
-  for (let i = 0; i < O.length; i++) {
-    for (let j = i + 1; j < O.length; j++) {
-      if (Board.canSee(b, O[i], O[j])) pairs.push(i + '↔' + j);
+  /* Markers, where there are any, have to be worth contesting. */
+  if (O.length > 1) {
+    const pairs = [];
+    for (let i = 0; i < O.length; i++) {
+      for (let j = i + 1; j < O.length; j++) {
+        if (Board.canSee(b, O[i], O[j])) pairs.push(i + '↔' + j);
+      }
     }
+    ok(pairs.length >= 1, 'markers can see one another', pairs.length + ' pairs');
+    [0, 1].forEach(function (p) {
+      const free = O.filter(o => nearZone(b.deploy[p], o) < 10 &&
+                                 nearZone(b.deploy[1 - p], o) > MAX_GUN);
+      ok(free.length <= 1, 'P' + (p + 1) + ' has ' + free.length + ' it can hold uncontested');
+    });
   }
-  ok(pairs.length >= 3, 'objectives in sight of one another: ' + pairs.length + ' pairs');
-  ok(O.every((o, i) => pairs.some(s => s.split('↔').indexOf(String(i)) >= 0)),
-     'no objective is out of sight of every other one');
 
-  /* One home marker is fine. Two is a free two points a turn. */
-  [0, 1].forEach(function (p) {
-    const free = O.filter(o => nearZone(b.deploy[p], o) < 10 &&
-                               nearZone(b.deploy[1 - p], o) > MAX_GUN);
-    ok(free.length <= 1, 'P' + (p + 1) + ' has ' + free.length + ' objective(s) it can hold uncontested');
-  });
-
-  O.forEach(function (o, i) {
-    console.log('    obj' + i + ' (' + o.x + ', ' + o.y + ')  ' +
-                Board.heightAt(b, o).toFixed(1) + '" up' +
-                '   P1 ' + nearZone(b.deploy[0], o).toFixed(1) + '"' +
-                '   P2 ' + nearZone(b.deploy[1], o).toFixed(1) + '"');
-  });
+  /* And what this particular card needs of the ground. */
+  if (m.missionId === 'hill') {
+    const tallest = b.terrain.slice().sort((x, y) => y.top - x.top)[0];
+    const second = b.terrain.filter(t => t !== tallest).sort((x, y) => y.top - x.top)[0];
+    ok(tallest.top >= second.top + 1.2,
+       'the HIGH GROUND stands clear of everything else',
+       tallest.top + '" against ' + second.top + '"');
+    const c = { x: tallest.x + tallest.w / 2, y: tallest.y + tallest.h / 2 };
+    ok(Board.dist(c, mid) < 4, 'and it is near the middle', Board.dist(c, mid).toFixed(1) + '" off');
+  }
+  if (m.missionId === 'ambush') {
+    const half = b.w / 2;
+    const middle = b.terrain.filter(t => Math.abs(t.x + t.w / 2 - half) < 7 && t.blocks);
+    const ends = b.terrain.filter(t => Math.abs(t.x + t.w / 2 - half) > 12 && t.blocks);
+    ok(ends.length > middle.length,
+       'there is more cover at the ends than in the crossing',
+       ends.length + ' against ' + middle.length);
+  }
+  if (m.missionId === 'secure') {
+    const spread = Math.max.apply(null, O.map(o => o.x)) - Math.min.apply(null, O.map(o => o.x));
+    ok(spread > b.w * 0.4, 'the three stations are spread across the table',
+       spread.toFixed(0) + '" apart');
+    ok(O.every(o => Board.heightAt(b, o) > 0.5), 'and every one of them is worth standing on');
+  }
+  if (m.missionId === 'relic') {
+    ok(Board.heightAt(b, mid) > 0.5, 'the relic starts somewhere worth fighting over');
+  }
+  if (m.missionId === 'sabotage') {
+    [0, 1].forEach(function (p) {
+      const z = b.deploy[p];
+      const near = b.terrain.filter(t => t.blocks &&
+        Math.min(Math.abs(t.x - (z.x + z.w)), Math.abs(t.x + t.w - z.x)) < 6);
+      ok(near.length > 0, 'P' + (p + 1) + ' has something to put its objective behind');
+    });
+  }
 });
 
 /* ------------------------------------------------------------------ geometry */
 
 console.log('\n== measuring');
-const tl = Board.build(MAPS.byId('trenchline'));
+const tl = Board.build(MAPS.byId('supply'));
 ok(Math.abs(Board.dist({ x: 0, y: 0 }, { x: 3, y: 4 }) - 5) < 1e-9,
    'distance is the straight line, not a count of squares (3,4 → 5")');
 
-/* A move goes round a wall, so it must cost more than the straight line does. */
-const wall = tl.terrain.find(t => t.blocks && t.kind === 'trench');
-const a = { x: wall.x + wall.w / 2, y: wall.y - 2 };
-const c = { x: wall.x + wall.w / 2, y: wall.y + wall.h + 2 };
+/* A move goes round a wall, so it must cost more than the straight line does.
+   Both ends have to be on open floor, or the test is measuring something else. */
+const wall = tl.terrain.find(t => t.blocks && t.kind === 'wall');
+/* really clear: a full inch off anything, so the test measures the detour
+   round the wall and not some other piece it is brushing */
+const clearOf = p => Board.inside(tl, p) &&
+                     tl.terrain.every(t => t === wall || Board.distToBox(t, p) > 1) &&
+                     Board.standable(tl, p, BASE);
+function clearNear(x, y, dy) {
+  for (let d = 1.5; d <= 12; d += 0.25) {
+    const p = { x: x, y: y + dy * d };
+    if (clearOf(p)) return p;
+  }
+  return null;
+}
+const a = clearNear(wall.x + wall.w / 2, wall.y, -1);
+const c = clearNear(wall.x + wall.w / 2, wall.y + wall.h, 1);
 const f = Board.moveField(tl, a, BASE, []);
 const straight = Board.dist(a, c);
 const walked = Board.costTo(f, c);
+ok(a && c, 'found open ground on both sides of a wall to measure between');
+ok(isFinite(walked), 'the far side is reachable at all', walked.toFixed(2) + '"');
 ok(walked > straight + 0.5,
-   'walking round a wall costs more than the straight line (' +
-   walked.toFixed(2) + '" vs ' + straight.toFixed(2) + '")');
-ok(isFinite(walked), 'and it is still reachable');
+   'and walking round it costs more than the straight line (' +
+   walked.toFixed(2) + '" against ' + straight.toFixed(2) + '")');
 
 /* In the open, the two are the same thing. */
 const openA = { x: 20, y: 2 }, openB = { x: 26, y: 2 };
@@ -177,15 +236,25 @@ const hugField = Board.moveField(tl, hug, BASE, [], 0);
 const outs = Board.sampleReach(hugField, 4, 0.5);
 ok(outs.length > 10, 'and can still walk away from it', outs.length + ' places to go');
 
-console.log('\n== the shrine specifically');
-const sh = Board.build(MAPS.byId('shrine'));
-ok(!Board.canSee(sh, { x: 8, y: 14 }, { x: 32, y: 14 }),
-   'the floor cannot see across the nave');
-ok(Board.canSee(sh, { x: 20, y: 14 }, { x: 8, y: 14 }) &&
-   Board.canSee(sh, { x: 20, y: 14 }, { x: 32, y: 14 }),
-   'standing on the nave sees both home objectives');
-ok(Board.heightAt(sh, { x: 20, y: 14 }) > Board.heightAt(sh, { x: 8, y: 14 }),
-   'and the nave really is the high ground');
+console.log('\n== high ground');
+const hill = Board.build(MAPS.byId('pinnacle'));
+const peak = { x: hill.w / 2, y: hill.h / 2 };
+/* open floor either side, not the top of a pillar */
+function openFloor(b, fromX, dir) {
+  for (let x = fromX; x > 1 && x < b.w - 1; x += dir) {
+    const p = { x: x, y: b.h / 2 };
+    if (Board.heightAt(b, p) < 0.01 && Board.standable(b, p, BASE)) return p;
+  }
+  return { x: fromX, y: b.h / 2 };
+}
+const westFloor = openFloor(hill, 8, -1), eastFloor = openFloor(hill, hill.w - 8, 1);
+ok(!Board.canSee(hill, westFloor, eastFloor),
+   'the floor cannot see across the massif');
+ok(Board.canSee(hill, peak, westFloor) && Board.canSee(hill, peak, eastFloor),
+   'but the top of it sees both ends of the table');
+ok(Board.heightAt(hill, peak) > Board.heightAt(hill, westFloor) + 3,
+   'and it really is the high ground',
+   Board.heightAt(hill, peak) + '" against ' + Board.heightAt(hill, westFloor) + '"');
 
 console.log('\n== summary\n' + (checks - failed) + '/' + checks + ' checks passed');
 process.exit(failed ? 1 : 0);
