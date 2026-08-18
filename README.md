@@ -99,6 +99,35 @@ have to keep alive is placed before the models meant to guard it. AMBUSH is the
 exception, because its card says so: the defender sets up entirely first, BAIT
 and all, and the attacker answers.
 
+### Seven battlefields, seven places
+
+Each card's table has its own ground, sky and growth. None of it touches a rule —
+the boxes are still the boxes — but a snowfield and an ash waste should not be
+the same table repainted:
+
+| | | |
+|---|---|---|
+| SUPPLY LINES | **ash waste** | ember light, dead trunks, embers glowing in the grit |
+| THE PINNACLE | **snow** | pines on the outcrops, pale sky, cold bounce off the drifts |
+| THE KILL ZONE | **desert** | wind ripples in the sand, cacti and palms, a hazy sun |
+| THE CROSSROADS | **forest** | stands of oak and pine, leaf litter, grass and mushrooms |
+| THREE STATIONS | **graveyard** | crypts, obelisks and gravestones under cold moonlight |
+| THE LONG WALK | **wasteland** | cracked earth, dead trunks, ruined walling |
+| RUINED MANUFACTORUM | **rockcrete** | the industrial one it always was |
+
+Each biome sets the ground texture, the sky gradient, the fog, the colour and
+strength of the sun, the exposure, and what a piece of terrain is made of. Where
+a biome grows things, a blocking piece becomes a stand of them on a low bank —
+same collision box, but a wood looks like a wood.
+
+### Blood
+
+It does not evaporate. Every wound marks the ground for the rest of the game and
+the marks accumulate, so by the back half of a hard fight the middle of the table
+looks like what has been happening on it. A kill throws gibs, which land and
+leave their own marks, and a body leaves a pool. A model that has taken wounds
+wears them.
+
 ### The Mission Cards, each with its own battlefield
 
 You do not pick a table and a card separately. A table that suits KING OF THE

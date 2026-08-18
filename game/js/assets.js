@@ -17,19 +17,34 @@ const Assets = (function () {
   let progress = { done: 0, total: 0 };
 
   /* Everything the battlefield builder can ask for. */
+  /* Everything the battlefield builder can ask for. Generated from
+     assets/kit/ — add a model there and to this list, then re-run
+     tools/buildkit.js. */
   const KIT = [
-    'structure', 'structure_closed', 'structure_detailed', 'structure_diagonal',
-    'platform_large', 'platform_center', 'platform_low', 'platform_high',
-    'platform_long', 'platform_side', 'platform_corner', 'platform_end', 'platform_straight',
-    'rail', 'rail_corner', 'rail_end', 'rail_middle',
-    'stairs', 'stairs_short', 'supports_low', 'supports_high',
-    'barrel', 'barrels', 'barrels_rail',
-    'machine_barrel', 'machine_generator', 'machine_wireless',
-    'pipe_straight', 'pipe_corner', 'pipe_ring', 'pipe_supportLow', 'pipe_end',
-    'rock', 'rock_largeA', 'rock_largeB', 'rocks_smallA', 'meteor', 'meteor_half', 'crater',
-    'chimney', 'chimney_detailed', 'satelliteDish', 'turret_single', 'gate_simple',
-    'terrain_roadStraight', 'terrain_roadCorner', 'terrain_ramp',
-    'astronautA', 'astronautB', 'alien', 'weapon_rifle'
+    'alien', 'astronautA', 'astronautB', 'barrel', 'barrels', 'barrels_rail',
+    'box', 'box_large', 'cactus_short', 'cactus_tall', 'chimney',
+    'chimney_detailed', 'cliff_block_rock', 'cliff_large_rock',
+    'column_large', 'crater', 'crypt_small', 'debris', 'fire_basket',
+    'flower_redA', 'gate_simple', 'grass', 'grass_large', 'gravestone_broken',
+    'gravestone_cross', 'gravestone_round', 'iron_fence', 'log', 'log_stack',
+    'machine_barrel', 'machine_generator', 'machine_wireless', 'metal_panel',
+    'meteor', 'meteor_half', 'mushroom_red', 'pillar_obelisk', 'pipe_corner',
+    'pipe_end', 'pipe_ring', 'pipe_straight', 'pipe_supportLow', 'plant_bush',
+    'plant_bushLarge', 'platform_center', 'platform_corner', 'platform_end',
+    'platform_high', 'platform_large', 'platform_long', 'platform_low',
+    'platform_side', 'platform_straight', 'rail', 'rail_corner', 'rail_end',
+    'rail_middle', 'rock', 'rock_largeA', 'rock_largeB', 'rock_largeC',
+    'rock_sandA', 'rock_sandB', 'rock_sandC', 'rock_smallA', 'rock_smallC',
+    'rock_tallA', 'rock_tallC', 'rocks_smallA', 'satelliteDish', 'stairs',
+    'stairs_short', 'stone_largeB', 'stone_tallB', 'stone_wall',
+    'stone_wall_damaged', 'structure', 'structure_closed',
+    'structure_detailed', 'structure_diagonal', 'structure_metal_wall',
+    'stump_old', 'stump_round', 'supports_high', 'supports_low', 'tent',
+    'terrain_ramp', 'terrain_roadCorner', 'terrain_roadStraight',
+    'tree_autumn', 'tree_deadlog', 'tree_detailed', 'tree_oak',
+    'tree_palmShort', 'tree_palmTall', 'tree_pineGroundA', 'tree_pineRoundC',
+    'tree_pineSmallA', 'tree_pineTallA', 'tree_thin', 'tree_trunk',
+    'turret_single', 'weapon_rifle'
   ];
 
   function b64ToBuffer(b64) {
@@ -89,8 +104,9 @@ const Assets = (function () {
     if (!m.color) return;
     const hsl = {};
     m.color.getHSL(hsl);
-    m.color.setHSL(hsl.h, hsl.s * 0.5, Math.max(0.06, hsl.l * 0.62));
-    m.color.lerp(IRON, 0.24);
+    /* take the cheerfulness off without turning everything to porridge */
+    m.color.setHSL(hsl.h, hsl.s * 0.78, Math.max(0.05, hsl.l * 0.72));
+    m.color.lerp(IRON, 0.12);
     if (m.emissive) m.emissive.multiplyScalar(0.4);
   }
 
@@ -106,6 +122,19 @@ const Assets = (function () {
     const wrap = new THREE.Group();
     wrap.add(g);
     return wrap;
+  }
+
+  /* One piece at its own proportions, standing `height` tall. A tree squashed
+     to fill a box is a blob; a tree scaled evenly is a tree. */
+  function grown(name, height, maxWide) {
+    const g = get(name);
+    const s = size(name);
+    let k = height / (s.y || 1);
+    /* and it must still fit where it is being put — a log is wide and short,
+       so growing it to a tree's height makes a twenty-inch trunk */
+    if (maxWide) k = Math.min(k, maxWide / Math.max(s.x || 1, s.z || 1));
+    g.scale.setScalar(k);
+    return g;
   }
 
   /* One piece, scaled so it stands exactly `height` tall and covers `w × d`. */
@@ -165,6 +194,6 @@ const Assets = (function () {
     return (t >>> 0) / 4294967296;   /* Math.imul is signed; this must not be */
   }
 
-  return { load, get, has, size, fitted, tiled, stacked, seeded, KIT,
+  return { load, get, has, size, fitted, grown, tiled, stacked, seeded, KIT,
            get progress() { return progress; } };
 })();

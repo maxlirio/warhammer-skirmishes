@@ -15,7 +15,8 @@ const Render3D = (function () {
 
   const THREE = window.THREE;
 
-  let renderer, scene, camera, canvas, keyLight;
+  let renderer, scene, camera, canvas, keyLight, hemiLight, ambient;
+  let biome = null;
   let terrainGroup, unitGroup, overlayGroup, fxGroup, markerGroup;
   const unitNodes = {};
   let board = null;
@@ -246,13 +247,15 @@ const Render3D = (function () {
     renderer.outputColorSpace = THREE.SRGBColorSpace;
 
     scene = new THREE.Scene();
-    scene.background = skyTexture();
+    scene.background = skyTexture(null);
     scene.fog = new THREE.FogExp2(0x2f3138, 0.0052);
 
     camera = new THREE.PerspectiveCamera(42, 1, 0.4, 600);
 
-    scene.add(new THREE.HemisphereLight(0xbcd0e8, 0x4a3a26, 1.45));
-    scene.add(new THREE.AmbientLight(0xfff2dd, 0.42));
+    hemiLight = new THREE.HemisphereLight(0xbcd0e8, 0x4a3a26, 1.45);
+    scene.add(hemiLight);
+    ambient = new THREE.AmbientLight(0xfff2dd, 0.16);
+    scene.add(ambient);
     keyLight = new THREE.DirectionalLight(0xffe8c4, 3.1);
     keyLight.castShadow = true;
     keyLight.shadow.mapSize.set(2048, 2048);
@@ -273,7 +276,7 @@ const Render3D = (function () {
     overlayGroup = new THREE.Group();
     fxGroup = new THREE.Group();
     markerGroup = new THREE.Group();
-    scene.add(terrainGroup, markerGroup, overlayGroup, unitGroup, fxGroup);
+    scene.add(terrainGroup, markerGroup, overlayGroup, stains, unitGroup, fxGroup);
 
     buildTray();
     wireCamera();
@@ -446,21 +449,36 @@ const Render3D = (function () {
     if (rolling.t > 1.5) rolling = null;
   }
 
-  function skyTexture() {
+  function skyTexture(biome) {
     const c = document.createElement('canvas');
     c.width = 8; c.height = 256;
     const g = c.getContext('2d');
+    const stops = (biome && biome.sky) || ['#070a14', '#25272e', '#4a4038', '#6d5540'];
     const grd = g.createLinearGradient(0, 0, 0, 256);
-    grd.addColorStop(0, '#070a14');
-    grd.addColorStop(0.5, '#25272e');
-    grd.addColorStop(0.78, '#4a4038');
-    grd.addColorStop(1, '#6d5540');
+    grd.addColorStop(0, stops[0]);
+    grd.addColorStop(0.5, stops[1]);
+    grd.addColorStop(0.8, stops[2]);
+    grd.addColorStop(1, stops[3]);
     g.fillStyle = grd;
     g.fillRect(0, 0, 8, 256);
     const t = new THREE.CanvasTexture(c);
     t.mapping = THREE.EquirectangularReflectionMapping;
     t.colorSpace = THREE.SRGBColorSpace;
     return t;
+  }
+
+  /* Sun, bounce and haze, set from whatever ground this is. */
+  function applyBiome(b) {
+    const bi = MAPS.biomeOf(b);
+    scene.background = skyTexture(bi);
+    scene.fog = new THREE.FogExp2(bi.fog, bi.fogD);
+    renderer.toneMappingExposure = bi.expose || 1.2;
+    keyLight.color.setHex(bi.key.colour);
+    keyLight.intensity = bi.key.power;
+    hemiLight.color.setHex(bi.hemi.sky);
+    hemiLight.groundColor.setHex(bi.hemi.gnd);
+    hemiLight.intensity = bi.hemi.power;
+    return bi;
   }
 
   function resize() {
@@ -478,42 +496,119 @@ const Render3D = (function () {
 
   /* -------------------------------------------------------------- the table */
 
-  function groundTexture(w, h) {
+  function groundTexture(w, h, bi) {
+    const G = bi.ground;
     const c = document.createElement('canvas');
     c.width = c.height = 512;
     const g = c.getContext('2d');
-    g.fillStyle = '#6a6b66';
+    g.fillStyle = G.base;
     g.fillRect(0, 0, 512, 512);
-    for (let y = 0; y < 512; y += 64) {
-      for (let x = 0; x < 512; x += 64) {
-        const v = Assets.seeded(x * 7 + y * 13);
-        g.fillStyle = 'rgba(0,0,0,' + (0.03 + v * 0.1).toFixed(3) + ')';
-        g.fillRect(x + 1, y + 1, 62, 62);
-        g.strokeStyle = 'rgba(20,16,12,.55)';
-        g.lineWidth = 2;
-        g.strokeRect(x + 1, y + 1, 62, 62);
+
+    /* slabs, but only where the ground is made of slabs */
+    if (bi.mass === 'panel' || bi.deck === 'panel') {
+      for (let y = 0; y < 512; y += 64) {
+        for (let x = 0; x < 512; x += 64) {
+          const v = Assets.seeded(x * 7 + y * 13);
+          g.fillStyle = 'rgba(0,0,0,' + (0.02 + v * 0.08).toFixed(3) + ')';
+          g.fillRect(x + 1, y + 1, 62, 62);
+          g.strokeStyle = G.crack;
+          g.globalAlpha = 0.5;
+          g.lineWidth = 2;
+          g.strokeRect(x + 1, y + 1, 62, 62);
+          g.globalAlpha = 1;
+        }
       }
     }
-    for (let i = 0; i < 340; i++) {
-      const v = Assets.seeded(i * 31);
-      const r = 8 + v * 56;
+
+    /* wind ripples across sand */
+    if (G.ripple) {
+      g.strokeStyle = 'rgba(255,240,205,.22)';
+      g.lineWidth = 3;
+      for (let i = 0; i < 46; i++) {
+        const y0 = Assets.seeded(i * 31) * 512;
+        g.beginPath();
+        for (let x = 0; x <= 512; x += 16) {
+          g.lineTo(x, y0 + Math.sin((x / 512) * 6.28 * (1 + Assets.seeded(i) * 2) + i) * 14);
+        }
+        g.stroke();
+      }
+    }
+
+    /* cracked earth */
+    if (G.crackle) {
+      g.strokeStyle = G.crack;
+      g.lineWidth = 2;
+      for (let i = 0; i < 90; i++) {
+        let x = Assets.seeded(i * 17) * 512, y = Assets.seeded(i * 41) * 512;
+        g.beginPath(); g.moveTo(x, y);
+        for (let k = 0; k < 5; k++) {
+          x += (Assets.seeded(i * 7 + k) - 0.5) * 60;
+          y += (Assets.seeded(i * 11 + k) - 0.5) * 60;
+          g.lineTo(x, y);
+        }
+        g.stroke();
+      }
+    }
+
+    /* leaf litter */
+    if (G.litter) {
+      for (let i = 0; i < 900; i++) {
+        const v = Assets.seeded(i * 13);
+        g.fillStyle = v < 0.4 ? 'rgba(96,84,40,.5)' : v < 0.75 ? 'rgba(58,70,34,.5)'
+                                                               : 'rgba(120,96,48,.4)';
+        const x = Assets.seeded(i * 29) * 512, y = Assets.seeded(i * 53) * 512;
+        g.save(); g.translate(x, y); g.rotate(v * 6.28);
+        g.fillRect(-4, -1.6, 8, 3.2);
+        g.restore();
+      }
+    }
+
+    /* grit everywhere */
+    for (let i = 0; i < 1400; i++) {
+      const v = Assets.seeded(i * 7 + 3);
+      g.fillStyle = G.grit;
+      g.globalAlpha = 0.05 + v * 0.28;
+      const x = Assets.seeded(i * 19) * 512, y = Assets.seeded(i * 37) * 512;
+      g.fillRect(x, y, 1 + v * 3, 1 + v * 3);
+    }
+    g.globalAlpha = 1;
+
+    /* embers glowing in the ash */
+    if (G.ember) {
+      for (let i = 0; i < 120; i++) {
+        const v = Assets.seeded(i * 61);
+        const x = Assets.seeded(i * 23) * 512, y = Assets.seeded(i * 43) * 512;
+        const grd = g.createRadialGradient(x, y, 0, x, y, 3 + v * 7);
+        grd.addColorStop(0, 'rgba(255,140,40,' + (0.25 + v * 0.5).toFixed(2) + ')');
+        grd.addColorStop(1, 'rgba(255,90,20,0)');
+        g.fillStyle = grd;
+        g.beginPath(); g.arc(x, y, 3 + v * 7, 0, 6.28); g.fill();
+      }
+    }
+
+    /* damp patches and general filth */
+    for (let i = 0; i < 260; i++) {
+      const v = Assets.seeded(i * 31 + 11);
+      const r = 10 + v * 60;
       const x = Assets.seeded(i * 17) * 512, y = Assets.seeded(i * 53) * 512;
       const grd = g.createRadialGradient(x, y, 0, x, y, r);
-      grd.addColorStop(0, 'rgba(28,20,12,' + (0.05 + v * 0.17).toFixed(3) + ')');
-      grd.addColorStop(1, 'rgba(28,20,12,0)');
+      grd.addColorStop(0, 'rgba(20,16,12,' + (0.03 + v * G.wet * 2.2).toFixed(3) + ')');
+      grd.addColorStop(1, 'rgba(20,16,12,0)');
       g.fillStyle = grd;
-      g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
+      g.beginPath(); g.arc(x, y, r, 0, 6.28); g.fill();
     }
+
     const t = new THREE.CanvasTexture(c);
     t.wrapS = t.wrapT = THREE.RepeatWrapping;
-    t.repeat.set(w / 8, h / 8);
+    t.repeat.set(w / 9, h / 9);
     t.colorSpace = THREE.SRGBColorSpace;
     t.anisotropy = 8;
     return t;
   }
 
   /* Worn plate: panel lines, rivets, rust streaks, and a hazard band along the
-     top edge so the height of a piece reads at a glance. */
+     top edge so the height of a piece reads at a glance. Cached by key, since
+     the same biome asks for the same one over and over. */
   const panelCache = {};
   function panelTexture(key, hazard) {
     if (panelCache[key]) return panelCache[key];
@@ -542,7 +637,7 @@ const Render3D = (function () {
       const h = 12 + Assets.seeded(i * 7) * 70;
       const grd = g.createLinearGradient(x, y, x, y + h);
       grd.addColorStop(0, 'rgba(120,66,28,' + (0.12 + v * 0.3).toFixed(3) + ')');
-      grd.addColorStop(1, 'rgba(92,52,24,0)');
+      grd.addColorStop(1, 'rgba(120,66,28,0)');
       g.fillStyle = grd;
       g.fillRect(x, y, 2 + v * 5, h);
     }
@@ -569,18 +664,76 @@ const Render3D = (function () {
     return t;
   }
 
+  /* Rock, stone, sand and timber — mottled and bedded rather than riveted.
+     A snowfield of panelled plate looks like a factory somebody painted white. */
+  const natCache = {};
+  function naturalTexture(key, _unused, kind) {
+    if (natCache[key]) return natCache[key];
+    const c = document.createElement('canvas');
+    c.width = c.height = 256;
+    const g = c.getContext('2d');
+    const base = { rock: '#b9c4cc', stone: '#9d988e', sandstone: '#c9ae80', wood: '#8b6b45' }[kind]
+                 || '#a0998e';
+    g.fillStyle = base;
+    g.fillRect(0, 0, 256, 256);
+
+    if (kind === 'wood') {
+      for (let i = 0; i < 22; i++) {
+        const y = (i / 22) * 256;
+        g.strokeStyle = 'rgba(60,40,22,' + (0.15 + Assets.seeded(i * 7) * 0.3).toFixed(2) + ')';
+        g.lineWidth = 1 + Assets.seeded(i * 3) * 3;
+        g.beginPath();
+        for (let x = 0; x <= 256; x += 12) {
+          g.lineTo(x, y + Math.sin(x / 40 + i) * 3);
+        }
+        g.stroke();
+      }
+    } else {
+      /* bedding planes */
+      for (let i = 0; i < 14; i++) {
+        const y = Assets.seeded(i * 31) * 256;
+        g.strokeStyle = 'rgba(30,26,22,' + (0.08 + Assets.seeded(i * 5) * 0.16).toFixed(2) + ')';
+        g.lineWidth = 2 + Assets.seeded(i * 11) * 5;
+        g.beginPath();
+        for (let x = 0; x <= 256; x += 16) g.lineTo(x, y + Math.sin(x / 55 + i) * 7);
+        g.stroke();
+      }
+    }
+    /* mottle */
+    for (let i = 0; i < 700; i++) {
+      const v = Assets.seeded(i * 13 + key.length);
+      const x = Assets.seeded(i * 29) * 256, y = Assets.seeded(i * 47) * 256;
+      const r = 2 + v * 16;
+      const grd = g.createRadialGradient(x, y, 0, x, y, r);
+      const dark = v < 0.5;
+      grd.addColorStop(0, (dark ? 'rgba(40,36,30,' : 'rgba(255,252,244,') + (0.05 + v * 0.14).toFixed(3) + ')');
+      grd.addColorStop(1, dark ? 'rgba(40,36,30,0)' : 'rgba(255,252,244,0)');
+      g.fillStyle = grd;
+      g.beginPath(); g.arc(x, y, r, 0, 6.28); g.fill();
+    }
+    const t = new THREE.CanvasTexture(c);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.anisotropy = 8;
+    natCache[key] = t;
+    return t;
+  }
+
   function buildBoard(b) {
     board = b;
+    biome = applyBiome(b);
     [terrainGroup, markerGroup].forEach(g => { while (g.children.length) g.remove(g.children[0]); });
 
     const floor = new THREE.Mesh(new THREE.BoxGeometry(b.w, 1, b.h),
-      new THREE.MeshStandardMaterial({ map: groundTexture(b.w, b.h), roughness: 0.96, metalness: 0.04 }));
+      new THREE.MeshStandardMaterial({ map: groundTexture(b.w, b.h, biome),
+                                       roughness: 0.94 - biome.ground.wet, metalness: 0.04 }));
     floor.position.set(b.w / 2, -0.5, b.h / 2);
     floor.receiveShadow = true;
     terrainGroup.add(floor);
 
     const lip = new THREE.Mesh(new THREE.BoxGeometry(b.w + 2, 1.4, b.h + 2),
-      new THREE.MeshStandardMaterial({ color: 0x18140f, roughness: 1 }));
+      new THREE.MeshStandardMaterial({ color: new THREE.Color(biome.ground.crack).multiplyScalar(0.7),
+                                       roughness: 1 }));
     lip.position.set(b.w / 2, -0.82, b.h / 2);
     terrainGroup.add(lip);
 
@@ -594,6 +747,7 @@ const Render3D = (function () {
     });
 
     b.terrain.forEach((t, i) => terrainGroup.add(dressTerrain(t, i)));
+    scatterGround(b);
 
     const span = Math.max(b.w, b.h) * 0.8;
     keyLight.position.set(b.w / 2 - span * 0.55, span * 1.6, b.h / 2 - span * 0.45);
@@ -629,56 +783,75 @@ const Render3D = (function () {
   /* A rules box, dressed in real scenery. The box is the truth and this is only
      the costume — it never sticks out past the footprint the rules measure, so
      nothing on the table looks like cover that is not. */
+  /* What a piece of terrain is made of, by biome. The BOX never changes — this
+     is only what stands in it. */
+  const MASS = {
+    panel:     { side: 0xbdb6a9, cap: 0xa9a397, rough: 0.85, metal: 0.32, hazard: true },
+    stone:     { side: 0x9a958c, cap: 0x87837a, rough: 0.95, metal: 0.06 },
+    rock:      { side: 0xa8b4bd, cap: 0xc9d6de, rough: 0.92, metal: 0.03 },
+    sandstone: { side: 0xc4a878, cap: 0xd8bf90, rough: 0.96, metal: 0.02 },
+    wood:      { side: 0x8a6a44, cap: 0x9c7b50, rough: 0.9,  metal: 0.02 }
+  };
+
   function dressTerrain(t, idx) {
     const g = new THREE.Group();
     g.position.set(t.x + t.w / 2, 0, t.y + t.h / 2);
     const kind = t.kind || (t.blocks ? 'blockhouse' : 'platform');
     const rnd = i => Assets.seeded(idx * 613 + i * 37);
+    const clumps = (biome.clumps || []).slice();
+    const style = MASS[t.blocks ? biome.mass : biome.deck] || MASS.panel;
 
-    /* The mass is the rules box, exactly — nothing on the table is cover that
-       the rules do not know about, and nothing the rules know about is
-       invisible. The kit is what makes it worth looking at. */
+    /* Where the biome grows things, a blocking piece is a stand of them on a
+       low bank rather than a wall — the collision box is identical, but a wood
+       should look like a wood. */
+    const grown = t.blocks && clumps.length && kind !== 'rubble';
+    const massTop = grown ? Math.min(t.top * 0.42, 1.5) : t.top;
+
     if (kind !== 'rubble') {
-      /* cloned per piece: the cache holds the image, but the repeat belongs to
-         this box and must not be shared with every other one on the table */
-      const side = panelTexture('side' + (t.blocks ? 'B' : 'P'), t.blocks && t.top > 2).clone();
+      const surf = style.hazard ? panelTexture : naturalTexture;
+      const side = surf('s_' + biome.mass + (style.hazard && t.top > 2 ? 'H' : ''),
+                        !!style.hazard && t.blocks && t.top > 2, biome.mass).clone();
       side.needsUpdate = true;
-      side.repeat.set(Math.max(1, t.w / 2.6), Math.max(1, t.top / 2.2));
-      const cap = panelTexture('cap', false).clone();
+      side.repeat.set(Math.max(1, t.w / 2.6), Math.max(1, massTop / 2.2));
+      const cap = surf('c_' + biome.mass, false, biome.mass).clone();
       cap.needsUpdate = true;
       cap.repeat.set(Math.max(1, t.w / 2.6), Math.max(1, t.h / 2.6));
       const sideMat = new THREE.MeshStandardMaterial({
-        map: side, color: t.blocks ? 0xbdb6a9 : 0xd2c6b0, roughness: 0.85, metalness: 0.32 });
+        map: side, color: style.side, roughness: style.rough, metalness: style.metal });
       const capMat = new THREE.MeshStandardMaterial({
-        map: cap, color: t.blocks ? 0xa9a397 : 0xe0d3ba, roughness: 0.9, metalness: 0.22 });
-      const mass = new THREE.Mesh(new THREE.BoxGeometry(t.w, t.top, t.h),
+        map: cap, color: style.cap, roughness: style.rough, metalness: style.metal * 0.7 });
+      const mass = new THREE.Mesh(new THREE.BoxGeometry(t.w, massTop, t.h),
         [sideMat, sideMat, capMat, capMat, sideMat, sideMat]);
-      mass.position.y = t.top / 2;
+      mass.position.y = massTop / 2;
       mass.castShadow = true; mass.receiveShadow = true;
       g.add(mass);
 
-      /* A rim round the top edge, as four bars — a slab here would roof the
-         piece over and you would be looking at its dark underside instead of
-         the deck. */
-      const rimMat = new THREE.MeshStandardMaterial({
-        color: 0x6b6154, roughness: 0.5, metalness: 0.8 });
-      [[t.w + 0.14, 0.18, 0.18, 0, (t.h + 0.14) / 2],
-       [t.w + 0.14, 0.18, 0.18, 0, -(t.h + 0.14) / 2],
-       [0.18, 0.18, t.h + 0.14, (t.w + 0.14) / 2, 0],
-       [0.18, 0.18, t.h + 0.14, -(t.w + 0.14) / 2, 0]].forEach(function (r) {
-        const bar = new THREE.Mesh(new THREE.BoxGeometry(r[0], r[1], r[2]), rimMat);
-        bar.position.set(r[3], t.top, r[4]);
-        bar.castShadow = true;
-        g.add(bar);
-      });
+      /* a rim round the top edge, as four bars — a slab here would roof it */
+      if (!grown) {
+        const rimMat = new THREE.MeshStandardMaterial({
+          color: new THREE.Color(style.cap).multiplyScalar(0.6),
+          roughness: 0.55, metalness: Math.min(0.85, style.metal + 0.4) });
+        [[t.w + 0.14, 0.18, 0.18, 0, (t.h + 0.14) / 2],
+         [t.w + 0.14, 0.18, 0.18, 0, -(t.h + 0.14) / 2],
+         [0.18, 0.18, t.h + 0.14, (t.w + 0.14) / 2, 0],
+         [0.18, 0.18, t.h + 0.14, -(t.w + 0.14) / 2, 0]].forEach(function (r) {
+          const bar = new THREE.Mesh(new THREE.BoxGeometry(r[0], r[1], r[2]), rimMat);
+          bar.position.set(r[3], t.top, r[4]);
+          bar.castShadow = true;
+          g.add(bar);
+        });
+      }
     }
 
+    /* --- rubble is just rocks --- */
     if (kind === 'rubble') {
       const n = Math.max(3, Math.round(t.w * t.h / 2));
+      const kit = (biome.scatter || ['rock_smallA']).concat(['rock_largeC']);
       for (let i = 0; i < n; i++) {
         const v = rnd(i * 7);
-        const r = Assets.fitted(v < 0.4 ? 'rock' : v < 0.75 ? 'rocks_smallA' : 'rock_largeB',
-                                0.8 + v * 0.9, 0.8 + v * 0.9, t.top * (0.85 + v * 0.5));
+        const name = kit[Math.floor(v * kit.length) % kit.length];
+        if (!Assets.has(name)) continue;
+        const r = Assets.fitted(name, 0.8 + v * 0.9, 0.8 + v * 0.9, t.top * (0.85 + v * 0.5));
         r.position.set((rnd(i * 3) - 0.5) * t.w * 0.8, 0, (rnd(i * 5) - 0.5) * t.h * 0.8);
         r.rotation.y = v * 6.28;
         g.add(r);
@@ -686,43 +859,70 @@ const Render3D = (function () {
       return finishDress(g, t);
     }
 
-    /* --- what stands on it and against it, from the kit --- */
-    const edgeProp = function (name, w, d, h, inset) {
-      const p = Assets.fitted(name, w, d, h);
-      const edge = Math.floor(rnd(inset * 3 + 1) * 4);
-      const along = (rnd(inset * 5 + 2) - 0.5) * 0.72;
-      if (edge < 2) p.position.set(along * t.w, 0, (edge === 0 ? -1 : 1) * (t.h / 2 + d * 0.55));
-      else p.position.set((edge === 2 ? -1 : 1) * (t.w / 2 + w * 0.55), 0, along * t.h);
-      p.rotation.y = rnd(inset * 7) * 6.28;
-      return p;
-    };
-
-    if (t.blocks) {
-      const props = ['barrels', 'machine_generator', 'barrel', 'machine_barrel', 'pipe_supportLow'];
+    /* --- what stands on it --- */
+    if (grown) {
+      /* fill the footprint with whatever this ground grows, up to the height
+         the rules already say the piece is */
+      const cell = 1.8;
+      const nx = Math.max(1, Math.round(t.w / cell));
+      const nz = Math.max(1, Math.round(t.h / cell));
+      let k = 0;
+      for (let i = 0; i < nx; i++) {
+        for (let j = 0; j < nz; j++) {
+          const v = rnd(k * 13 + 1);
+          const name = clumps[Math.floor(v * clumps.length) % clumps.length];
+          k++;
+          if (!Assets.has(name)) continue;
+          /* grown, not squashed — its own proportions, standing as tall as
+             the piece the rules say is there */
+          const tall = Math.max(0.6, t.top * (0.86 + v * 0.34) - massTop);
+          const room = Math.min(t.w / nx, t.h / nz) * 1.5;
+          const c = Assets.grown(name, tall, room);
+          c.position.set(-t.w / 2 + (t.w / nx) * (i + 0.5) + (rnd(k * 3) - 0.5) * 0.4,
+                         massTop,
+                         -t.h / 2 + (t.h / nz) * (j + 0.5) + (rnd(k * 5) - 0.5) * 0.4);
+          c.rotation.y = v * 6.28;
+          g.add(c);
+        }
+      }
+    } else if (t.blocks) {
+      const props = ['barrels', 'machine_generator', 'barrel', 'machine_barrel', 'box_large'];
       const n = Math.min(4, Math.max(2, Math.round((t.w + t.h) / 5)));
       for (let i = 0; i < n; i++) {
-        g.add(edgeProp(props[Math.floor(rnd(i * 5) * props.length)], 0.85, 0.85, 0.8, i));
+        const name = props[Math.floor(rnd(i * 5) * props.length) % props.length];
+        if (!Assets.has(name)) continue;
+        const p = Assets.fitted(name, 0.85, 0.85, 0.8);
+        const edge = Math.floor(rnd(i * 9 + 1) * 4);
+        const along = (rnd(i * 11 + 3) - 0.5) * 0.72;
+        if (edge < 2) p.position.set(along * t.w, 0, (edge === 0 ? -1 : 1) * (t.h / 2 + 0.47));
+        else p.position.set((edge === 2 ? -1 : 1) * (t.w / 2 + 0.47), 0, along * t.h);
+        p.rotation.y = rnd(i * 7) * 6.28;
+        g.add(p);
       }
-      if (t.w > 2.4 && t.h > 2.4 && t.top > 2.5) {
+      if (t.w > 2.4 && t.h > 2.4 && t.top > 2.5 && Assets.has('structure_diagonal')) {
         const f = Assets.fitted(rnd(1) < 0.5 ? 'structure_diagonal' : 'supports_high',
                                 t.w * 0.7, t.h * 0.7, 1.7);
         f.position.y = t.top;
         f.rotation.y = Math.floor(rnd(2) * 4) * Math.PI / 2;
         g.add(f);
       }
-      if (t.w > 3.5 && t.h > 2 && Assets.has('pipe_straight')) {
-        const pipe = Assets.fitted('pipe_straight', t.w * 0.8, 0.5, 0.5);
-        pipe.position.set(0, t.top * 0.55, -t.h / 2 - 0.18);
-        g.add(pipe);
-      }
     } else {
-      /* a deck: rails round the lip, steps up one side, kit on top */
-      if (Assets.has('rail') && t.w > 2.2 && t.h > 2.2) {
+      /* a deck: rails where the biome is built, steps up one side, kit on top */
+      const railing = biome.mass === 'panel' ? 'rail' : 'iron_fence';
+      if (Assets.has(railing) && t.w > 2.2 && t.h > 2.2) {
         const run = function (len, across, axis) {
           const n = Math.max(1, Math.round(len / 1.9));
           for (let i = 0; i < n; i++) {
             [-1, 1].forEach(function (sgn) {
-              const r = Assets.fitted('rail', len / n, 0.14, 0.6);
+              const r = Assets.fitted(railing, len / n, 0.14, 0.6);
+              /* whatever kit it came from, a handrail is dark iron */
+              r.traverse(function (o) {
+                if (!o.isMesh || !o.material) return;
+                o.material = o.material.clone();
+                o.material.color.set(0x4a4640);
+                o.material.metalness = 0.75;
+                o.material.roughness = 0.5;
+              });
               if (axis === 'x') r.position.set(-len / 2 + (i + 0.5) * (len / n), t.top, sgn * (across / 2 - 0.1));
               else { r.rotation.y = Math.PI / 2;
                      r.position.set(sgn * (across / 2 - 0.1), t.top, -len / 2 + (i + 0.5) * (len / n)); }
@@ -733,25 +933,12 @@ const Render3D = (function () {
         run(t.w, t.h, 'x');
         run(t.h, t.w, 'z');
       }
-      /* Steps go on whichever side has open ground to come up from, facing
-         out, with their top against the deck — not on a fixed edge where they
-         end up backwards, or buried in the next piece of terrain along. */
-      /* Steps, at the angle the model was built at. Squashing a 35° flight
-         into whatever depth was going spare made a 60° ladder and distorted
-         every tread; scaling it evenly keeps the treads square and lets the
-         run be whatever the height needs. The whole flight sits OUTSIDE the
-         footprint, with its top edge against the deck. */
       if (Assets.has('stairs') && t.top > 0.9) {
         const nat = Assets.size('stairs');
-        /* A piece standing on another only needs steps for the difference —
-           the sanctum sits on the nave, so its flight climbs 2.8", not 5.2". */
         const probe = bestApproach(t, (nat.z / nat.y) * t.top);
         const from = probe ? probe.level : 0;
         const rise = Math.max(0.6, t.top - from);
         let run = (nat.z / (nat.y || 1)) * rise;
-        /* let it be as long as the climb needs — a tall piece whose foot
-           lands off the edge of what it stands on gets a long flight, which
-           is what a long flight looks like */
         if (run > 7.6) run = 7.6;
         const wide = (nat.x / (nat.y || 1)) * rise;
         const side = bestApproach(t, run);
@@ -763,37 +950,64 @@ const Render3D = (function () {
           g.add(st);
         }
       }
+      const crown = (biome.clumps || []).concat(['satelliteDish', 'machine_wireless']);
       if (t.w > 4 && t.h > 4) {
-        const dish = Assets.fitted(rnd(3) < 0.5 ? 'satelliteDish' : 'machine_wireless', 1.9, 1.9, 1.6);
-        dish.position.set(t.w * 0.24, t.top, -t.h * 0.24);
-        g.add(dish);
-        const crate = Assets.fitted('barrels_rail', 1.2, 1.2, 0.85);
-        crate.position.set(-t.w * 0.24, t.top, t.h * 0.2);
-        crate.rotation.y = rnd(4) * 6.28;
-        g.add(crate);
-      } else if (t.w > 1.8 && t.h > 1.8) {
-        const bar = Assets.fitted('barrel', 0.6, 0.6, 0.75);
-        bar.position.set(t.w * 0.2, t.top, t.h * 0.2);
-        g.add(bar);
+        const name = crown[Math.floor(rnd(3) * crown.length) % crown.length];
+        if (Assets.has(name)) {
+          const d = Assets.grown(name, 1.7, 2.1);
+          d.position.set(t.w * 0.24, t.top, -t.h * 0.24);
+          d.rotation.y = rnd(9) * 6.28;
+          g.add(d);
+        }
+        if (Assets.has('box_large')) {
+          const crate = Assets.fitted('box_large', 1.2, 1.2, 0.85);
+          crate.position.set(-t.w * 0.24, t.top, t.h * 0.2);
+          crate.rotation.y = rnd(4) * 6.28;
+          g.add(crate);
+        }
       }
     }
     return finishDress(g, t);
   }
 
+  /* Ground clutter. None of it is cover — nothing here stands more than a
+     few tenths of an inch — but bare floor between the pieces looks like a
+     prototype, and this is not one. */
+  function scatterGround(b) {
+    const kit = (biome.scatter || []).filter(n => Assets.has(n));
+    if (!kit.length) return;
+    const group = new THREE.Group();
+    const n = Math.round(b.w * b.h * 0.075);
+    for (let i = 0; i < n; i++) {
+      const x = Assets.seeded(i * 37 + 5) * b.w;
+      const y = Assets.seeded(i * 61 + 9) * b.h;
+      const p = { x: x, y: y };
+      if (b.terrain.some(t => Board.inBox(t, p))) continue;
+      if (b.objectives.some(o => Board.dist(o, p) < 2)) continue;
+      const v = Assets.seeded(i * 17);
+      const name = kit[Math.floor(v * kit.length) % kit.length];
+      /* small, and varied — a field of identical pebbles is worse than none */
+      const m = Assets.grown(name, 0.22 + v * 0.5, 0.9);
+      m.position.set(x, 0, y);
+      m.rotation.y = Assets.seeded(i * 71) * 6.28;
+      m.rotation.z = (Assets.seeded(i * 91) - 0.5) * 0.16;
+      group.add(m);
+    }
+    terrainGroup.add(group);
+  }
+
   /* Which side of a piece you could actually walk up to, scored on how much
-     clear table is in front of it. Returns a local offset and a turn, or null
-     if the piece is boxed in on every side. */
+     clear table is in front of it, and how high the ground is at the foot of
+     the flight. Returns a local offset and a turn, or null if it is boxed in.
+
+     The kit's steps rise toward +Z — measured off the mesh, not guessed — so
+     the turn brings their high end round to face the deck. */
   function bestApproach(t, depth) {
-    /* The kit's stairs rise toward +Z — measured off the mesh, not guessed —
-       so the turn has to bring their HIGH end round to face the deck. Sitting
-       on the north face the model is already right way round; on the south it
-       needs turning about. Every one of these was reversed, which is why they
-       all ran the wrong way. */
     const sides = [
-      { nx: 0, nz: -1, turn: 0 },               /* north face: rise is +Z, into the deck */
-      { nx: 0, nz: 1, turn: Math.PI },          /* south face */
-      { nx: -1, nz: 0, turn: Math.PI / 2 },     /* west face: +Z round to +X */
-      { nx: 1, nz: 0, turn: -Math.PI / 2 }      /* east face */
+      { nx: 0, nz: -1, turn: 0 },
+      { nx: 0, nz: 1, turn: Math.PI },
+      { nx: -1, nz: 0, turn: Math.PI / 2 },
+      { nx: 1, nz: 0, turn: -Math.PI / 2 }
     ];
     let best = null;
     sides.forEach(function (s2) {
@@ -805,15 +1019,11 @@ const Render3D = (function () {
           const pz = t.y + t.h / 2 + s2.nz * (half + d) + (s2.nz ? 0 : a * t.h * 0.7);
           if (px < 0.5 || pz < 0.5 || px > board.w - 0.5 || pz > board.h - 0.5) continue;
           const p = { x: px, y: pz };
-          /* something taller than this piece in the way is not an approach */
-          const over = board.terrain.some(o => o !== t && Board.inBox(o, p) && o.top >= t.top);
-          if (over) continue;
-          /* but standing ON something lower is fine — that is where the steps start */
+          if (board.terrain.some(o => o !== t && Board.inBox(o, p) && o.top >= t.top)) continue;
           clear++;
         }
       }
-      /* The bottom step lands at one place, not an average of the approach —
-         so read the ground there, at the foot of the flight. */
+      /* the bottom step lands at one place, so read the ground there */
       const footX = t.x + t.w / 2 + s2.nx * (half + depth);
       const footZ = t.y + t.h / 2 + s2.nz * (half + depth);
       const level = board.terrain.reduce(function (n, o) {
@@ -821,8 +1031,6 @@ const Render3D = (function () {
                ? Math.max(n, o.top) : n;
       }, 0);
       if (!best || clear > best.clear) {
-        /* half the run beyond the face, so the flight is wholly outside the
-           piece and only its top step meets the edge */
         best = { clear: clear, turn: s2.turn, level: level,
                  x: s2.nx * (t.w / 2 + depth / 2),
                  z: s2.nz * (t.h / 2 + depth / 2) };
@@ -960,6 +1168,13 @@ const Render3D = (function () {
       node.userData.label.visible = true;
       node.userData.pips.visible = true;
       node.userData.ring.material.emissiveIntensity = 0.5;
+      /* the more it has taken, the more of it is showing */
+      const hurt = 1 - u.wounds / Math.max(1, u.maxWounds);
+      node.userData.body.traverse(function (o) {
+        if (!o.isMesh || !o.material || !o.material.color) return;
+        if (!o.userData.clean) o.userData.clean = o.material.color.clone();
+        o.material.color.copy(o.userData.clean).lerp(new THREE.Color(0x5a0f0c), hurt * 0.55);
+      });
       node.userData.pips.children.forEach(function (p, i) {
         p.visible = i < u.wounds;
         p.material.color.setHex(u.wounds === 1 ? 0xa8352a
@@ -975,6 +1190,11 @@ const Render3D = (function () {
   }
 
   function fell(node) {
+    if (!node.userData.bled) {
+      node.userData.bled = true;
+      stain({ x: node.position.x, y: 0, z: node.position.z }, 2.4,
+            Board.heightAt(board, { x: node.position.x, y: node.position.z }));
+    }
     node.userData.label.visible = false;
     node.userData.pips.visible = false;
     node.userData.token.visible = false;
@@ -1202,10 +1422,10 @@ const Render3D = (function () {
     if (c.stage === 'waitWound') {
       if (!rollingNow() && c.t > 0.3) {
         if (k.wound) {
-          blood(c.impact, k.killed ? 1.7 : 1);
+          if (k.killed) gore(c.impact, 1.8); else blood(c.impact, 1);
           Sfx.wound(k.killed ? 1 : 0.85);
           if (k.killed) window.setTimeout(() => Sfx.down(), 280);
-          shake = Math.max(shake, k.killed ? 0.5 : 0.32);
+          shake = Math.max(shake, k.killed ? 0.55 : 0.32);
         }
         c.stage = 'dwell'; c.t = 0;
       }
@@ -1285,7 +1505,7 @@ const Render3D = (function () {
     shake = Math.max(shake, 0.17);
     /* a strike with no dice behind it (an ability) resolves its blood here */
     if (k.wound && !(k.rolls && k.rolls.woundTarget)) {
-      blood(at, k.killed ? 1.7 : 1);
+      if (k.killed) gore(at, 1.8); else blood(at, 1);
       Sfx.wound(k.killed ? 1 : 0.85);
       shake = Math.max(shake, 0.4);
     }
@@ -1359,18 +1579,114 @@ const Render3D = (function () {
     fx.push({ kind: 'flash', node: l, t: 0, life: 0.26, peak: 16 * scale });
   }
 
+  /* ================================================================= GORE
+     Blood does not evaporate. Every wound leaves the ground marked for the
+     rest of the game, and by the back half of a hard fight the middle of the
+     table looks like what has been happening on it. */
+  const stains = new THREE.Group();
+  const gibs = [];
+  const MAX_STAINS = 220;
+
+  function bloodTexture(seed) {
+    const c = document.createElement('canvas');
+    c.width = c.height = 128;
+    const g = c.getContext('2d');
+    g.clearRect(0, 0, 128, 128);
+    const blobs = 5 + Math.floor(Assets.seeded(seed) * 6);
+    for (let i = 0; i < blobs; i++) {
+      const v = Assets.seeded(seed * 31 + i * 7);
+      const x = 64 + (Assets.seeded(seed + i * 3) - 0.5) * 70;
+      const y = 64 + (Assets.seeded(seed + i * 5) - 0.5) * 70;
+      const r = 10 + v * 34;
+      const grd = g.createRadialGradient(x, y, 0, x, y, r);
+      grd.addColorStop(0, 'rgba(96,10,8,0.96)');
+      grd.addColorStop(0.6, 'rgba(70,7,6,0.8)');
+      grd.addColorStop(1, 'rgba(46,4,4,0)');
+      g.fillStyle = grd;
+      g.beginPath(); g.arc(x, y, r, 0, 6.28); g.fill();
+    }
+    /* flung droplets round the edge */
+    for (let i = 0; i < 26; i++) {
+      const a = Assets.seeded(seed * 13 + i) * 6.28;
+      const d = 28 + Assets.seeded(seed * 17 + i) * 34;
+      const r = 1 + Assets.seeded(seed * 19 + i) * 4;
+      g.fillStyle = 'rgba(84,8,7,' + (0.5 + Assets.seeded(seed + i) * 0.5).toFixed(2) + ')';
+      g.beginPath();
+      g.arc(64 + Math.cos(a) * d, 64 + Math.sin(a) * d, r, 0, 6.28);
+      g.fill();
+    }
+    const t = new THREE.CanvasTexture(c);
+    t.colorSpace = THREE.SRGBColorSpace;
+    return t;
+  }
+  const bloodTex = [];
+  const someBlood = i => {
+    const k = i % 6;
+    if (!bloodTex[k]) bloodTex[k] = bloodTexture(k * 97 + 11);
+    return bloodTex[k];
+  };
+
+  let stainSeq = 0;
+  function stain(at, size, onTop) {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(size, size),
+      new THREE.MeshBasicMaterial({ map: someBlood(stainSeq++), transparent: true,
+                                    opacity: 0.9, depthWrite: false }));
+    m.rotation.x = -Math.PI / 2;
+    m.rotation.z = Math.random() * 6.28;
+    const y = onTop === undefined ? Board.heightAt(board, { x: at.x, y: at.z }) : onTop;
+    m.position.set(at.x, y + 0.03 + (stainSeq % 7) * 0.001, at.z);
+    m.renderOrder = 2;
+    stains.add(m);
+    while (stains.children.length > MAX_STAINS) stains.remove(stains.children[0]);
+  }
+
   function blood(at, scale) {
-    fx.push({ kind: 'parts', node: particles(at, 44, COL.blood, 0.22 * scale, 6.5, 26, 1.0),
-              t: 0, life: 1.0 });
-    fx.push({ kind: 'parts', node: particles(at, 18, 0x9a2018, 0.34 * scale, 3.4, 20, 1.4),
-              t: 0, life: 1.25 });
-    const pool = new THREE.Mesh(new THREE.CircleGeometry(0.9 * scale, 20),
-      new THREE.MeshBasicMaterial({ color: 0x4a0d0a, transparent: true, opacity: 0,
+    /* the spray */
+    fx.push({ kind: 'parts', node: particles(at, Math.round(70 * scale), COL.blood,
+                                             0.24 * scale, 7.5, 26, 1.1), t: 0, life: 1.1 });
+    fx.push({ kind: 'parts', node: particles(at, Math.round(30 * scale), 0x9a2018,
+                                             0.36 * scale, 4.0, 20, 1.5), t: 0, life: 1.35 });
+    fx.push({ kind: 'parts', node: particles(at, Math.round(18 * scale), 0x4a0d0a,
+                                             0.5 * scale, 2.6, 16, 1.6), t: 0, life: 1.6 });
+    /* a mist that hangs a moment */
+    const mist = new THREE.Mesh(new THREE.SphereGeometry(0.55 * scale, 10, 8),
+      new THREE.MeshBasicMaterial({ color: 0x6d1410, transparent: true, opacity: 0.55,
                                     depthWrite: false }));
-    pool.rotation.x = -Math.PI / 2;
-    pool.position.set(at.x, Board.heightAt(board, { x: at.x, y: at.z }) + 0.03, at.z);
-    fxGroup.add(pool);
-    fx.push({ kind: 'stain', node: pool, t: 0, life: 40, peak: 0.8 });
+    mist.position.copy(at);
+    fxGroup.add(mist);
+    fx.push({ kind: 'puff', node: mist, t: 0, life: 0.5 });
+
+    /* and the mark it leaves, which stays */
+    stain({ x: at.x, y: at.y, z: at.z }, 1.7 * scale);
+    for (let i = 0; i < Math.round(2 + scale * 3); i++) {
+      const a = Assets.seeded(stainSeq * 7 + i) * 6.28;
+      const d = 0.6 + Assets.seeded(stainSeq * 11 + i) * 2.4 * scale;
+      stain({ x: at.x + Math.cos(a) * d, y: 0, z: at.z + Math.sin(a) * d },
+            (0.5 + Assets.seeded(stainSeq * 3 + i) * 1.1) * scale);
+    }
+  }
+
+  /* What is left of somebody the round went through. */
+  function gore(at, scale) {
+    blood(at, scale * 1.5);
+    const n = Math.round(9 * scale);
+    for (let i = 0; i < n; i++) {
+      const g = new THREE.Mesh(
+        new THREE.IcosahedronGeometry(0.09 + Math.random() * 0.13, 0),
+        new THREE.MeshStandardMaterial({ color: i % 3 ? 0x6d1410 : 0x8d2a20,
+                                         roughness: 0.55, metalness: 0.05 }));
+      g.position.copy(at);
+      g.castShadow = true;
+      fxGroup.add(g);
+      const a = Math.random() * 6.28, e = Math.random() * 1.1;
+      gibs.push({ mesh: g, t: 0,
+                  v: new THREE.Vector3(Math.cos(a) * Math.cos(e) * (3 + Math.random() * 6),
+                                       2 + Math.random() * 6,
+                                       Math.sin(a) * Math.cos(e) * (3 + Math.random() * 6)),
+                  spin: new THREE.Vector3(Math.random() * 12, Math.random() * 12, Math.random() * 12),
+                  floor: Board.heightAt(board, { x: at.x, y: at.z }) + 0.08 });
+    }
+    while (gibs.length > 90) { const old = gibs.shift(); fxGroup.remove(old.mesh); }
   }
 
   function scorch(at) {
@@ -1401,6 +1717,21 @@ const Render3D = (function () {
     if (playing) {
       playStrike(playing, dt);
       if (playing.done) playing = null;
+    }
+
+    for (let i = gibs.length - 1; i >= 0; i--) {
+      const p = gibs[i];
+      p.t += dt;
+      if (p.mesh.position.y > p.floor) {
+        p.v.y -= 30 * dt;
+        p.mesh.position.addScaledVector(p.v, dt);
+        p.mesh.rotation.x += p.spin.x * dt;
+        p.mesh.rotation.y += p.spin.y * dt;
+        if (p.mesh.position.y <= p.floor) {
+          p.mesh.position.y = p.floor;
+          stain({ x: p.mesh.position.x, y: 0, z: p.mesh.position.z }, 0.5 + Math.random() * 0.6);
+        }
+      }
     }
 
     for (let i = fx.length - 1; i >= 0; i--) {

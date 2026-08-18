@@ -45,7 +45,18 @@ on top.
 
 # Scenery (the video game)
 
-`game/assets/kit/` is **Kenney's Space Kit 2.0**, CC0 — the licence ships with
+`game/assets/kit/` is four **Kenney** kits, all CC0 — Space Kit 2.0, Nature Kit,
+Survival Kit and Graveyard Kit. 103 models between them: structures, decking,
+rails and machinery; pines, oaks, palms and cacti; rocks, cliffs, logs and
+stumps; crypts, gravestones, obelisks and iron fencing; and the three figures
+the models are built from.
+
+The Survival and Graveyard kits point at a shared `Textures/colormap.png`
+instead of embedding it, and `fetch` cannot reach that from a `file://` page —
+so every one of them would have rendered blank. Each was re-exported through
+Blender with its texture baked in.
+
+The original description follows: `game/assets/kit/` began as **Space Kit 2.0**, CC0 — the licence ships with
 it as `LICENSE-kenney.txt`. Fifty-one models: structures, decking, rails,
 stairs, drums, generators, pipes, rocks, a satellite dish, a turret, and the
 three figures the models are built from (astronaut A and B, and the alien).

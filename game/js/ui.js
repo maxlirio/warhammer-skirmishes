@@ -405,7 +405,8 @@ const GameUI = (function () {
       const pl = S.players[p];
       $('pname' + p).textContent = pl.name;
       $('pap' + p).textContent = pl.ap;
-      $('pvp' + p).textContent = pl.vp + '/' + S.vpTarget;
+      /* some cards are not won on points at all */
+      $('pvp' + p).textContent = pl.vp + (S.vpTarget ? '/' + S.vpTarget : '');
       $('pbox' + p).classList.toggle('acting', p === ctrl);
       const list = $('plist' + p);
       list.innerHTML = '';

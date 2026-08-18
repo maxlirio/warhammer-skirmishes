@@ -17,7 +17,7 @@ const Board = (function () {
 
   function build(map) {
     return {
-      id: map.id, name: map.name, blurb: map.blurb,
+      id: map.id, name: map.name, blurb: map.blurb, biome: map.biome,
       w: map.w, h: map.h,
       terrain: map.terrain.map(t => Object.assign({}, t)),
       deploy: map.deploy.map(d => Object.assign({}, d)),

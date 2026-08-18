@@ -22,6 +22,96 @@
 
 const MAPS = (function () {
 
+  /* ------------------------------------------------------------- BIOMES
+     What the ground is made of, what the sky is doing, and what grows on it.
+     None of this touches a rule — the boxes are still the boxes — but a snow
+     field and an ash waste should not look like the same table repainted.
+
+       ground     the floor: base colour, the grit thrown over it, and the
+                  colour of the cracks between slabs
+       sky        top, middle and horizon of the dome
+       fog        colour and how quickly it closes in
+       key/hemi   the sun and the bounce, so the light matches the sky
+       mass       what a piece of blocking terrain is built from
+       deck       what a platform is built from
+       scatter    ground clutter, none of it tall enough to be mistaken for
+                  cover the rules do not know about
+       clumps     what grows ON a piece of terrain — the trees and rocks that
+                  make the piece what it is */
+  const BIOMES = {
+    rockcrete: {
+      ground: { base: '#6a6b66', grit: '#4a483f', crack: '#241f19', wet: 0.06 },
+      sky: ['#070a14', '#25272e', '#4a4038', '#6d5540'],
+      expose: 1.25,
+      fog: 0x2f3138, fogD: 0.0052,
+      key: { colour: 0xffe8c4, power: 3.1 }, hemi: { sky: 0xbcd0e8, gnd: 0x4a3a26, power: 1.45 },
+      mass: 'panel', deck: 'panel',
+      scatter: ['debris', 'rock_smallA', 'metal_panel'],
+      clumps: []
+    },
+    ash: {
+      ground: { base: '#5a534d', grit: '#2e2823', crack: '#15100c', wet: 0.02, ember: true },
+      sky: ['#0a0708', '#2a1c17', '#5c2f1c', '#8a4520'],
+      expose: 1.15,
+      fog: 0x3a2a22, fogD: 0.0088,
+      key: { colour: 0xffb070, power: 3.0 }, hemi: { sky: 0x6b4436, gnd: 0x2a1a12, power: 1.2 },
+      mass: 'panel', deck: 'panel',
+      scatter: ['debris', 'rock_smallC', 'stump_old', 'tree_trunk'],
+      clumps: ['tree_trunk', 'stump_old', 'rock_tallC']
+    },
+    snow: {
+      ground: { base: '#dde5ec', grit: '#c3d0dc', crack: '#8fa3b4', wet: 0.16 },
+      sky: ['#0b1626', '#3c556e', '#8fa8bd', '#cddae4'],
+      expose: 0.82,
+      fog: 0xb9cad8, fogD: 0.0075,
+      key: { colour: 0xdfeaff, power: 3.4 }, hemi: { sky: 0xd6e6f5, gnd: 0x9fb2c2, power: 1.05},
+      mass: 'rock', deck: 'rock',
+      scatter: ['rock_smallA', 'rock_smallC', 'stone_tallB'],
+      clumps: ['tree_pineTallA', 'tree_pineRoundC', 'tree_pineSmallA', 'rock_largeA']
+    },
+    desert: {
+      ground: { base: '#c9a86e', grit: '#b08f57', crack: '#7d6238', wet: 0.03, ripple: true },
+      sky: ['#1a2438', '#6a6a5c', '#c3a068', '#e3c893'],
+      expose: 0.95,
+      fog: 0xd8bd8e, fogD: 0.0060,
+      key: { colour: 0xfff0cc, power: 3.6 }, hemi: { sky: 0xcfd8e8, gnd: 0xa87f4a, power: 1.15},
+      mass: 'sandstone', deck: 'sandstone',
+      scatter: ['rock_sandA', 'rock_sandC', 'stone_tallB'],
+      clumps: ['cactus_tall', 'tree_palmTall', 'rock_sandB', 'cactus_short']
+    },
+    forest: {
+      ground: { base: '#4e5637', grit: '#3a4227', crack: '#232815', wet: 0.10, litter: true },
+      sky: ['#08111a', '#2a3a2c', '#556b41', '#8a9a63'],
+      expose: 1.2,
+      fog: 0x3f4c36, fogD: 0.0090,
+      key: { colour: 0xfff2c8, power: 2.9 }, hemi: { sky: 0x9fc0d8, gnd: 0x3c4a24, power: 1.5 },
+      mass: 'stone', deck: 'wood',
+      scatter: ['grass', 'grass_large', 'plant_bush', 'mushroom_red', 'flower_redA', 'log'],
+      clumps: ['tree_oak', 'tree_detailed', 'tree_thin', 'tree_pineTallA']
+    },
+    graveyard: {
+      ground: { base: '#59564c', grit: '#3d3a32', crack: '#1e1b16', wet: 0.12 },
+      sky: ['#05070d', '#1b2029', '#3a3f44', '#5b5a52'],
+      expose: 1.3,
+      fog: 0x2c3138, fogD: 0.0105,
+      key: { colour: 0xcfd8f0, power: 2.2 }, hemi: { sky: 0x8fa0bc, gnd: 0x2c2a26, power: 1.35 },
+      mass: 'stone', deck: 'stone',
+      scatter: ['gravestone_broken', 'debris', 'rock_smallC', 'grass'],
+      clumps: ['crypt_small', 'gravestone_cross', 'pillar_obelisk', 'column_large']
+    },
+    wasteland: {
+      ground: { base: '#7a6a52', grit: '#574b39', crack: '#2b2318', wet: 0.04, crackle: true },
+      sky: ['#0d0f16', '#33302c', '#6b5a41', '#9a7c52'],
+      expose: 1.15,
+      fog: 0x50463a, fogD: 0.0068,
+      key: { colour: 0xffdfae, power: 3.0 }, hemi: { sky: 0xaab6c6, gnd: 0x5a4a34, power: 1.4 },
+      mass: 'stone', deck: 'panel',
+      scatter: ['debris', 'rock_smallA', 'stump_round', 'tree_deadlog'],
+      clumps: ['tree_trunk', 'rock_tallC', 'stone_wall_damaged']
+    }
+  };
+
+
   /* A box and, unless it already straddles the centre line, its mirror. */
   function mirrored(terrain, w) {
     const out = [];
@@ -39,7 +129,7 @@ const MAPS = (function () {
   function openGround() {
     const w = 44, h = 30;
     return {
-      id: 'open', missionId: null, name: 'RUINED MANUFACTORUM',
+      id: 'open', missionId: null, biome: 'rockcrete', name: 'RUINED MANUFACTORUM',
       blurb: 'A killing floor straight down the middle with three markers on it, ' +
              'and a gantry north and south that shoots down into everything.',
       w: w, h: h,
@@ -67,7 +157,7 @@ const MAPS = (function () {
   function supplyLines() {
     const w = 46, h = 30;
     return {
-      id: 'supply', missionId: 'sabotage', name: 'SUPPLY LINES',
+      id: 'supply', missionId: 'sabotage', biome: 'ash', name: 'SUPPLY LINES',
       blurb: 'Covered lanes down both flanks and a wide open middle. There is a ' +
              'quick way to their objective and a way you might survive.',
       w: w, h: h,
@@ -97,7 +187,7 @@ const MAPS = (function () {
   function pinnacle() {
     const w = 42, h = 30;
     return {
-      id: 'pinnacle', missionId: 'hill', name: 'THE PINNACLE',
+      id: 'pinnacle', missionId: 'hill', biome: 'snow', name: 'THE PINNACLE',
       blurb: 'One massif in the middle, taller than anything else on the table, ' +
              'with three ways up it and nowhere to hide at its foot.',
       w: w, h: h,
@@ -124,7 +214,7 @@ const MAPS = (function () {
   function killZone() {
     const w = 46, h = 28;
     return {
-      id: 'killzone', missionId: 'ambush', name: 'THE KILL ZONE',
+      id: 'killzone', missionId: 'ambush', biome: 'desert', name: 'THE KILL ZONE',
       blurb: 'A nest of cover at either end and nothing worth the name in ' +
              'between. Whoever crosses first is the one in the open.',
       w: w, h: h,
@@ -151,7 +241,7 @@ const MAPS = (function () {
   function crossroads() {
     const w = 40, h = 28;
     return {
-      id: 'crossroads', missionId: 'assassination', name: 'THE CROSSROADS',
+      id: 'crossroads', missionId: 'assassination', biome: 'forest', name: 'THE CROSSROADS',
       blurb: 'Four lanes meeting on one marker, and a blockhouse in each corner ' +
              'deep enough to keep a name out of sight.',
       w: w, h: h,
@@ -173,7 +263,7 @@ const MAPS = (function () {
   function threeStations() {
     const w = 46, h = 28;
     return {
-      id: 'stations', missionId: 'secure', name: 'THREE STATIONS',
+      id: 'stations', missionId: 'secure', biome: 'graveyard', name: 'THREE STATIONS',
       blurb: 'Three raised stations — one to each flank and one in the middle. ' +
              'Holding two means standing where the third can see you.',
       w: w, h: h,
@@ -199,7 +289,7 @@ const MAPS = (function () {
   function longWalk() {
     const w = 46, h = 30;
     return {
-      id: 'longwalk', missionId: 'relic', name: 'THE LONG WALK',
+      id: 'longwalk', missionId: 'relic', biome: 'wasteland', name: 'THE LONG WALK',
       blurb: 'A plaza in the middle worth fighting over, and a gauntlet of ' +
              'half-cover between it and either end. Carrying it is the hard part.',
       w: w, h: h,
@@ -227,5 +317,5 @@ const MAPS = (function () {
   const forMission = missionId =>
     list.find(m => m.missionId === (missionId || null)) || list[0];
 
-  return { list, byId, forMission };
+  return { list, byId, forMission, BIOMES, biomeOf: m => BIOMES[m.biome] || BIOMES.rockcrete };
 })();
