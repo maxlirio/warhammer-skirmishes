@@ -497,7 +497,10 @@ const GameUI = (function () {
       bar.appendChild(row);
       return;
     }
-    if (Render3D.busy()) { bar.appendChild(el('div', 'prompt resolving', 'the shot is still in the air…')); return; }
+    if (Render3D.busy() && !pend) {
+      bar.appendChild(el('div', 'prompt resolving', 'the shot is still in the air…'));
+      return;
+    }
     if (pend && pend.kind === 'redirect') {
       bar.appendChild(el('div', 'prompt', 'choosing who steps into it…'));
       return;
@@ -742,17 +745,46 @@ const GameUI = (function () {
   function click(cx, cy) {
     const S = Battle.get();
     if (!S || S.winner !== null) return;
-    if (Render3D.busy()) return;
+    /* The table is held while a shot plays out — but never while it is asking
+       you something. Waiting on the dice to settle and refusing the click that
+       answers the question they were rolled for reads as a dead interface. */
+    if (Render3D.busy() && !S.pending) return;
+    /* Where on the table the click landed, IF it landed on the table at all.
+       A click on a model near the far edge can miss the ground entirely — the
+       ray goes over the lip — and questions that are answered by naming a
+       model do not need a spot anyway. So this is allowed to be null, and
+       only the branches that need somewhere to stand insist on it. */
     const p = Render3D.pick(cx, cy);
-    if (!p) return;
-    const at = { x: p.x, y: p.y };
+    const at = p ? { x: p.x, y: p.y } : null;
 
     /* Deployment: your zone, your choice, and only on your go. */
     if (S.pending && S.pending.kind === 'deploy') {
       const pend = S.pending;
       if (window.Net && Net.active() && Net.seat() !== pend.owner) return;
       const spot = Render3D.pickNearest(cx, cy, pend.spots, 70) || at;
+      if (!spot) return;
       act(() => Battle.placeDeploy(spot), { t: 'deploy', at: spot });
+      return;
+    }
+
+    /* Something a card told you to place — a smoke bomb, a grenade, a model
+       moving up to the distance that was rolled. */
+    if (S.pending && S.pending.kind === 'put') {
+      const pend = S.pending;
+      const spot = Render3D.pickNearest(cx, cy, pend.spots, 70) || at;
+      if (!spot) return;
+      act(() => Battle.placePut(spot), { t: 'put', at: spot });
+      return;
+    }
+
+    /* Something a card told you to choose — the model Da Hunta marks, the
+       mate who steps into a shot. */
+    if (S.pending && S.pending.kind === 'pick') {
+      const pend = S.pending;
+      const hit2 = Render3D.pickUnit(cx, cy, S);
+      if (hit2 && pend.options.indexOf(hit2.id) >= 0) {
+        act(() => Battle.choosePick(hit2.id), { t: 'pick', id: hit2.id });
+      }
       return;
     }
 
@@ -760,6 +792,7 @@ const GameUI = (function () {
       const pend = S.pending;
       if (pend.need === 'spot') {
         const spot = Render3D.pickNearest(cx, cy, pend.spots || [], 40) || at;
+        if (!spot) return;
         act(() => Battle.confirmAbility(spot), { t: 'abil2', at: spot });
       } else {
         const hit2 = Render3D.pickUnit(cx, cy, S);
@@ -771,7 +804,7 @@ const GameUI = (function () {
     /* Placing a model after a reaction that moves it. */
     if (S.pending && S.pending.kind === 'move') {
       if (myTurnBlocked(S) && Net.seat() !== Battle.unit(S.pending.unitId).owner) return;
-      const spot = Battle.snapMove(S.pending, at) ||
+      const spot = (at && Battle.snapMove(S.pending, at)) ||
                    Render3D.pickNearest(cx, cy, S.pending.spots);
       if (!spot) return;
       act(() => Battle.placeMove(spot), { t: 'place', at: spot });
@@ -784,10 +817,10 @@ const GameUI = (function () {
 
     if (mode) {
       if (mode.kind === 'move') {
-        const climb = Board.canReach(mode.field, at, mode.inches)
-          ? null : Board.climbFor(mode.field, mode.inches, at);
+        const reach = at && Board.canReach(mode.field, at, mode.inches);
+        const climb = (!reach && at) ? Board.climbFor(mode.field, mode.inches, at) : null;
         const to = climb ? climb
-                 : Board.canReach(mode.field, at, mode.inches) ? at
+                 : reach ? at
                  : Render3D.pickNearest(cx, cy, mode.spots, 30);
         if (to) {
           const id = mode.unitId; mode = null;
@@ -797,7 +830,7 @@ const GameUI = (function () {
       }
       if (mode.kind === 'overwatch') {
         const u = Battle.unit(mode.unitId);
-        const to = Battle.rangeTo(u, at) <= 12 ? at
+        const to = (at && Battle.rangeTo(u, at) <= 12) ? at
                  : Render3D.pickNearest(cx, cy, mode.spots, 30);
         if (to) {
           const id = mode.unitId; mode = null;

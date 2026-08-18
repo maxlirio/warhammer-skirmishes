@@ -164,6 +164,8 @@ identical decisions and compares the entire table after every one.
 |---|---|
 | `node tools/checkmaps.js` | The tables: symmetry, that nothing is walled off, sight-lines between markers, that neither side gets two objectives it can hold uncontested — and the geometry itself, that a move round a wall costs more than the straight line and that you cannot stand with your base inside one |
 | `node tools/checklockstep.js` | That two games fed the same decisions stay identical, which is what multiplayer rests on |
+| `node tools/checkabilities.js` | Every ability on every unit, fired for real, checked clause by clause against its own text |
+| `node tools/checkclicks.js` | Drives a real browser and clicks the actual pixels — the only way to catch a question that reads perfectly and quietly ignores you |
 | `node tools/buildthree.js` | Rebuilds `game/vendor/three.global.js` from the three.js module — see below |
 | `tools/prepmodels.sh FOLDER` | Turns a folder of raw scans into models the game can carry, and rebuilds the baked bundle |
 

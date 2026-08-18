@@ -583,10 +583,26 @@ console.log('\n== every question has a prompt');
   const kinds = {};
   engine.replace(/S\.pending\s*=\s*\{\s*kind:\s*'([a-z]+)'/g,
                  function (_, k) { kinds[k] = true; return _; });
+  /* the three places a question has to be handled: something to read, a way
+     to answer it, and something drawn on the table to answer it against */
+  const body = function (name) {
+    const i = screen.indexOf('function ' + name + '(');
+    if (i < 0) return '';
+    let depth = 0, j = screen.indexOf('{', i);
+    for (let k = j; k < screen.length; k++) {
+      if (screen[k] === '{') depth++;
+      else if (screen[k] === '}') { depth--; if (!depth) return screen.slice(i, k); }
+    }
+    return screen.slice(i);
+  };
+  const prompts = body('drawActions'), clicks = body('click'), modals = body('drawPending');
+  const has = (txt, k) => new RegExp("kind === '" + k + "'").test(txt);
+
   Object.keys(kinds).sort().forEach(function (k) {
-    const asked = new RegExp("pend(?:ing)?\\.kind === '" + k + "'").test(screen) ||
-                  new RegExp("kind === '" + k + "'").test(screen);
-    ok(asked, 'the screen knows what to say when the engine asks for “' + k + '”');
+    ok(has(prompts, k), 'the screen says what it is waiting for when the engine asks “' + k + '”');
+    /* answered either by clicking the table or by a button in a modal */
+    ok(has(clicks, k) || has(modals, k),
+       'and there is a way to answer “' + k + '” — a click on the table or a modal');
   });
 }
 
