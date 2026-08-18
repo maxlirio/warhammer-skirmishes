@@ -286,10 +286,84 @@ const Battle = (function () {
     if (S.winner !== null || S.pending) return;
     const p = S.turn.player;
     if (S.chain.active) closeChain('the turn ended');
-    scoreEndOfTurn(p);
-    checkVictory();
-    if (S.winner === null) beginTurn(other(p));
-    emit();
+    /* END: whatever the cards do before the turn is scored */
+    runEndPhase(p, function () {
+      scoreEndOfTurn(p);
+      checkVictory();
+      if (S.winner === null) beginTurn(other(p));
+      emit();
+    });
+  }
+
+  /* Cards that trigger in the End Phase get offered here, one at a time, and
+     the turn does not finish until they have been answered. */
+  function runEndPhase(p, done) {
+    const ready = mine(p).filter(u => !isMarker(u) &&
+      abilitiesOf(u).some(a => a.trigger === 'end' && !a.usedGame));
+    if (!ready.length) { done(); return; }
+    (function step() {
+      const u = ready.shift();
+      if (!u) { done(); return; }
+      const ab = abilitiesOf(u).find(a => a.trigger === 'end' && !a.usedGame);
+      if (!ab) { step(); return; }
+      S.pending = { kind: 'endability', unitId: u.id, name: ab.name,
+                    text: ab.text || '', owner: p,
+                    then: function (use) {
+                      if (!use) { step(); return; }
+                      ab.usedGame = true;
+                      log(S.players[p].name + ': ' + u.name + ' → ' + ab.name + '.', 'action');
+                      if (ab.text) log(ab.text, 'note');
+                      runPlaceMany(u, ab, p, step);
+                    } };
+      emit();
+    })();
+  }
+
+  function answerEndAbility(use) {
+    const pend = S.pending;
+    if (!pend || pend.kind !== 'endability') return;
+    const then = pend.then;
+    S.pending = null;
+    then(use);
+  }
+
+  /* "Place up to two friendly units anywhere..." — pick one, place it, repeat. */
+  function runPlaceMany(u, ab, p, done) {
+    const e = (ab.effects || []).find(x => x.kind === 'place') || {};
+    const max = Number(e.max) || 1;
+    let left = max;
+    (function round() {
+      if (left <= 0) { done(); return; }
+      const choices = mine(p).filter(x => !isMarker(x) && !x.placedByGate);
+      if (!choices.length) { done(); return; }
+      askPick(choices, ab.name + ' — ' + left + ' left',
+              'Choose a friendly unit to place, or pass to stop.',
+              function (who) {
+                if (!who) { done(); return; }
+                who.placedByGate = true;
+                const spots = arrivalSpots(who.id, ab);
+                if (!spots.length) { done(); return; }
+                S.pending = { kind: 'put', unitId: who.id, radius: 1e4, spots: spots,
+                              label: 'PLACE ' + who.name.toUpperCase(),
+                              hint: 'Anywhere more than 6" from an enemy.',
+                              then: function (at) {
+                                if (at) {
+                                  who.x = at.x; who.y = at.y;
+                                  who.movedTurn = S.turn.number;
+                                  who.climbed = { top: Board.heightAt(S.board, who), at: S.seq++ };
+                                  log(who.name + ' is placed.', 'note');
+                                  const watchers = triggeredWatchers(who);
+                                  if (watchers.length) {
+                                    openOverwatch(who, watchers, function () { left--; round(); });
+                                    return;
+                                  }
+                                }
+                                left--;
+                                round();
+                              } };
+                emit();
+              });
+    })();
   }
 
   /* Who has the most OC within 3" of a spot. */
@@ -480,7 +554,7 @@ const Battle = (function () {
     if (u.marker) return [];             /* a crate does not take actions */
 
     const carrying = !!u.carryingRelic;
-    add('move', 1, null);
+    add('move', 1, u.noMoveTurn === S.turn.number ? 'placed this turn — may not MOVE' : null);
     add('shoot', 1, rangedTargets(unitId).length ? null : 'nothing in sight');
     add('charge', 2, carrying ? 'carrying the RELIC'
                     : chargeTargets(unitId).length ? null : 'nothing to charge');
@@ -852,6 +926,9 @@ const Battle = (function () {
         }
       });
       if (a.usesPerGame && a.usedGame) why = 'already used this game';
+      if (/use only on your turn/i.test(a.text || '') && S.turn.player !== u.owner) {
+        why = 'only on your own turn';
+      }
       out.push({ index: i, name: a.name, cost: cost, why: why, text: a.text || '' });
     });
     return out;
@@ -1183,9 +1260,10 @@ const Battle = (function () {
   /* Where an ability is allowed to put somebody — exactly what its card says.
      "more than 6 inches from an enemy" and "any elevated part" are measured,
      not left to the players to argue over. */
-  function arrivalSpots(unitId, index) {
+  function arrivalSpots(unitId, which) {
     const u = unit(unitId);
-    const a = index === undefined ? null : abilityOf(u, index);
+    const a = which === undefined || which === null ? null
+            : (typeof which === 'number' ? abilityOf(u, which) : which);
     const e = a ? (a.effects || []).find(x => x.kind === 'place') : null;
     const away = a && /6"/.test(a.text || '') ? 6 : 0;
     const elevatedOnly = a && /elevated/i.test(a.text || '');
@@ -1332,10 +1410,13 @@ const Battle = (function () {
         .filter(g => d <= (g.range || 0))
         .sort((a, b) => a.hit - b.hit)[0];
       if (!gun) { next(); return; }
-      log(w.name + ' fires overwatch at ' + mover.name + '.', 'token');
+      /* The OVERWATCH action fires at -1. Snap Shot is a different card and
+         says nothing of the sort, so it does not take the penalty. */
+      log(w.name + (snap ? ' takes a snap shot at ' : ' fires overwatch at ') +
+          mover.name + '.', 'token');
       resolveAttack({
-        attacker: w, target: mover, weapon: gun, hitMod: -1, range: 'ranged',
-        overwatch: true, noReaction: true
+        attacker: w, target: mover, weapon: gun, range: 'ranged',
+        overwatch: !snap, noReaction: true
       }, next);
     })();
   }
@@ -1540,10 +1621,11 @@ const Battle = (function () {
 
   function choosePick(id) {
     const pend = S.pending;
-    if (!pend || pend.kind !== 'pick' || pend.options.indexOf(id) < 0) return;
+    if (!pend || pend.kind !== 'pick') return;
+    if (id !== null && pend.options.indexOf(id) < 0) return;
     const then = pend.then;
     S.pending = null;
-    then(unit(id));
+    then(id === null ? null : unit(id));
   }
 
   /* Hand the table back to a player to choose where a reaction moves them.
@@ -1610,8 +1692,47 @@ const Battle = (function () {
         log(t2.name + ' reacts: ' + ab.name + '.', 'reaction');
         if (ab.text) log(ab.text, 'note');
 
-        /* "that unit is targeted instead" — the defender picks who takes it */
-        if ((ab.effects || []).some(e => e.kind === 'redirect')) {
+        /* Two different cards redirect, and they do it differently.
+
+           It's Your Job just names somebody who is ALREADY a legal target.
+           Get In Front of Me moves a mate up to 3" first and only then asks
+           whether he ended up in the line of fire — so the move happens, and
+           the eligibility is judged after it, not before. */
+        const redirect = (ab.effects || []).find(e => e.kind === 'redirect');
+        if (redirect) {
+          const shift = /move a friendly unit/i.test(ab.text || '');
+          if (shift) {
+            const reach = 3;
+            const near = alive().filter(x => x.owner === t2.owner && x.id !== t2.id &&
+                                             !isMarker(x) && rangeTo(t2, x) <= reach);
+            if (!near.length) { log('No friendly unit within 3".', 'muted'); resolveAttack(atk2); return; }
+            askPick(near, ab.name, 'Choose a friendly unit within 3" of ' + t2.name +
+                    ' to move up to 3".', function (mate) {
+              if (!mate) { resolveAttack(atk2); return; }
+              const f = fieldFor(mate);
+              askPut(mate, reach, mate.name.toUpperCase() + ' — MOVE UP TO 3"',
+                     'Move them up to 3". If they end up in the line of fire, the attack ' +
+                     'is against them instead.',
+                     function (q) { return Board.canReach(f, q, reach); },
+                     function (at) {
+                       if (at) {
+                         mate.facing = Math.atan2(at.y - mate.y, at.x - mate.x);
+                         mate.x = at.x; mate.y = at.y;
+                         mate.movedTurn = S.turn.number;
+                       }
+                       /* now, and only now, is he in the way? */
+                       if (couldBeHit(atk2.attacker, mate, atk2)) {
+                         log(mate.name + ' is in the line of fire — the attack is against ' +
+                             'them instead.', 'reaction');
+                         atk2.target = mate;
+                       } else {
+                         log(mate.name + ' does not end up in the line of fire.', 'muted');
+                       }
+                       resolveAttack(atk2);
+                     });
+            });
+            return;
+          }
           const swaps = alive().filter(x => x.owner === t2.owner && x.id !== t2.id &&
                                             !isMarker(x) && couldBeHit(atk2.attacker, x, atk2));
           if (!swaps.length) { log('Nobody else can be put in the way.', 'muted'); resolveAttack(atk2); return; }
@@ -1972,7 +2093,7 @@ const Battle = (function () {
     abilityActions, useAbility, confirmAbility, arrivalSpots, abilityOf, moveOf,
     cardPowers, useCardPower, holderOf, attackMods, diceFor, blockedReactions,
     chooseReaction, chooseRedirect, toggleWatcher, fireOverwatch, endTurn, placeMove,
-    placePut, choosePick,
+    placePut, choosePick, answerEndAbility,
     mustPass, elevation, diveEscapes, spotsWithin, fieldFor, snapMove
   };
 })();

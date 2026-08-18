@@ -793,7 +793,7 @@ const GameUI = (function () {
   function drawPending(S) {
     if (!S.pending || S.pending.kind === 'move' || S.pending.kind === 'ability' ||
         S.pending.kind === 'card' || S.pending.kind === 'put' ||
-        S.pending.kind === 'pick') { closeModal(); return; }
+        S.pending.kind === 'pick' || S.pending.kind === 'endability') { closeModal(); return; }
     if (S.pending.kind === 'redirect') return redirectModal(S);
     if (S.pending.kind === 'reaction') return reactionModal(S);
     if (S.pending.kind === 'overwatch') return overwatchModal(S);
@@ -942,6 +942,7 @@ const GameUI = (function () {
     if (msg.t === 'ability') Battle.useAbility(msg.id, msg.i);
     if (msg.t === 'abil2')  Battle.confirmAbility(msg.id !== undefined ? msg.id : msg.at);
     if (msg.t === 'put')    Battle.placePut(msg.at);
+    if (msg.t === 'endab')  Battle.answerEndAbility(!!msg.v);
     if (msg.t === 'pick')   Battle.choosePick(msg.id);
     if (msg.t === 'power')  Battle.useCardPower(msg.p, msg.i);
     if (msg.t === 'redirect') Battle.chooseRedirect(msg.id);

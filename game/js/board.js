@@ -146,7 +146,15 @@ const Board = (function () {
       obstacles.push({ x: o.x - r, y: o.y - r, w: r * 2, h: r * 2, round: r, cx: o.x, cy: o.y });
     });
 
-    const blocked = (a, c) => obstacles.some(t => segHitsBox(t, a, c));
+    /* A model standing legally can still be a hair inside the inflated version
+       of something — right up against a wall, or base to base with a mate. If
+       those counted, every route out would be blocked and it could not move at
+       all. You are allowed to walk out of what you are already touching; you
+       still cannot END anywhere illegal, because costTo checks the real
+       geometry separately. */
+    const here = obstacles.filter(t => from.x > t.x && from.x < t.x + t.w &&
+                                       from.y > t.y && from.y < t.y + t.h);
+    const blocked = (a, c) => obstacles.some(t => here.indexOf(t) < 0 && segHitsBox(t, a, c));
 
     const nodes = [{ x: from.x, y: from.y }];
     obstacles.forEach(function (t) {

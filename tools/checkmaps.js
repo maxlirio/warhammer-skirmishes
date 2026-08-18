@@ -170,6 +170,13 @@ if (onWall) {
   ok(Board.inBox(wall, onWall), 'landing squarely on the piece you climbed');
 }
 
+/* Standing right up against something must not stop you moving. */
+const hug = { x: wall.x + 1, y: wall.y - 0.5 };
+ok(Board.standable(tl, hug, BASE), 'you can stand right up against a wall');
+const hugField = Board.moveField(tl, hug, BASE, [], 0);
+const outs = Board.sampleReach(hugField, 4, 0.5);
+ok(outs.length > 10, 'and can still walk away from it', outs.length + ' places to go');
+
 console.log('\n== the shrine specifically');
 const sh = Board.build(MAPS.byId('shrine'));
 ok(!Board.canSee(sh, { x: 8, y: 14 }, { x: 32, y: 14 }),

@@ -438,12 +438,128 @@ console.log('\n== Orks');
   const gif = S.pending && S.pending.options.find(o => o.name === 'Get In Front of Me');
   ok(!!gif, 'and so is Get In Front of Me');
   if (gif) {
-    const mates = G.Battle.mine(0).filter(u => u.id !== mika.id);
-    mates.forEach(function (u, i) { u.x = fred.x + 4 + i * 0.1; u.y = fred.y; });
+    /* the card needs a mate within 3" of him to move */
+    const mate = G.Battle.mine(0).find(u => u.id !== mika.id && !u.marker);
+    mate.x = mika.x + 2; mate.y = mika.y + 1;
     G.Battle.chooseReaction(gif.id);
-    ok(S.pending && S.pending.kind === 'redirect',
-       'taking it asks which of the mob steps into the shot',
+    ok(S.pending && S.pending.kind === 'pick',
+       'taking it asks which of the mob to move',
        S.pending ? S.pending.kind : 'nothing pending');
+  }
+}
+
+/* ============================================ CLAUSE BY CLAUSE
+   Not "does it do something" but "does it do everything its text says". These
+   are the sentences that were quietly being skipped. */
+
+console.log('\n== the small print');
+{
+  /* GET IN FRONT OF ME — "Move a friendly unit within 3" up to 3". If that
+     unit NOW is in the line of fire, that unit is targeted instead." */
+  const G = scene('orks', 'astra');
+  const S = G.Battle.get();
+  const mika = find(G, 'Mikaaaaghhh'), fred = find(G, 'Fred');
+  face(G, fred, mika, 9);
+  /* a mate stood beside him, deliberately NOT in the line of fire */
+  const mate = G.Battle.mine(0).find(u => u.id !== mika.id && !u.marker);
+  mate.x = mika.x + 1.5; mate.y = mika.y + 2.5;
+  const mateWas = { x: mate.x, y: mate.y };
+  S.control.player = 1;
+  G.Battle.doShoot(fred.id, mika.id, null);
+  const gif = S.pending.options.find(o => o.name === 'Get In Front of Me');
+  G.Battle.chooseReaction(gif.id);
+  ok(S.pending && S.pending.kind === 'pick',
+     'Get In Front of Me asks which mate to move',
+     S.pending ? S.pending.kind : 'nothing');
+  if (S.pending && S.pending.kind === 'pick') {
+    ok(S.pending.options.every(id => G.Board.dist(mika, G.Battle.unit(id)) <= 3),
+       'and only offers friendlies within 3"');
+    G.Battle.choosePick(mate.id);
+  }
+  ok(S.pending && S.pending.kind === 'put',
+     'then asks where to move them',
+     S.pending ? S.pending.kind : 'nothing');
+  if (S.pending && S.pending.kind === 'put') {
+    ok(S.pending.radius === 3, 'up to 3", as the card says', S.pending.radius + '"');
+    /* put him squarely between the shooter and Mikaaaaghhh */
+    const line = { x: (fred.x + mika.x) / 2, y: fred.y };
+    const best = S.pending.spots.slice()
+      .sort((a, b) => G.Board.dist(a, line) - G.Board.dist(b, line))[0];
+    G.Battle.placePut(best);
+  }
+  ok(G.Board.dist(mate, mateWas) > 0.4, 'the mate actually moves',
+     'moved ' + G.Board.dist(mate, mateWas).toFixed(2) + '"');
+  const strike = S.strikes[S.strikes.length - 1];
+  ok(strike && strike.target === mate.id,
+     'and having stepped into it, the shot is against him',
+     strike ? 'target was ' + G.Battle.unit(strike.target).name : 'no shot resolved');
+}
+{
+  /* GATE OF INFINITY — "That unit may not MOVE this turn." */
+  const G = scene('greyknights', 'orks');
+  const S = G.Battle.get();
+  const lucius = find(G, 'Lucius');
+  const before = G.Battle.actionsFor(lucius.id).find(a => a.id === 'move');
+  ok(before && before.ok, 'Lucius may MOVE normally');
+  lucius.noMoveTurn = S.turn.number;
+  const after = G.Battle.actionsFor(lucius.id).find(a => a.id === 'move');
+  ok(after && !after.ok, 'but not after being placed by Gate of Infinity',
+     after ? after.why || 'still offered' : 'no move action');
+}
+{
+  /* SNAP SHOT — its text has no -1, so it must not take the OVERWATCH penalty */
+  const G = scene('astra', 'orks');
+  const S = G.Battle.get();
+  const fred = find(G, 'Fred'), snitch = find(G, 'Snitcherz');
+  fred.x = 14; fred.y = 3;
+  snitch.x = 18; snitch.y = 3;
+  const gun = fred.weapons[0];
+  const plain = G.Battle.attackMods(fred, snitch, gun, 'ranged', {});
+  const onOverwatch = G.Battle.attackMods(fred, snitch, gun, 'ranged', { overwatch: true });
+  ok(onOverwatch.hit === plain.hit - 1, 'the OVERWATCH action is -1 to hit');
+  ok(plain.hit === G.Battle.attackMods(fred, snitch, gun, 'ranged', {}).hit,
+     'and a snap shot, which takes no such penalty, is not');
+}
+{
+  /* UNPREDICTABLE — "Use only on your turn." */
+  const G = scene('orks', 'astra');
+  const S = G.Battle.get();
+  const snitch = find(G, 'Snitcherz');
+  S.turn.player = 0;
+  const own = G.Battle.actionsFor(snitch.id).find(a => a.name === 'Unpredictable');
+  ok(own && own.ok, 'Unpredictable is usable on your own turn');
+  S.turn.player = 1;
+  S.control.player = 0;
+  const theirs = G.Battle.actionsFor(snitch.id).find(a => a.name === 'Unpredictable');
+  ok(theirs && !theirs.ok, 'and refused on theirs', theirs ? theirs.why || 'still offered' : 'missing');
+}
+{
+  /* AURELIUS'S GATE OF INFINITY — an End Phase ability, so there must be one */
+  const G = scene('greyknights', 'orks');
+  const S = G.Battle.get();
+  S.turn.player = 0;
+  S.control.player = 0;
+  G.Battle.endTurn();
+  ok(S.pending && S.pending.kind === 'endability',
+     'the End Phase offers Aurelius his Gate of Infinity',
+     S.pending ? S.pending.kind : 'the turn just ended');
+  if (S.pending && S.pending.kind === 'endability') {
+    ok(S.pending.name === 'Gate of Infinity', 'by name', S.pending.name);
+    G.Battle.answerEndAbility(true);
+    ok(S.pending && S.pending.kind === 'pick', 'and asks which unit to place');
+    if (S.pending && S.pending.kind === 'pick') {
+      const who = G.Battle.unit(S.pending.options[0]);
+      const was = { x: who.x, y: who.y };
+      G.Battle.choosePick(who.id);
+      ok(S.pending && S.pending.kind === 'put', 'then where to put them');
+      if (S.pending && S.pending.kind === 'put') {
+        const foes = G.Battle.mine(1);
+        ok(S.pending.spots.every(q => foes.every(f => G.Board.dist(q, f) > 6)),
+           'and every spot is more than 6" from an enemy');
+        G.Battle.placePut(S.pending.spots[0]);
+        ok(G.Board.dist(who, was) > 0.5, 'the unit is actually moved there');
+      }
+    }
   }
 }
 
