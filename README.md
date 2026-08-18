@@ -135,6 +135,30 @@ identical decisions and compares the entire table after every one.
 | `node tools/checkmaps.js` | The tables: symmetry, that nothing is walled off, sight-lines between markers, that neither side gets two objectives it can hold uncontested — and the geometry itself, that a move round a wall costs more than the straight line and that you cannot stand with your base inside one |
 | `node tools/checklockstep.js` | That two games fed the same decisions stay identical, which is what multiplayer rests on |
 | `node tools/buildthree.js` | Rebuilds `game/vendor/three.global.js` from the three.js module — see below |
+| `tools/prepmodels.sh FOLDER` | Turns a folder of raw scans into models the game can carry, and rebuilds the baked bundle |
+
+### Putting scanned models in
+
+Hand `tools/prepmodels.sh` a folder of scans in any of glb / gltf / obj / fbx /
+ply / stl and it runs each one through Blender: decimated to a triangle budget,
+textures shrunk, the pieces joined, and the model stood on the ground with its
+footprint centred on the origin — which is where the game puts the base ring.
+
+It does not trust Blender's own idea of where the model ended up. What the
+exporter writes and what Blender holds in memory are not always the same thing,
+so the tool exports, **reads the finished file back**, measures it, nudges, and
+repeats until the model really is standing on zero. A first attempt that skipped
+that step left every model hovering a tenth of an inch above its base.
+
+Budgets, from a 490k-triangle 4K-texture test scan:
+
+| | |
+|---|---|
+| `20000 1024` (default) | 1.97 MB |
+| `12000 512` | 1.18 MB |
+| `8000 512` | 0.79 MB |
+
+Models are baked into one script, so the total matters — see below.
 
 three.js and PeerJS are **committed, not fetched**, so the game still opens from
 `file://` with the network off (only playing somebody else needs to be online).
