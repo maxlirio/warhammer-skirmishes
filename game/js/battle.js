@@ -72,7 +72,8 @@ const Battle = (function () {
       chain: { active: false, initiator: null, passes: 0 },
       control: { player: 0, forcedUnitId: null },
       pending: null,
-      log: [], strikes: [], dice: [], tokens: [], buffs: [[], []], cards: [null, null], seq: 0,
+      log: [], strikes: [], dice: [], tokens: [], buffs: [[], []], cards: [null, null],
+      setupAsks: [], seq: 0,
       winner: null,
       mission: null, flags: {}, control: { player: 0, forcedUnitId: null },
       secured: {}, relic: null, highGround: null,
@@ -133,8 +134,10 @@ const Battle = (function () {
     });
 
     log('— ' + map.name + ' —', 'big');
+    S.setupAsks = [];
     runGameStart();
     beginTurn(0, true);
+    nextSetupAsk();
     emit();
   }
 
@@ -389,15 +392,29 @@ const Battle = (function () {
         if (ab.trigger !== 'gamestart') return;
         (ab.effects || []).forEach(function (e) {
           if (e.kind !== 'mark') return;
-          /* the game can see the table: it picks the biggest threat it can see */
-          const pick = alive().filter(x => x.owner !== u.owner && !x.marker)
-            .sort((x, y) => (y.maxWounds * y.toughness) - (x.maxWounds * x.toughness))[0];
-          if (!pick) return;
-          pick.marks.push(e.label || 'MARKED');
-          log(u.name + ' — ' + ab.name + ': ' + pick.name + ' is ' + (e.label || 'MARKED') + '.', 'note');
+          /* the card says CHOOSE one, so its owner chooses */
+          S.setupAsks.push({ owner: u.owner, src: u, ab: ab, e: e });
         });
       });
     });
+  }
+
+  /* Anything a card asks its owner before the first turn. */
+  function nextSetupAsk() {
+    if (!S.setupAsks || !S.setupAsks.length) return;
+    const q = S.setupAsks.shift();
+    const foes = alive().filter(x => x.owner !== q.owner && !x.marker);
+    askPick(foes, q.src.name + ' — ' + q.ab.name,
+            q.ab.text || 'Choose one enemy unit.',
+            function (pick) {
+              if (pick) {
+                pick.marks.push(q.e.label || 'MARKED');
+                log(q.src.name + ' — ' + q.ab.name + ': ' + pick.name + ' is ' +
+                    (q.e.label || 'MARKED') + '.', 'note');
+              }
+              nextSetupAsk();
+              emit();
+            });
   }
 
   function closeChain(why) {
@@ -883,6 +900,9 @@ const Battle = (function () {
   function runEffects(u, a, arg, p) {
     let endsChain = a.opponentReacts === false;
     let attacked = false;
+    /* anything that has to stop and ask the player something, queued so the
+       questions come one at a time rather than all at once */
+    const pendingEffects = [];
 
     (a.effects || []).forEach(function (e) {
       const target = (typeof arg === 'string') ? unit(arg) : null;
@@ -978,23 +998,29 @@ const Battle = (function () {
           break;
         }
         case 'wander': {
-          /* Unpredictable, and WAAAAAGH for the whole squad */
+          /* "Move up to D6 inches" — the dice say how far, you say where. */
           const r = roll();
-          announce(r, null, (e.everyone ? 'WAAAAGH' : 'MOVE') + ' D6');
-          const movers = e.everyone ? mine(p).filter(x => !isMarker(x)) : [u];
-          movers.forEach(function (mv) {
-            const f = fieldFor(mv);
-            const spots = Board.sampleReach(f, r, 0.5);
-            if (!spots.length) return;
-            /* toward the nearest enemy, which is what either card is for */
-            const foe = alive().filter(x => x.owner !== mv.owner && !isMarker(x))
-              .sort((x, y) => rangeTo(mv, x) - rangeTo(mv, y))[0];
-            const to = foe ? spots.sort((x, y) => rangeTo(x, foe) - rangeTo(y, foe))[0]
-                           : spots[spots.length - 1];
-            mv.facing = Math.atan2(to.y - mv.y, to.x - mv.x);
-            mv.x = to.x; mv.y = to.y;
-            mv.movedTurn = S.turn.number;
-            log(mv.name + ' moves ' + r + '".', 'note');
+          announce(r, null, (e.everyone ? 'WAAAAGH' : 'MOVE') + ' · D6');
+          const movers = (e.everyone ? mine(p).filter(x => !isMarker(x)) : [u]).slice();
+          log((e.everyone ? 'Every unit' : u.name) + ' may move up to ' + r + '".', 'note');
+          pendingEffects.push(function (next) {
+            (function step() {
+              const mv = movers.shift();
+              if (!mv) { next(); return; }
+              const f = fieldFor(mv);
+              askPut(mv, r, mv.name.toUpperCase() + ' — MOVE ' + r + '"',
+                     'Anywhere it can walk to within ' + r + '".',
+                     function (q) { return Board.canReach(f, q, r); },
+                     function (at) {
+                       if (at) {
+                         mv.facing = Math.atan2(at.y - mv.y, at.x - mv.x);
+                         mv.x = at.x; mv.y = at.y;
+                         mv.movedTurn = S.turn.number;
+                         log(mv.name + ' moves ' + Board.dist(mv, at).toFixed(1) + '".', 'note');
+                       }
+                       step();
+                     });
+            })();
           });
           break;
         }
@@ -1059,18 +1085,32 @@ const Battle = (function () {
           break;
         }
         case 'token': {
-          /* scattered by the dice the card asks for, and the bowl shows it */
-          const scatter = e.label === 'SMOKE BOMB' ? roll() + roll() : roll();
-          announce(scatter, null, e.label + ' SCATTER');
-          const ang = (roll() - 1) * (Math.PI / 3);
-          const want = { x: u.x + Math.cos(ang) * scatter, y: u.y + Math.sin(ang) * scatter };
-          const at = Board.nudgeToLegal(S.board, want, 0.3, []);
-          S.tokens.push({ id: 't' + S.seq++, label: e.label, owner: p, x: at.x, y: at.y,
-                          radius: e.label === 'SMOKE BOMB' ? 1.5 : 3,
-                          expiry: e.expiry || 'chain', aura: e.aura || null,
-                          tokenEffects: e.tokenEffects || null,
-                          turn: S.turn.number });
-          log(e.label + ' lands ' + scatter + '" away.', 'token');
+          /* The card gives a distance, not a place. Roll it in the bowl, then
+             hand the table over — where it goes is the player's decision. */
+          const twoDice = /2D6/i.test(a.text || '');
+          const r1 = roll();
+          announce(r1, null, e.label + ' · D6');
+          let far = r1;
+          if (twoDice) { const r2 = roll(); announce(r2, null, e.label + ' · D6'); far += r2; }
+          log(e.label + ': may be placed up to ' + far + '" away.', 'token');
+          pendingEffects.push(function (next) {
+            askPut(u, far, 'PLACE THE ' + e.label,
+                   'Anywhere within ' + far + '" of ' + u.name + '. ' + (e.text || ''),
+                   null,
+                   function (at) {
+                     if (at) {
+                       S.tokens.push({ id: 't' + S.seq++, label: e.label, owner: p,
+                                       x: at.x, y: at.y,
+                                       radius: e.label === 'SMOKE BOMB' ? 1.5 : 3,
+                                       expiry: e.expiry || 'chain', aura: e.aura || null,
+                                       tokenEffects: e.tokenEffects || null,
+                                       turn: S.turn.number });
+                       log(e.label + ' is placed ' +
+                           Board.dist(u, at).toFixed(1) + '" out.', 'token');
+                     }
+                     next();
+                   });
+          });
           break;
         }
         case 'resource': {
@@ -1101,6 +1141,14 @@ const Battle = (function () {
       }
     });
 
+    if (pendingEffects.length) {
+      (function drain() {
+        const fn = pendingEffects.shift();
+        if (!fn) { if (!attacked) afterAction(p, { endsChain: endsChain, reason: a.name }); return; }
+        fn(drain);
+      })();
+      return;
+    }
     if (!attacked) afterAction(p, { endsChain: endsChain, reason: a.name });
   }
 
@@ -1440,6 +1488,62 @@ const Battle = (function () {
       const d = Board.dist(a, p) - a.radius - t.radius;
       return !(Board.canSee(S.board, a, p) && d <= (atk.weapon.range || 0));
     }).spots;
+  }
+
+  /* The card rolls for how far, and then YOU say where. Anything a card tells
+     a player to "place" comes through here: the dice settle first, the legal
+     ground is shaded, and nothing is chosen on their behalf. */
+  function askPut(u, radius, label, hint, keep, then) {
+    const spots = [];
+    const STEP = 0.5;
+    for (let dy = -radius; dy <= radius + 1e-9; dy += STEP) {
+      for (let dx = -radius; dx <= radius + 1e-9; dx += STEP) {
+        if (dx * dx + dy * dy > radius * radius) continue;
+        const q = { x: u.x + dx, y: u.y + dy };
+        if (!Board.inside(S.board, q)) continue;
+        if (keep && !keep(q)) continue;
+        spots.push(q);
+      }
+    }
+    if (!spots.length) { then(null); return; }
+    S.pending = { kind: 'put', unitId: u.id, radius: radius, spots: spots,
+                  label: label, hint: hint, then: then };
+    emit();
+  }
+
+  function placePut(where) {
+    const pend = S.pending;
+    if (!pend || pend.kind !== 'put') return;
+    let to = where;
+    if (Board.dist(unit(pend.unitId), to) > pend.radius + 1e-6) {
+      /* snap to the nearest thing actually offered */
+      let best = null, bestD = Infinity;
+      pend.spots.forEach(function (sp) {
+        const d = Board.dist(sp, where);
+        if (d < bestD) { bestD = d; best = sp; }
+      });
+      if (!best || bestD > 3) return;
+      to = best;
+    }
+    const then = pend.then;
+    S.pending = null;
+    then({ x: to.x, y: to.y });
+  }
+
+  /* Choosing a unit rather than a spot. */
+  function askPick(list, label, hint, then) {
+    if (!list.length) { then(null); return; }
+    S.pending = { kind: 'pick', options: list.map(u => u.id), label: label,
+                  hint: hint, then: then };
+    emit();
+  }
+
+  function choosePick(id) {
+    const pend = S.pending;
+    if (!pend || pend.kind !== 'pick' || pend.options.indexOf(id) < 0) return;
+    const then = pend.then;
+    S.pending = null;
+    then(unit(id));
   }
 
   /* Hand the table back to a player to choose where a reaction moves them.
@@ -1868,6 +1972,7 @@ const Battle = (function () {
     abilityActions, useAbility, confirmAbility, arrivalSpots, abilityOf, moveOf,
     cardPowers, useCardPower, holderOf, attackMods, diceFor, blockedReactions,
     chooseReaction, chooseRedirect, toggleWatcher, fireOverwatch, endTurn, placeMove,
+    placePut, choosePick,
     mustPass, elevation, diveEscapes, spotsWithin, fieldFor, snapMove
   };
 })();

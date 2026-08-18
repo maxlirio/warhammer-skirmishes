@@ -254,6 +254,32 @@ const GameUI = (function () {
     const v = {};
     const pend = S.pending;
 
+    /* Placing something the card told you to place. */
+    if (pend && pend.kind === 'put') {
+      const u = Battle.unit(pend.unitId);
+      v.focus = u;
+      v.area = pend.spots;
+      v.areaColour = Render3D.COL.goldLit;
+      v.areaOpacity = 0.5;
+      v.areaCell = 0.5;
+      v.areaGlow = true;
+      const land = hover ? Render3D.pickNearest(hoverPx.x, hoverPx.y, pend.spots, 60) : null;
+      if (land) {
+        v.tape = tape(u, land, Battle.rangeTo(u, land));
+        v.marks = [{ x: land.x, y: land.y, r: 1.0, colour: Render3D.COL.goldLit }];
+      }
+      return v;
+    }
+
+    /* An ability waiting to be pointed at somebody. */
+    if (pend && pend.kind === 'pick') {
+      v.marks = pend.options.map(function (id) {
+        const x = Battle.unit(id);
+        return { x: x.x, y: x.y, r: x.radius + 0.5, colour: Render3D.COL.watch };
+      });
+      return v;
+    }
+
     /* An ability waiting to be pointed at somewhere or somebody. */
     if (pend && pend.kind === 'ability') {
       const u = Battle.unit(pend.unitId);
@@ -368,10 +394,11 @@ const GameUI = (function () {
   function render(S) {
     if (S.winner !== null) { showVictory(S); return; }
     /* Come in close while somebody is placing a model, then pull back out. */
-    const placing = S.pending && S.pending.kind === 'move';
+    const placing = S.pending && (S.pending.kind === 'move' || S.pending.kind === 'put');
     if (placing && !leaning) {
       leaning = true;
-      Render3D.leanIn(Battle.unit(S.pending.unitId), 22);
+      Render3D.leanIn(Battle.unit(S.pending.unitId),
+                      S.pending.kind === 'put' ? Math.max(22, S.pending.radius * 3.2) : 22);
     } else if (!placing && leaning) {
       leaning = false;
       Render3D.leanOut();
@@ -765,7 +792,8 @@ const GameUI = (function () {
 
   function drawPending(S) {
     if (!S.pending || S.pending.kind === 'move' || S.pending.kind === 'ability' ||
-        S.pending.kind === 'card') { closeModal(); return; }
+        S.pending.kind === 'card' || S.pending.kind === 'put' ||
+        S.pending.kind === 'pick') { closeModal(); return; }
     if (S.pending.kind === 'redirect') return redirectModal(S);
     if (S.pending.kind === 'reaction') return reactionModal(S);
     if (S.pending.kind === 'overwatch') return overwatchModal(S);
@@ -913,6 +941,8 @@ const GameUI = (function () {
     if (msg.t === 'relic')  Battle.doRelic(msg.id);
     if (msg.t === 'ability') Battle.useAbility(msg.id, msg.i);
     if (msg.t === 'abil2')  Battle.confirmAbility(msg.id !== undefined ? msg.id : msg.at);
+    if (msg.t === 'put')    Battle.placePut(msg.at);
+    if (msg.t === 'pick')   Battle.choosePick(msg.id);
     if (msg.t === 'power')  Battle.useCardPower(msg.p, msg.i);
     if (msg.t === 'redirect') Battle.chooseRedirect(msg.id);
     if (msg.t === 'pass')   Battle.doPass(false);

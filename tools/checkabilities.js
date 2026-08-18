@@ -42,6 +42,12 @@ function scene(f0, f1, opts) {
                    missionId: opts.missionId || null });
   const S = G.Battle.get();
   S.players[0].ap = 40; S.players[1].ap = 40;
+  /* a card may open the game by asking its owner something (Da Hunta picks a
+     mark) — answer it so the scene starts with a clear table */
+  let guard = 0;
+  while (S.pending && S.pending.kind === 'pick' && guard++ < 4) {
+    G.Battle.choosePick(S.pending.options[0]);
+  }
   return G;
 }
 
@@ -109,6 +115,22 @@ console.log('\n== Astra Militarum');
   S.control.player = 0;
   const tokensBefore = S.tokens.length;
   useAbility(G, alfred, 'Smoke Bomb');
+  /* the card says place it within 2D6" — so it must ASK, not scatter it */
+  ok(S.pending && S.pending.kind === 'put',
+     'Smoke Bomb asks where to put it rather than scattering it',
+     S.pending ? S.pending.kind : 'nothing pending');
+  if (S.pending && S.pending.kind === 'put') {
+    ok(S.pending.radius >= 2 && S.pending.radius <= 12,
+       'and the 2D6 roll sets how far it may go', S.pending.radius + '"');
+    const mine2 = S.pending.spots;
+    ok(mine2.every(q => G.Board.dist(alfred, q) <= S.pending.radius + 1e-6),
+       'every spot offered is inside that distance');
+    /* put it exactly where we want it, on the line of fire */
+    const wanted = { x: (fred.x + snitch.x) / 2, y: fred.y };
+    const near = mine2.slice().sort((q, r2) =>
+      G.Board.dist(q, wanted) - G.Board.dist(r2, wanted))[0];
+    G.Battle.placePut(near);
+  }
   ok(S.tokens.length === tokensBefore + 1, 'Smoke Bomb puts a token on the table');
   const tok = S.tokens[S.tokens.length - 1];
   if (tok) {
@@ -207,7 +229,11 @@ console.log('\n== Astra Militarum');
   if (gren) {
     const before = S.tokens.length;
     G.Battle.chooseReaction(gren.id);
-    ok(S.tokens.length > before, 'and taking it puts a grenade on the table');
+    ok(S.pending && S.pending.kind === 'put',
+       'and taking it asks where the grenade goes',
+       S.pending ? S.pending.kind : 'nothing pending');
+    if (S.pending && S.pending.kind === 'put') G.Battle.placePut(S.pending.spots[0]);
+    ok(S.tokens.length > before, 'and then it is on the table');
   }
 }
 
@@ -294,17 +320,37 @@ console.log('\n== Orks');
   const snitch = find(G, 'Snitcherz');
   snitch.x = 20; snitch.y = 3;
   const was = { x: snitch.x, y: snitch.y };
-  G.Battle.get().control.player = 0;
+  const S2 = G.Battle.get();
+  S2.control.player = 0;
   useAbility(G, snitch, 'Unpredictable');
-  ok(G.Board.dist(snitch, was) > 0.5, 'Unpredictable actually moves him',
+  ok(S2.pending && S2.pending.kind === 'put',
+     'Unpredictable asks where he goes rather than deciding for you',
+     S2.pending ? S2.pending.kind : 'nothing pending');
+  if (S2.pending && S2.pending.kind === 'put') {
+    const far = S2.pending.spots.slice()
+      .sort((a2, b2) => G.Board.dist(snitch, b2) - G.Board.dist(snitch, a2))[0];
+    G.Battle.placePut(far);
+  }
+  ok(G.Board.dist(snitch, was) > 0.5, 'and then actually moves him',
      'moved ' + G.Board.dist(snitch, was).toFixed(2) + '"');
 }
 {
   const G = scene('orks', 'astra');
   const blikker = find(G, 'Blikker');
   const before = G.Battle.mine(0).map(u => ({ id: u.id, x: u.x, y: u.y }));
-  G.Battle.get().control.player = 0;
+  const S3 = G.Battle.get();
+  S3.control.player = 0;
   useAbility(G, blikker, 'WAAAAAGH');
+  ok(S3.pending && S3.pending.kind === 'put',
+     'WAAAAAGH asks for each model in turn',
+     S3.pending ? S3.pending.kind : 'nothing pending');
+  let guard = 0;
+  while (S3.pending && S3.pending.kind === 'put' && guard++ < 12) {
+    const sp = S3.pending.spots;
+    const mv = G.Battle.unit(S3.pending.unitId);
+    const far = sp.slice().sort((a2, b2) => G.Board.dist(mv, b2) - G.Board.dist(mv, a2))[0];
+    G.Battle.placePut(far);
+  }
   const movedCount = before.filter(function (b) {
     const u = G.Battle.unit(b.id);
     return G.Board.dist(u, b) > 0.4;
@@ -324,12 +370,23 @@ console.log('\n== Orks');
      'near ' + near.wound + ' vs far ' + far.wound);
 }
 {
-  const G = scene('orks', 'astra');
+  const G = makeGame();
+  G.Battle.start({ mapId: 'trenchline', factions: ['orks', 'astra'],
+                   names: ['P1', 'P2'], seed: 12345, missionId: null });
+  G.Battle.get().players[0].ap = 40; G.Battle.get().players[1].ap = 40;
   const hunta = find(G, 'Da Hunta');
+  const Sd = G.Battle.get();
+  ok(Sd.pending && Sd.pending.kind === 'pick',
+     'Da Hunta asks his owner which enemy to mark',
+     Sd.pending ? Sd.pending.kind : 'nothing pending');
+  if (Sd.pending && Sd.pending.kind === 'pick') {
+    ok(Sd.pending.options.every(id => G.Battle.unit(id).owner === 1),
+       'and only offers enemy models');
+    G.Battle.choosePick(Sd.pending.options[1] || Sd.pending.options[0]);
+  }
   const marked = G.Battle.get().units.filter(u => (u.marks || []).length);
   ok(marked.length === 1 && marked[0].owner === 1,
-     'Da Hunta marks an enemy before the first turn',
-     marked.length ? marked[0].name : 'nobody');
+     'marking the one he was told to', marked.length ? marked[0].name : 'nobody');
   /* GUD AT HIS JOB — the Shoota hurts a MARKED unit more */
   if (marked.length) {
     face(G, hunta, marked[0], 8);
