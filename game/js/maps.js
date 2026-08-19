@@ -107,7 +107,10 @@ const MAPS = (function () {
       key: { colour: 0xffdfae, power: 3.0 }, hemi: { sky: 0xaab6c6, gnd: 0x5a4a34, power: 1.4 },
       mass: 'stone', deck: 'panel',
       scatter: ['debris', 'rock_smallA', 'stump_round', 'tree_deadlog', 'plant_bush'],
-      clumps: ['tree_trunk', 'rock_tallC', 'stone_wall_damaged']
+      /* Nothing grows out here. A blocking piece on a wasteland is a ruin,
+         not a copse — and the kit's dead trunks were reading as a row of red
+         tents pitched across the table. */
+      clumps: []
     }
   };
 

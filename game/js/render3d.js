@@ -482,12 +482,12 @@ const Render3D = (function () {
        shape comes from the normal maps, and the same key washes everything to
        cream — which is why the rockcrete tables looked bleached. Pulled down
        across the board; contrast now comes from the materials. */
-    renderer.toneMappingExposure = (bi.expose || 1.2) * 0.62;
+    renderer.toneMappingExposure = (bi.expose || 1.2) * 0.82;
     keyLight.color.setHex(bi.key.colour);
-    keyLight.intensity = bi.key.power * 0.6;
+    keyLight.intensity = bi.key.power * 0.78;
     hemiLight.color.setHex(bi.hemi.sky);
     hemiLight.groundColor.setHex(bi.hemi.gnd);
-    hemiLight.intensity = bi.hemi.power * 0.55;
+    hemiLight.intensity = bi.hemi.power * 0.72;
     return bi;
   }
 
@@ -1085,7 +1085,12 @@ const Render3D = (function () {
   }
 
   function seat(obj, t, lx, lz) {
-    obj.position.set(lx, groundUnder(t, t.x + t.w / 2 + lx, t.y + t.h / 2 + lz), lz);
+    const y = groundUnder(t, t.x + t.w / 2 + lx, t.y + t.h / 2 + lz);
+    obj.position.set(lx, y, lz);
+    /* Anything that is supposed to be STANDING ON something says so, and says
+       what. tools/checkfloat.js then has a fact to check rather than a guess:
+       a building's upper storey is meant to be in the air, a crate is not. */
+    obj.userData.rests = y;
     return obj;
   }
 
@@ -1203,7 +1208,7 @@ const Render3D = (function () {
         const r = Assets.grown(heap[Math.floor(v * heap.length) % heap.length],
                                0.22 + v * 0.4, Math.min(1.2, t.w / 3));
         const sp = 0.3 + rnd(i * 23) * 0.5;
-        r.position.set((rnd(i * 3) - 0.5) * t.w * sp, 0, (rnd(i * 5) - 0.5) * t.h * sp);
+        seat(r, t, (rnd(i * 3) - 0.5) * t.w * sp, (rnd(i * 5) - 0.5) * t.h * sp);
         r.rotation.set((rnd(i * 9) - 0.5) * 0.3, v * 6.28, (rnd(i * 11) - 0.5) * 0.3);
         g.add(r);
       }
@@ -1263,6 +1268,17 @@ const Render3D = (function () {
       if (typeof Build3D !== 'undefined' && typeof Mats !== 'undefined') {
         const roof = Build3D.rooftop(t, rnd);
         roof.position.y = t.top;
+        roof.userData.rests = t.top;
+        /* Nothing is allowed to stand on top of something the players have to
+           reach. A water tank came down over the RELIC like a cloche — which
+           is what happens when scenery is scattered without asking what is
+           already there. */
+        const keepOut = (board.objectives || []).map(o => ({ x: o.x, y: o.y, r: 3.2 }));
+        keepOut.push({ x: board.w / 2, y: board.h / 2, r: 3.6 });   /* the relic's home */
+        roof.children.slice().forEach(function (c) {
+          const wx = t.x + t.w / 2 + c.position.x, wz = t.y + t.h / 2 + c.position.z;
+          if (keepOut.some(k => Math.hypot(wx - k.x, wz - k.y) < k.r)) roof.remove(c);
+        });
         g.add(roof);
       }
       if (Assets.has('stairs') && t.top > 0.9) {
@@ -1318,7 +1334,9 @@ const Render3D = (function () {
       const m = tintTo(Assets.grown(name, 0.15 + v * 0.36, 0.7),
                        new THREE.Color(biome.ground.grit).multiplyScalar(0.72),
                        0.88, i * 211);
-      m.position.set(x, Board.heightAt(b, p), y);
+      const gy = Board.heightAt(b, p);
+      m.position.set(x, gy, y);
+      m.userData.rests = gy;
       m.rotation.y = Assets.seeded(i * 71) * 6.28;
       m.rotation.z = (Assets.seeded(i * 91) - 0.5) * 0.16;
       group.add(m);
@@ -1351,7 +1369,9 @@ const Render3D = (function () {
       return true;
     };
     const lay = function (obj, x, y, turn, shade) {
-      obj.position.set(x, Board.heightAt(b, { x: x, y: y }) + 0.012, y);
+      const gy = Board.heightAt(b, { x: x, y: y }) + 0.012;
+      obj.position.set(x, gy, y);
+      obj.userData.rests = gy;
       obj.rotation.y = turn;
       obj.userData.shade = shade || 1;
       group.add(obj);

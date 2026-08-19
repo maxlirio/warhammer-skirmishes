@@ -316,7 +316,7 @@ const Build3D = (function () {
 
     /* a tank on four legs */
     if (Math.min(W, H) > 3.4 && rnd(301) < 0.75) {
-      const r = Math.min(1.1, Math.min(W, H) * 0.22);
+      const r = Math.min(0.8, Math.min(W, H) * 0.16);
       const legs = 0.55 + rnd(307) * 0.4;
       const tank = new THREE.Mesh(new THREE.CylinderGeometry(r, r, r * 1.5, 16), steel);
       tank.position.y = legs + r * 0.75;
