@@ -364,8 +364,10 @@ const Engine = (function () {
       const g = S();
       const p = g.pending && g.pending.player;
       if (p === null || p === undefined) return;
-      g.players[p].ap += 1;
-      log(pname(p) + ' gains 1 AP for the Start Phase (now ' + g.players[p].ap + ' AP).', 'ap');
+      const draw = RULES.startPhaseAP === undefined ? 1 : RULES.startPhaseAP;
+      g.players[p].ap += draw;
+      log(pname(p) + ' gains ' + draw + ' AP for the Start Phase (now ' +
+          g.players[p].ap + ' AP).', 'ap');
       g.turn.phase = 'action';
       g.pending = null;
       g.control = { player: p, forcedUnitId: null, reason: 'spend an AP, or PASS to end your turn' };

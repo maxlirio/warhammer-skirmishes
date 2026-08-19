@@ -797,7 +797,10 @@ const UI = (function () {
 
         (isStart
           ? '<div class="noteline warn">' + esc(g.players[p.player].name) +
-              ' gains 1 AP for the Start Phase (they will have ' + (g.players[p.player].ap + 1) + ' AP).</div>'
+              ' gains ' + (RULES.startPhaseAP === undefined ? 1 : RULES.startPhaseAP) +
+              ' AP for the Start Phase (they will have ' +
+              (g.players[p.player].ap + (RULES.startPhaseAP === undefined ? 1 : RULES.startPhaseAP)) +
+              ' AP).</div>'
           : missionCheck(g)) +
       '</div>' +
       '<div class="mfoot">' +

@@ -125,6 +125,28 @@ const Board = (function () {
     return true;
   }
 
+  /* The same question, asked of somebody who has got their head down.
+
+     DUCK says the attack cannot be resolved if the attacker cannot see the
+     unit's base. That is a DIFFERENT sight line from the one that allowed the
+     shot: standing, you are seen over a low wall; crouched behind it, you are
+     not. The reaction was testing the standing line — the very test that had
+     just said the shot was legal — so it could never once take effect.
+
+     `drop` is how far below their standing height the model gets; anything
+     taller than the ducked eye line now blocks. */
+  function canSeeDucked(b, from, to, drop) {
+    const down = drop === undefined ? 0.9 : drop;
+    const eye = Math.max(heightAt(b, from), Math.max(0, heightAt(b, to) - down));
+    for (let i = 0; i < b.terrain.length; i++) {
+      const t = b.terrain[i];
+      if (t.top <= eye + EPS) continue;
+      if (!t.blocks && (inBox(t, from) || inBox(t, to))) continue;
+      if (segHitsBox(t, from, to)) return false;
+    }
+    return true;
+  }
+
   /* ------------------------------------------------------------- movement
      A move is measured with the tape: straight there if nothing is in the way,
      otherwise around the corners. That is a shortest path through the plane, so
@@ -330,7 +352,7 @@ const Board = (function () {
 
   return {
     build, inside, inBox, dist, heightAt, distToBox, standable, wallsFor, STEP_OVER,
-    canSee, segHitsBox, moveField, costTo, canReach, pathTo, climbSpots, climbFor,
+    canSee, canSeeDucked, segHitsBox, moveField, costTo, canReach, pathTo, climbSpots, climbFor,
     sampleReach, sampleSight, nudgeToLegal
   };
 })();

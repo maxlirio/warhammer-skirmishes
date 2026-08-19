@@ -454,7 +454,11 @@ const RULES = (function () {
 
   return {
     version: '1.0',
-    build: '2026-08-18c',
+    /* What a player draws at the top of their own turn. A house number, and
+       the only place it is written down — the game and the companion both
+       read it from here so they cannot drift apart. */
+    startPhaseAP: 2,
+    build: '2026-08-19a',
     defaultVPTarget: 10,
     actions, rangedReactions, meleeReactions, missions,
     woundTarget, woundLabel, applyMod, actionById, reactionById, missionById, epitaph,

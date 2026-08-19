@@ -355,6 +355,10 @@ const Build3D = (function () {
         m.castShadow = true;
         p.position.set(f.at[0], TOP, f.at[2]);
         p.rotation.y = f.turn;
+        /* tagged so a staircase can knock a gap in it where it lands: a flight
+           that climbs four inches and delivers you into a solid parapet is a
+           flight into a wall */
+        p.userData.parapet = true;
         g.add(p);
       }
     });

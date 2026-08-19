@@ -350,8 +350,9 @@ const Battle = (function () {
           S.cards[player].resource.name + ' (now ' + S.cards[player].value + ').', 'ap');
     }
     log('— TURN ' + S.turn.number + ': ' + S.players[player].name + ' —', 'big');
-    S.players[player].ap += 1;
-    log(S.players[player].name + ' gains 1 AP for the Start Phase (now ' +
+    const draw = RULES.startPhaseAP === undefined ? 1 : RULES.startPhaseAP;
+    S.players[player].ap += draw;
+    log(S.players[player].name + ' gains ' + draw + ' AP for the Start Phase (now ' +
         S.players[player].ap + ').', 'ap');
   }
 
@@ -1069,7 +1070,9 @@ const Battle = (function () {
        control there stranded the game: no chain was open, so the opponent's
        PASS had nothing to pass on, and neither player could act again. */
     const handover = !(opts && opts.noHandover);
+    const after = opts && opts.then;
     const settle = function (o) {
+      if (after) { after(); return; }
       if (handover) afterAction(p, o || {});
       else emit();
     };
@@ -1247,7 +1250,11 @@ const Battle = (function () {
           break;
         }
         case 'attack': {
-          const t2 = target;
+          /* KWIK DAKKA and its like are REACTIONS: they are handed the attack
+             that triggered them, not a unit id, so `target` is null and this
+             broke out immediately — the card did nothing at all, ever. What
+             you are shooting back at is whoever shot at you. */
+          const t2 = target || (arg && arg.attackerUnit) || null;
           if (!t2) break;
           attacked = true;
           const w = weaponsOf(u, e.weapon === 'melee' ? 'melee' : 'ranged')
@@ -1444,7 +1451,13 @@ const Battle = (function () {
         done(); return;
       }
       const c = legs[i++];
-      if (i > 1) u.facing = Math.atan2(c.y - u.y, c.x - u.x);
+      /* Face the way you are going, from the FIRST step. This was `i > 1`, so
+         the turn only happened from the second leg onward — and a short move
+         is one leg, which meant models slid to their new position still facing
+         wherever they had been looking. */
+      if (Math.hypot(c.x - u.x, c.y - u.y) > 1e-6) {
+        u.facing = Math.atan2(c.y - u.y, c.x - u.x);
+      }
       u.x = c.x; u.y = c.y;
       if (S.relic && S.relic.carrier === u.id) { S.relic.x = u.x; S.relic.y = u.y; }
       const watchers = triggeredWatchers(u);
@@ -1629,6 +1642,9 @@ const Battle = (function () {
         if (blocked[r.id]) why = blocked[r.id] + ' takes this away';
         if (r.id === 'dive' && !why && !diveEscapes(atk).length) why = 'nowhere to dive that ends the attack';
         if (r.id === 'dodge' && !why && !dodgeSpots(atk).length) why = 'nowhere to step';
+        /* DUCK is never refused: it always subtracts 1 from the wound roll.
+           Whether it also ENDS the attack depends on whether there is anything
+           to get behind, and that is answered when it is taken. */
         return { id: r.id, name: r.name, text: r.text, cost: r.cost, ok: !why, why: why };
       });
     /* and whatever the defender's own card lets them do for RP */
@@ -1886,14 +1902,24 @@ const Battle = (function () {
 
         /* "before their attack resolves" — this goes off first, and if it puts
            the attacker down their attack never happens */
+        /* The reaction happens BEFORE the attack it is answering, and some of
+           these stop and ask the player something — the grenade asks where it
+           lands. runEffects returns straight away while that question is open,
+           so the attack was resolving underneath it: the shot went in, and
+           then the grenade you were still placing went off. The attack now
+           waits until the reaction has actually finished. */
         const interrupts = (ab.effects || []).some(e => e.kind === 'attack');
-        runEffects(t2, ab, { attackerUnit: atk2.attacker }, t2.owner);
-        if (interrupts && !atk2.attacker.alive) {
-          log(atk2.attacker.name + ' is down before the shot — nothing comes of it.', 'reaction');
-          afterAction(atk2.actor === undefined ? S.turn.player : atk2.actor, {});
-          return;
-        }
-        resolveAttack(atk2);
+        runEffects(t2, ab, { attackerUnit: atk2.attacker }, t2.owner, {
+          noHandover: true,
+          then: function () {
+            if (interrupts && !atk2.attacker.alive) {
+              log(atk2.attacker.name + ' is down before the shot — nothing comes of it.', 'reaction');
+              afterAction(atk2.actor === undefined ? S.turn.player : atk2.actor, {});
+              return;
+            }
+            resolveAttack(atk2);
+          }
+        });
         return;
       }
     }
@@ -1917,6 +1943,7 @@ const Battle = (function () {
       if (id === 'focus') t.effects.push({ label: 'FOCUS: +2 to wound', wound: 2, until: 'chain' });
 
       if (id === 'dodge') {
+        atk.missAt = { x: t.x, y: t.y };        /* where the shot was aimed */
         askMove(t, 1, null, 'DODGE — move 1"',
                 'Anywhere within 1". If it takes you out of sight or out of range, ' +
                 'the attack cannot be resolved at all.',
@@ -1927,12 +1954,14 @@ const Battle = (function () {
         return;
       }
       if (id === 'duck') {
-        if (!Board.canSee(S.board, atk.attacker, t)) {
+        /* the ducked sight line, not the standing one it was testing before */
+        if (!Board.canSeeDucked(S.board, atk.attacker, t)) {
           cancelAttack(atk, atk.attacker.name + ' has lost sight of ' + t.name);
           return;
         }
       }
       if (id === 'dive') {
+        atk.missAt = { x: t.x, y: t.y };
         const a = atk.attacker;
         askMove(t, 3, function (p) {
           const d = Board.dist(a, p) - a.radius - t.radius;
@@ -1988,6 +2017,20 @@ const Battle = (function () {
      the VP, not even the AP the target would have gained. */
   function cancelAttack(atk, why) {
     log(why + ' — the attack cannot be resolved, and nothing comes of it.', 'reaction');
+    /* The screen still has to show that a shot was fired and went wide, or a
+       dodged attack looks exactly like the game ignoring the click. The strike
+       carries `whiffed`, and the renderer puts the round into the ground where
+       they had been standing. */
+    const a = atk.attacker, t = atk.target;
+    S.strikes.push({ at: S.seq++, attacker: a.id, target: t.id,
+                     melee: atk.range === 'melee', weapon: atk.weapon && atk.weapon.name,
+                     from: { x: a.x, y: a.y, z: Board.heightAt(S.board, a) },
+                     to: { x: atk.missAt ? atk.missAt.x : t.x,
+                           y: atk.missAt ? atk.missAt.y : t.y,
+                           z: Board.heightAt(S.board, atk.missAt || t) },
+                     hit: false, wound: false, damage: 0, killed: false,
+                     whiffed: true, rolls: null });
+    if (S.strikes.length > 12) S.strikes.shift();
     afterAction(atk.actor === undefined ? S.turn.player : atk.actor, {});
   }
 

@@ -1432,6 +1432,21 @@ const Render3D = (function () {
           st.userData.stairsFor = t;
           stairsPlaced.push(side.rect);
           g.add(st);
+          /* Open the parapet where the steps arrive. The building is generated
+             before the flight is placed, so the way in has to be cut
+             afterwards — otherwise the stairs climb to a solid wall and stop,
+             which is exactly what it looked like. */
+          const gate = { x: side.x, z: side.z, r: Math.max(1.1, wide) * 0.75 + 0.4 };
+          g.traverse(function (o) {
+            if (!o.userData || !o.userData.parapet) return;
+            o.children.forEach(function (seg) {
+              const wx = o.position.x + seg.position.x * Math.cos(o.rotation.y) +
+                         seg.position.z * Math.sin(o.rotation.y);
+              const wz = o.position.z - seg.position.x * Math.sin(o.rotation.y) +
+                         seg.position.z * Math.cos(o.rotation.y);
+              if (Math.hypot(wx - gate.x, wz - gate.z) < gate.r) seg.visible = false;
+            });
+          });
         }
       }
     }
@@ -2047,6 +2062,22 @@ const Render3D = (function () {
     });
   }
 
+  /* A round that hits nothing: dust and grit kicked off whatever it struck
+     where the target was standing. A shot that is dodged, dived away from or
+     cancelled used to produce silence and an unchanged table, which reads as
+     the game having ignored you. */
+  function puffAt(at, scale) {
+    const s = scale || 1;
+    fx.push({ kind: 'parts',
+              node: particles(at, 26, 0x9a9184, 0.1 * s, 6, 18, 1.1), t: 0, life: 0.7 });
+    const cloud = new THREE.Mesh(new THREE.SphereGeometry(0.34 * s, 10, 8),
+      new THREE.MeshStandardMaterial({ color: 0x8d867a, roughness: 1,
+                                       transparent: true, opacity: 0.5, depthWrite: false }));
+    cloud.position.copy(at);
+    fxGroup.add(cloud);
+    fx.push({ kind: 'smoke', node: cloud, t: 0, life: 0.9, scale: s * 0.7 });
+  }
+
   /* A charge going off. Big enough that you never have to read the log to
      know it happened. */
   function blast(at, scale) {
@@ -2435,7 +2466,9 @@ const Render3D = (function () {
     const k = c.k, at = c.impact;
     sparks(at, k.hit ? 1 : 0.85);
     Sfx.clang(k.hit ? 1 : 0.85);
-    if (!k.hit) scorch(at);
+    /* a miss goes up in dust where they were standing, so a shot that comes to
+       nothing still looks like a shot rather than like nothing */
+    if (!k.hit) { scorch(at); puffAt(at, 1.1); }
     shake = Math.max(shake, 0.17);
     /* a strike with no dice behind it (an ability) resolves its blood here */
     if (k.wound && !(k.rolls && k.rolls.woundTarget)) {
