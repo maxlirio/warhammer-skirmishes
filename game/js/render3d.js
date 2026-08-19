@@ -722,6 +722,7 @@ const Render3D = (function () {
   function buildBoard(b) {
     board = b;
     biome = applyBiome(b);
+    stairsPlaced = [];
     [terrainGroup, markerGroup].forEach(g => { while (g.children.length) g.remove(g.children[0]); });
 
     const floor = new THREE.Mesh(new THREE.BoxGeometry(b.w, 1, b.h),
@@ -793,6 +794,169 @@ const Render3D = (function () {
     wood:      { side: 0x8a6a44, cap: 0x9c7b50, rough: 0.9,  metal: 0.02 }
   };
 
+  /* What a piece of terrain is BUILT OUT OF — models, not a skin.
+
+     A box wearing a concrete texture is a box wearing a concrete texture, and
+     it reads as one from any angle: the corners are too sharp, the silhouette
+     is too regular, and the eye finds the repeat in the texture immediately.
+     So a blocking piece is now courses of real wall with the top course
+     knocked about, and a rise in a natural biome is a crag of stacked rock.
+
+     The rules box is still the only truth. Nothing built here reaches past
+     t.w × t.h, and the silhouette still FILLS it — a ruin you can see through
+     is a ruin the rules will not let you shoot through, and that lie is worse
+     than a plain box. Hence the dark core inside: a gap in the wall shows
+     shadow, never daylight. */
+  /* Everything on this table has to look quarried from the same ground. The
+     kit arrives in its own cheerful palettes — a cream wall here, a bright
+     orange column there — and dropping the models in raw is exactly why the
+     battlefield read as a toy playset. So each piece is pulled hard onto the
+     colour of the ground it stands on, with a little per-piece variance so it
+     does not go flat. The handrails have always been done this way; now
+     everything is. */
+  function tintTo(obj, colour, amount, seed) {
+    const target = new THREE.Color(colour);
+    let i = 0;
+    obj.traverse(function (o) {
+      if (!o.isMesh || !o.material || o.userData.tinted) return;
+      o.userData.tinted = true;
+      const many = Array.isArray(o.material);
+      const out = (many ? o.material : [o.material]).map(function (m) {
+        const c = m.clone();
+        if (c.color) {
+          const v = 0.84 + Assets.seeded((seed || 0) + (i++) * 71) * 0.3;
+          c.color.lerp(target, amount).multiplyScalar(v);
+        }
+        if (c.emissive) c.emissive.multiplyScalar(0.2);
+        c.roughness = Math.min(1, (c.roughness === undefined ? 0.8 : c.roughness) + 0.18);
+        c.metalness = Math.min(1, (c.metalness || 0) * 0.6);
+        return c;
+      });
+      o.material = many ? out : out[0];
+    });
+    return obj;
+  }
+
+  const RUIN = {
+    panel:     { walls: ['structure_closed', 'structure_metal_wall', 'structure_detailed'],
+                 post: 'column_large', course: 2.2, debris: 'metal_panel' },
+    stone:     { walls: ['stone_wall_damaged', 'stone_wall', 'structure_closed'],
+                 post: 'column_large', course: 1.9, debris: 'debris' },
+    rock:      { walls: ['cliff_block_rock', 'rock_largeA', 'rock_largeB'],
+                 post: 'rock_tallA', course: 2.4, natural: true, debris: 'rock_smallA' },
+    sandstone: { walls: ['rock_sandA', 'rock_sandB', 'cliff_block_rock'],
+                 post: 'rock_tallC', course: 2.4, natural: true, debris: 'rock_sandC' },
+    wood:      { walls: ['log_stack', 'log'],
+                 post: 'tree_trunk', course: 1.4, natural: true, debris: 'stump_round' }
+  };
+
+  function ruinMass(g, t, style, rnd, top, capMat) {
+    const kit = RUIN[t.blocks ? biome.mass : biome.deck];
+    const walls = kit ? kit.walls.filter(n => Assets.has(n)) : [];
+    if (!walls.length || top < 0.8) return false;      /* no kit: keep the box */
+
+    /* The interior — never seen directly, only through the gaps where the
+       walls have come down. It has to reach far enough out to sit BEHIND the
+       wall runs with no seam, so it is sized off the same thickness. */
+    const wallThick = Math.min(Math.max(0.5, Math.min(t.w, t.h) * 0.17), 1.0);
+    const inset = wallThick * 1.7;
+    const core = new THREE.Mesh(
+      new THREE.BoxGeometry(Math.max(0.3, t.w - inset), top, Math.max(0.3, t.h - inset)),
+      new THREE.MeshStandardMaterial({
+        color: new THREE.Color(style.side).multiplyScalar(0.38),
+        roughness: 0.98, metalness: 0.03 }));
+    core.position.y = top / 2;
+    core.castShadow = true; core.receiveShadow = true;
+    g.add(core);
+
+    if (kit.natural) {
+      /* a crag rather than a wall: courses of rock, each narrower than the one
+         below, so the profile leans in the way weathered stone does */
+      const name = walls[Math.floor(rnd(2) * walls.length) % walls.length];
+      g.add(tintTo(Assets.stacked(name, { w: t.w, h: t.h }, top,
+                                  { course: kit.course, taper: Math.min(1.1, top * 0.26),
+                                    min: 1.4, max: 3.4 }),
+                   style.side, 0.78, t.x * 31 + t.y * 17));
+    } else {
+      /* WALLS, not cubes.
+
+         Tiling the footprint with square cells and scaling a model to fill
+         each one turns every wall in the kit back into the box it was meant
+         to replace — the piece ends up as deep as it is long and the eye
+         reads a cube. So the perimeter is laid as four runs of wall: each
+         segment as long as its share of the side, and only as DEEP as a wall
+         is deep. What is left in the middle is the dark core, seen through
+         the gaps where the top course has come down. */
+      const courses = Math.max(1, Math.round(top / kit.course));
+      const each = top / courses;
+      const thick = wallThick;
+
+      for (let c = 0; c < courses; c++) {
+        const name = walls[Math.floor(rnd(c * 5 + 1) * walls.length) % walls.length];
+        const last = c === courses - 1 && courses > 1;
+        let k = 0;
+        /* the two long sides, then the two ends, each inset by the thickness
+           so the corners meet instead of overlapping */
+        [{ len: t.w, along: 'x', at: t.h / 2 - thick / 2, turn: 0 },
+         { len: t.w, along: 'x', at: -(t.h / 2 - thick / 2), turn: 0 },
+         { len: t.h - thick * 2, along: 'z', at: t.w / 2 - thick / 2, turn: 0 },
+         { len: t.h - thick * 2, along: 'z', at: -(t.w / 2 - thick / 2), turn: 0 }
+        ].forEach(function (run) {
+          if (run.len < 0.5) return;
+          const n = Math.max(1, Math.round(run.len / 2.4));
+          const seg = run.len / n;
+          for (let i = 0; i < n; i++) {
+            k++;
+            /* the top course loses pieces and shortens others — that is the
+               whole difference between a ruin and a fort */
+            if (last && rnd(c * 41 + k * 3) < 0.32) continue;
+            const h = last ? each * (0.5 + rnd(c * 61 + k * 7) * 0.55) : each;
+            const p = Assets.fitted(name, seg * 1.02, thick, h);
+            const off = -run.len / 2 + seg * (i + 0.5);
+            if (run.along === 'x') p.position.set(off, each * c, run.at);
+            else { p.rotation.y = Math.PI / 2; p.position.set(run.at, each * c, off); }
+            g.add(p);
+          }
+        });
+      }
+      /* a post at each corner, one of them usually down */
+      if (Assets.has(kit.post) && Math.min(t.w, t.h) > 1.6) {
+        [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(function (c, i) {
+          if (rnd(i * 17 + 5) < 0.28) return;
+          const wide = Math.min(0.8, Math.min(t.w, t.h) * 0.28);
+          const p = Assets.fitted(kit.post, wide, wide, top * (0.86 + rnd(i * 23) * 0.14));
+          p.position.set(c[0] * (t.w / 2 - wide / 2), 0, c[1] * (t.h / 2 - wide / 2));
+          g.add(tintTo(p, style.side, 0.85, i * 401 + t.x));
+        });
+      }
+    }
+
+    /* a floor to stand on — the rules let models climb up here, so there has
+       to be something up here to stand on */
+    if (capMat) {
+      const deck = new THREE.Mesh(new THREE.BoxGeometry(t.w * 0.98, 0.18, t.h * 0.98), capMat);
+      deck.position.y = top - 0.09;
+      deck.receiveShadow = true;
+      g.add(deck);
+    }
+
+    /* what fell off it, piled round the foot */
+    if (Assets.has(kit.debris)) {
+      const n = Math.max(2, Math.round((t.w + t.h) / 4));
+      for (let i = 0; i < n; i++) {
+        const v = rnd(i * 29 + 11);
+        const d = Assets.grown(kit.debris, 0.3 + v * 0.5, 1.1);
+        const side = Math.floor(rnd(i * 13 + 2) * 4);
+        const along = (rnd(i * 19 + 4) - 0.5) * 0.86;
+        if (side < 2) d.position.set(along * t.w, 0, (side ? 1 : -1) * (t.h / 2 - 0.15));
+        else d.position.set((side === 2 ? -1 : 1) * (t.w / 2 - 0.15), 0, along * t.h);
+        d.rotation.y = v * 6.28;
+        g.add(tintTo(d, style.side, 0.8, i * 137));
+      }
+    }
+    return true;
+  }
+
   function dressTerrain(t, idx) {
     const g = new THREE.Group();
     g.position.set(t.x + t.w / 2, 0, t.y + t.h / 2);
@@ -820,14 +984,23 @@ const Render3D = (function () {
         map: side, color: style.side, roughness: style.rough, metalness: style.metal });
       const capMat = new THREE.MeshStandardMaterial({
         map: cap, color: style.cap, roughness: style.rough, metalness: style.metal * 0.7 });
-      const mass = new THREE.Mesh(new THREE.BoxGeometry(t.w, massTop, t.h),
-        [sideMat, sideMat, capMat, capMat, sideMat, sideMat]);
-      mass.position.y = massTop / 2;
-      mass.castShadow = true; mass.receiveShadow = true;
-      g.add(mass);
+      /* Built out of the kit if there is a kit for this ground; the plain
+         skinned box is what is left when there is not. A `grown` piece is a
+         low bank with a wood standing on it — and a skinned box with four
+         trees on it is still a skinned box, so the bank gets built as well:
+         a crag on natural ground, a low ruined wall on built ground. */
+      const built = ruinMass(g, t, style, rnd, massTop, capMat);
+
+      if (!built) {
+        const mass = new THREE.Mesh(new THREE.BoxGeometry(t.w, massTop, t.h),
+          [sideMat, sideMat, capMat, capMat, sideMat, sideMat]);
+        mass.position.y = massTop / 2;
+        mass.castShadow = true; mass.receiveShadow = true;
+        g.add(mass);
+      }
 
       /* a rim round the top edge, as four bars — a slab here would roof it */
-      if (!grown) {
+      if (!grown && !built) {
         const rimMat = new THREE.MeshStandardMaterial({
           color: new THREE.Color(style.cap).multiplyScalar(0.6),
           roughness: 0.55, metalness: Math.min(0.85, style.metal + 0.4) });
@@ -886,6 +1059,8 @@ const Render3D = (function () {
         }
       }
     } else if (t.blocks) {
+      /* fuel drums stay red: a table pulled entirely onto one palette has no
+         landmarks on it, and you navigate a battlefield by landmarks */
       const props = ['barrels', 'machine_generator', 'barrel', 'machine_barrel', 'box_large'];
       const n = Math.min(4, Math.max(2, Math.round((t.w + t.h) / 5)));
       for (let i = 0; i < n; i++) {
@@ -897,6 +1072,7 @@ const Render3D = (function () {
         if (edge < 2) p.position.set(along * t.w, 0, (edge === 0 ? -1 : 1) * (t.h / 2 + 0.47));
         else p.position.set((edge === 2 ? -1 : 1) * (t.w / 2 + 0.47), 0, along * t.h);
         p.rotation.y = rnd(i * 7) * 6.28;
+        if (name.indexOf('barrel') >= 0) p.userData.keepColour = true;
         g.add(p);
       }
       if (t.w > 2.4 && t.h > 2.4 && t.top > 2.5 && Assets.has('structure_diagonal')) {
@@ -947,10 +1123,14 @@ const Render3D = (function () {
           st.rotation.y = side.turn;
           st.position.set(side.x, side.level, side.z);
           st.userData.stairsFor = t;
+          stairsPlaced.push(side.rect);
           g.add(st);
         }
       }
-      const crown = (biome.clumps || []).concat(['satelliteDish', 'machine_wireless']);
+      /* Nothing grows up here. A cactus on a gantry is how you can tell
+         nobody looked at it — vegetation belongs on the ground, and what
+         stands on a raised deck is what somebody carried up. */
+      const crown = ['satelliteDish', 'machine_wireless', 'machine_generator', 'box_large'];
       if (t.w > 4 && t.h > 4) {
         const name = crown[Math.floor(rnd(3) * crown.length) % crown.length];
         if (Assets.has(name)) {
@@ -977,17 +1157,25 @@ const Render3D = (function () {
     const kit = (biome.scatter || []).filter(n => Assets.has(n));
     if (!kit.length) return;
     const group = new THREE.Group();
-    const n = Math.round(b.w * b.h * 0.075);
+    const n = Math.round(b.w * b.h * 0.16);
     for (let i = 0; i < n; i++) {
       const x = Assets.seeded(i * 37 + 5) * b.w;
       const y = Assets.seeded(i * 61 + 9) * b.h;
       const p = { x: x, y: y };
       if (b.terrain.some(t => Board.inBox(t, p))) continue;
       if (b.objectives.some(o => Board.dist(o, p) < 2)) continue;
+      /* leave the deployment zones clear so models can be put down */
+      if (b.deploy.some(z => p.x > z.x - 0.5 && p.x < z.x + z.w + 0.5 &&
+                             p.y > z.y - 0.5 && p.y < z.y + z.h + 0.5)) continue;
       const v = Assets.seeded(i * 17);
       const name = kit[Math.floor(v * kit.length) % kit.length];
       /* small, and varied — a field of identical pebbles is worse than none */
-      const m = Assets.grown(name, 0.22 + v * 0.5, 0.9);
+      /* kept under an inch: ground cover, never cover */
+      /* and the colour of the ground it is lying on, not the colour it was
+         modelled in — a field of bright orange pebbles on grey rockcrete is
+         the single loudest thing on the table */
+      const m = tintTo(Assets.grown(name, 0.24 + v * 0.62, 1.0),
+                       biome.ground.grit, 0.72, i * 211);
       m.position.set(x, 0, y);
       m.rotation.y = Assets.seeded(i * 71) * 6.28;
       m.rotation.z = (Assets.seeded(i * 91) - 0.5) * 0.16;
@@ -1002,14 +1190,14 @@ const Render3D = (function () {
 
      The kit's steps rise toward +Z — measured off the mesh, not guessed — so
      the turn brings their high end round to face the deck. */
-  function bestApproach(t, depth) {
+  function approaches(t, depth) {
     const sides = [
       { nx: 0, nz: -1, turn: 0 },
       { nx: 0, nz: 1, turn: Math.PI },
       { nx: -1, nz: 0, turn: Math.PI / 2 },
       { nx: 1, nz: 0, turn: -Math.PI / 2 }
     ];
-    let best = null;
+    const out = [];
     sides.forEach(function (s2) {
       const half = s2.nx ? t.w / 2 : t.h / 2;
       let clear = 0;
@@ -1030,17 +1218,75 @@ const Render3D = (function () {
         return (o !== t && !o.blocks && Board.inBox(o, { x: footX, y: footZ }) && o.top < t.top)
                ? Math.max(n, o.top) : n;
       }, 0);
-      if (!best || clear > best.clear) {
-        best = { clear: clear, turn: s2.turn, level: level,
+      /* the patch of table this flight would occupy, in world coordinates */
+      const cx = t.x + t.w / 2 + s2.nx * (half + depth / 2);
+      const cz = t.y + t.h / 2 + s2.nz * (half + depth / 2);
+      const along = 1.9;
+      out.push({ clear: clear, turn: s2.turn, level: level,
                  x: s2.nx * (t.w / 2 + depth / 2),
-                 z: s2.nz * (t.h / 2 + depth / 2) };
-      }
+                 z: s2.nz * (t.h / 2 + depth / 2),
+                 rect: { x: cx - (s2.nx ? depth : along) / 2,
+                         y: cz - (s2.nz ? depth : along) / 2,
+                         w: s2.nx ? depth : along,
+                         h: s2.nz ? depth : along } });
     });
-    return best && best.clear >= 6 ? best : null;
+    return out.filter(o => o.clear >= 6).sort((a, b) => b.clear - a.clear);
+  }
+
+  /* Every flight already standing, so the next one does not land on top of it.
+     Two staircases crossing each other on the same face is what happens when
+     each piece chooses its side without looking. */
+  let stairsPlaced = [];
+  const overlaps = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x &&
+                             a.y < b.y + b.h && a.y + a.h > b.y;
+
+  function bestApproach(t, depth) {
+    const ranked = approaches(t, depth);
+    for (let i = 0; i < ranked.length; i++) {
+      if (!stairsPlaced.some(r => overlaps(ranked[i].rect, r))) return ranked[i];
+    }
+    return null;
   }
 
   function finishDress(g, t) {
-    g.traverse(function (o) { if (o.isMesh) o.userData.terrain = t; });
+    /* One place, at the end, so nothing gets missed.
+
+       Tinting piece by piece as it was added meant the walls came onto the
+       biome palette and the crown, the stairs, the rubble and the props did
+       not — so a grey ruin still wore a bright yellow gantry and a scatter of
+       traffic-cone orange rocks. Terrain is terrain: it all gets pulled onto
+       the ground it stands on, here, once.
+
+       What is deliberately NOT pulled: anything flagged `keepColour`. A red
+       fuel drum or a lit brazier is a landmark, and a table where every
+       single thing is the same grey is as bad as a table where nothing is. */
+    const style = MASS[t.blocks ? biome.mass : biome.deck] || MASS.panel;
+    /* pulled well down as well as together: these kits are lit for a bright
+       cartoon and this table is a warzone at dusk */
+    const ground = new THREE.Color(style.side).lerp(new THREE.Color(0x14120f), 0.52);
+    let n = 0;
+    g.traverse(function (o) {
+      if (!o.isMesh) return;
+      o.userData.terrain = t;
+      /* the flag is set on the wrapper the kit hands back, and the meshes are
+         two levels down inside it */
+      for (let a = o; a; a = a.parent) if (a.userData && a.userData.keepColour) return;
+      if (o.userData.tinted) return;
+      o.userData.tinted = true;
+      const many = Array.isArray(o.material);
+      const out = (many ? o.material : [o.material]).filter(Boolean).map(function (m) {
+        const c = m.clone();
+        if (c.color) {
+          const v = 0.82 + Assets.seeded(Math.round(t.x * 7 + t.y * 13) + (n++) * 71) * 0.34;
+          c.color.lerp(ground, 0.8).multiplyScalar(v);
+        }
+        if (c.emissive) c.emissive.multiplyScalar(0.2);
+        c.roughness = Math.min(1, (c.roughness === undefined ? 0.8 : c.roughness) + 0.14);
+        c.metalness = Math.min(1, (c.metalness || 0) * 0.7);
+        return c;
+      });
+      if (out.length) o.material = many ? out : out[0];
+    });
     return g;
   }
 

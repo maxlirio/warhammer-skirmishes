@@ -56,7 +56,7 @@ const MAPS = (function () {
       fog: 0x3a2a22, fogD: 0.0088,
       key: { colour: 0xffb070, power: 3.0 }, hemi: { sky: 0x6b4436, gnd: 0x2a1a12, power: 1.2 },
       mass: 'panel', deck: 'panel',
-      scatter: ['debris', 'rock_smallC', 'stump_old', 'tree_trunk'],
+      scatter: ['debris', 'rock_smallC', 'stump_old', 'stump_round'],
       clumps: ['tree_trunk', 'stump_old', 'rock_tallC']
     },
     snow: {
@@ -66,7 +66,7 @@ const MAPS = (function () {
       fog: 0xb9cad8, fogD: 0.0075,
       key: { colour: 0xdfeaff, power: 3.4 }, hemi: { sky: 0xd6e6f5, gnd: 0x9fb2c2, power: 1.05},
       mass: 'rock', deck: 'rock',
-      scatter: ['rock_smallA', 'rock_smallC', 'stone_tallB'],
+      scatter: ['rock_smallA', 'rock_smallC', 'tree_pineSmallA', 'stone_tallB'],
       clumps: ['tree_pineTallA', 'tree_pineRoundC', 'tree_pineSmallA', 'rock_largeA']
     },
     desert: {
@@ -76,7 +76,7 @@ const MAPS = (function () {
       fog: 0xd8bd8e, fogD: 0.0060,
       key: { colour: 0xfff0cc, power: 3.6 }, hemi: { sky: 0xcfd8e8, gnd: 0xa87f4a, power: 1.15},
       mass: 'sandstone', deck: 'sandstone',
-      scatter: ['rock_sandA', 'rock_sandC', 'stone_tallB'],
+      scatter: ['rock_sandA', 'rock_sandC', 'cactus_short', 'plant_bush', 'rock_smallA'],
       clumps: ['cactus_tall', 'tree_palmTall', 'rock_sandB', 'cactus_short']
     },
     forest: {
@@ -96,8 +96,8 @@ const MAPS = (function () {
       fog: 0x2c3138, fogD: 0.0105,
       key: { colour: 0xcfd8f0, power: 2.2 }, hemi: { sky: 0x8fa0bc, gnd: 0x2c2a26, power: 1.35 },
       mass: 'stone', deck: 'stone',
-      scatter: ['gravestone_broken', 'debris', 'rock_smallC', 'grass'],
-      clumps: ['crypt_small', 'gravestone_cross', 'pillar_obelisk', 'column_large']
+      scatter: ['gravestone_broken', 'gravestone_round', 'debris', 'rock_smallC', 'grass', 'plant_bush'],
+      clumps: ['pillar_obelisk', 'gravestone_cross', 'column_large', 'gravestone_round']
     },
     wasteland: {
       ground: { base: '#7a6a52', grit: '#574b39', crack: '#2b2318', wet: 0.04, crackle: true },
@@ -106,7 +106,7 @@ const MAPS = (function () {
       fog: 0x50463a, fogD: 0.0068,
       key: { colour: 0xffdfae, power: 3.0 }, hemi: { sky: 0xaab6c6, gnd: 0x5a4a34, power: 1.4 },
       mass: 'stone', deck: 'panel',
-      scatter: ['debris', 'rock_smallA', 'stump_round', 'tree_deadlog'],
+      scatter: ['debris', 'rock_smallA', 'stump_round', 'tree_deadlog', 'plant_bush'],
       clumps: ['tree_trunk', 'rock_tallC', 'stone_wall_damaged']
     }
   };

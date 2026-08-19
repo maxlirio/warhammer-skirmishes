@@ -497,6 +497,14 @@ const Battle = (function () {
     me.vp += scored;
   }
 
+  /* Called the moment anything dies, as well as at the end of a turn.
+
+     It used to run only in the End Phase — and endTurn() bails out whenever
+     something is pending, so a force could be wiped out and the game would
+     carry on regardless: the dead player kept taking turns, kept drawing
+     resource, and could be asked to "choose a friendly unit" when they had
+     none left. A game is over the moment the last model falls, not whenever
+     the turn structure next gets round to noticing. */
   function checkVictory() {
     if (S.winner !== null) return;
     if (S.vpTarget) {
@@ -602,7 +610,11 @@ const Battle = (function () {
                            to: { x: x.x, y: x.y, z: Board.heightAt(S.board, x) },
                            hit: true, wound: true, damage: Number(e.value) || 1,
                            killed: x.wounds <= 0, rolls: null });
-          if (x.wounds <= 0) { x.alive = false; log(x.name + ' is DESTROYED.', 'kill'); }
+          if (x.wounds <= 0) {
+            x.alive = false;
+            log(x.name + ' is DESTROYED.', 'kill');
+            checkVictory();
+          }
         });
       });
       if (tok.label) log(tok.label + ' is removed.', 'token');
@@ -965,7 +977,7 @@ const Battle = (function () {
       }
     }
     runEffects({ id: null, owner: player, x: 0, y: 0, effects: [], abilities: [], marks: [] },
-               a, undefined, player);
+               a, undefined, player, { noHandover: true });
     emit();
   }
 
@@ -1047,9 +1059,20 @@ const Battle = (function () {
     runEffects(u, a, arg, p);
   }
 
-  function runEffects(u, a, arg, p) {
+  function runEffects(u, a, arg, p, opts) {
     let endsChain = a.opponentReacts === false;
     let attacked = false;
+    /* A unit's action is a link in the chain: when it finishes, the table turns
+       to your opponent to answer it. A power bought off your faction card is
+       not an action — it is spent in your own Start Phase, before the chain
+       exists — so it finishes by handing the turn straight back to you. Passing
+       control there stranded the game: no chain was open, so the opponent's
+       PASS had nothing to pass on, and neither player could act again. */
+    const handover = !(opts && opts.noHandover);
+    const settle = function (o) {
+      if (handover) afterAction(p, o || {});
+      else emit();
+    };
     /* anything that has to stop and ask the player something, queued so the
        questions come one at a time rather than all at once */
     const pendingEffects = [];
@@ -1097,6 +1120,7 @@ const Battle = (function () {
                 if (x.id === u.id) log('Nobody scores for ' + u.name + '.', 'note');
                 else { u.kills += 1; S.players[p].vp += killValue(x, u).vp; }
                 dropRelicFrom(x, true);
+                checkVictory();
               }
             });
             break;
@@ -1119,6 +1143,7 @@ const Battle = (function () {
             log(target.name + ' is DESTROYED.', 'kill');
             if (target.endsGame) S.endNow = target.name + ' is destroyed';
             dropRelicFrom(target, true);
+            checkVictory();
           }
           break;
         }
@@ -1216,7 +1241,7 @@ const Battle = (function () {
           /* the card says it triggers overwatch, so it does */
           const watchers = triggeredWatchers(u);
           if (watchers.length) {
-            openOverwatch(u, watchers, function () { afterAction(p, {}); });
+            openOverwatch(u, watchers, function () { settle({}); });
             return;
           }
           break;
@@ -1294,12 +1319,12 @@ const Battle = (function () {
     if (pendingEffects.length) {
       (function drain() {
         const fn = pendingEffects.shift();
-        if (!fn) { if (!attacked) afterAction(p, { endsChain: endsChain, reason: a.name }); return; }
+        if (!fn) { if (!attacked) settle({ endsChain: endsChain, reason: a.name }); return; }
         fn(drain);
       })();
       return;
     }
-    if (!attacked) afterAction(p, { endsChain: endsChain, reason: a.name });
+    if (!attacked) settle({ endsChain: endsChain, reason: a.name });
   }
 
   /* Placing something: the ability is waiting for a spot or a unit. */
@@ -1489,7 +1514,13 @@ const Battle = (function () {
           mover.name + '.', 'token');
       resolveAttack({
         attacker: w, target: mover, weapon: gun, range: 'ranged',
-        overwatch: !snap, noReaction: true
+        /* `overwatch` is the −1 to hit, which Snap Shot does not take.
+           `interrupt` is the turn structure: BOTH of these happen inside
+           somebody else's move and neither is an action in the chain. They
+           were the same flag, so a Snap Shot fell through to the end of an
+           action and handed the table to the wrong player — the mover's turn
+           carried on with their opponent holding it. */
+        overwatch: !snap, interrupt: true, noReaction: true
       }, next);
     })();
   }
@@ -1631,7 +1662,19 @@ const Battle = (function () {
     return { field: field, inches: inches, spots: out, climbs: climbs, keep: keep || null };
   }
 
-  const dodgeSpots = atk => spotsWithin(atk.target, 1).spots;
+  /* ONE sample, used by everything that asks where a model may step.
+
+     This has to be a single number. A reaction is OFFERED by looking for legal
+     ground, and then ANSWERED by clicking the legal ground it shades — and
+     those were two different samples, 0.4" apart and 0.22" apart. The ground
+     DIVE needs is a sliver: just out of sight, or just past the gun's reach. A
+     sliver the coarse grid lands on, the fine grid can step straight over. So
+     the game would offer DIVE, take it, ask where — and then refuse every
+     answer, because by its second measurement there was nowhere to go. The
+     table sat there, frozen, on a prompt with no answer. */
+  const MOVE_STEP = 0.22;
+
+  const dodgeSpots = atk => spotsWithin(atk.target, 1, null, MOVE_STEP).spots;
 
   /* DIVE may only be taken if the 3" actually ends the attack — the game can
      check that, so it does, and offers every landing spot that qualifies. */
@@ -1641,7 +1684,7 @@ const Battle = (function () {
     return spotsWithin(t, 3, function (p) {
       const d = Board.dist(a, p) - a.radius - t.radius;
       return !(Board.canSee(S.board, a, p) && d <= (atk.weapon.range || 0));
-    }).spots;
+    }, MOVE_STEP).spots;
   }
 
   /* The card rolls for how far, and then YOU say where. Anything a card tells
@@ -1703,12 +1746,21 @@ const Battle = (function () {
 
   /* Hand the table back to a player to choose where a reaction moves them.
      `inches` and `keep` are the exact rule; `spots` is only the shading. */
-  function askMove(u, inches, keep, label, hint, then) {
+  function askMove(u, inches, keep, label, hint, then, whenNowhere) {
     /* Sampled finely: a reaction's legal ground is often a thin crescent and a
-       coarse sample makes it look like three dots. */
-    const sampled = spotsWithin(u, inches, keep, 0.22);
+       coarse sample makes it look like three dots. Whatever samples it, it is
+       the same MOVE_STEP that decided the reaction was on offer. */
+    const sampled = spotsWithin(u, inches, keep, MOVE_STEP);
+    /* Never post a question that cannot be answered. Belt to the braces above:
+       if there is genuinely nowhere to put this model, say so and carry on
+       rather than handing the players a prompt and no way out of it. */
+    if (!sampled.spots.length) {
+      log(u.name + ' has nowhere to go.', 'muted');
+      (whenNowhere || then)();
+      return;
+    }
     S.pending = {
-      kind: 'move', unitId: u.id, inches: inches, step: 0.22,
+      kind: 'move', unitId: u.id, inches: inches, step: MOVE_STEP,
       field: sampled.field, keep: keep || null, spots: sampled.spots,
       climbs: sampled.climbs,
       label: label, hint: hint, then: then
@@ -1871,7 +1923,9 @@ const Battle = (function () {
         }, 'DIVE — move 3"',
            'Only the ground that actually ends the attack is offered — out of ' +
            'sight of ' + a.name + ', or out of the ' + atk.weapon.name + '’s reach.',
-           function () { cancelAttack(atk, t.name + ' dives clear'); });
+           function () { cancelAttack(atk, t.name + ' dives clear'); },
+           /* a dive with nowhere to land is not a dive: the shot goes in */
+           function () { resolveAttack(atk); });
         return;
       }
       if (id === 'withdraw') atk.withdrawAfter = true;
@@ -2084,13 +2138,14 @@ const Battle = (function () {
         if (t.endsGame) S.endNow = t.name + ' is destroyed';
         dropRelicFrom(t, true);
         onKill(a, t, atk.weapon);
+        checkVictory();
       }
     }
     S.strikes.push(strike);
     if (S.strikes.length > 12) S.strikes.shift();
     S.players[t.owner].rp = 0;
 
-    if (atk.overwatch) { checkVictory(); if (done) done(); else emit(); return; }
+    if (atk.interrupt || atk.overwatch) { checkVictory(); if (done) done(); else emit(); return; }
 
     /* Everything after the survivor's AP, parked so a WITHDRAW can interrupt
        it while the player picks where they are pulling back to. */
@@ -2109,10 +2164,11 @@ const Battle = (function () {
       const gain = 1 + (atk.bonusSurviveAP || 0);
       S.players[t.owner].ap += gain;
       log(t.name + ' survives — ' + S.players[t.owner].name + ' gains ' + gain + ' AP.', 'ap');
-      if (atk.withdrawAfter && spotsWithin(t, 3).spots.length) {
+      if (atk.withdrawAfter && spotsWithin(t, 3, null, MOVE_STEP).spots.length) {
         askMove(t, 3, null, 'WITHDRAW — move 3"',
                 t.name + ' lived through it. Pull back anywhere within 3".',
-                function () { log(t.name + ' pulls back.', 'reaction'); wrapUp(); });
+                function () { log(t.name + ' pulls back.', 'reaction'); wrapUp(); },
+                wrapUp);
         return;
       }
     }
@@ -2146,7 +2202,16 @@ const Battle = (function () {
       return;
     }
     if (!S.chain.active) {
-      log(S.players[p].name + ' passes — no chain is running.', 'muted');
+      /* Nothing to pass on. If control has drifted off the player whose turn it
+         is — which it should never do outside a chain — passing hands it back
+         instead of doing nothing, so a stray bug costs a click rather than the
+         game. */
+      if (p !== S.turn.player) {
+        S.control = { player: S.turn.player, forcedUnitId: null };
+        log(S.players[p].name + ' passes — back to ' + S.players[S.turn.player].name + '.', 'action');
+      } else {
+        log(S.players[p].name + ' passes — no chain is running.', 'muted');
+      }
       emit();
       return;
     }
