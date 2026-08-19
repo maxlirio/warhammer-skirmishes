@@ -475,12 +475,19 @@ const Render3D = (function () {
     const bi = MAPS.biomeOf(b);
     scene.background = skyTexture(bi);
     scene.fog = new THREE.FogExp2(bi.fog, bi.fogD);
-    renderer.toneMappingExposure = bi.expose || 1.2;
+    /* PROPERLY LIT, not floodlit.
+
+       These numbers were tuned against flat untextured colour, where you have
+       to overdrive the key to see any shape at all. With real surfaces the
+       shape comes from the normal maps, and the same key washes everything to
+       cream — which is why the rockcrete tables looked bleached. Pulled down
+       across the board; contrast now comes from the materials. */
+    renderer.toneMappingExposure = (bi.expose || 1.2) * 0.62;
     keyLight.color.setHex(bi.key.colour);
-    keyLight.intensity = bi.key.power;
+    keyLight.intensity = bi.key.power * 0.6;
     hemiLight.color.setHex(bi.hemi.sky);
     hemiLight.groundColor.setHex(bi.hemi.gnd);
-    hemiLight.intensity = bi.hemi.power;
+    hemiLight.intensity = bi.hemi.power * 0.55;
     return bi;
   }
 
@@ -730,9 +737,16 @@ const Render3D = (function () {
     relicNode = null;      /* it lived in markerGroup, which was just emptied */
     Object.keys(tokenNodes).forEach(k => { delete tokenNodes[k]; });
 
-    const floor = new THREE.Mesh(new THREE.BoxGeometry(b.w, 1, b.h),
-      new THREE.MeshStandardMaterial({ map: groundTexture(b.w, b.h, biome),
-                                       roughness: 0.94 - biome.ground.wet, metalness: 0.04 }));
+    /* The floor of the battlefield, as a real surface rather than a blurred
+       painting of one. The old ground texture was smeared noise with scribbly
+       cracks drawn on it; this is the same procedural material the buildings
+       are made of, with a normal map, so the light rakes across it. */
+    const groundName = (PAL[biome.mass] || PAL.panel).ground;
+    const floorMat = typeof Mats !== 'undefined'
+      ? Mats.material(groundName, b.w, b.h, { inchesPerTile: 3.6, bump: 1.25 })
+      : new THREE.MeshStandardMaterial({ map: groundTexture(b.w, b.h, biome),
+                                         roughness: 0.94 - biome.ground.wet, metalness: 0.04 });
+    const floor = new THREE.Mesh(new THREE.BoxGeometry(b.w, 1, b.h), floorMat);
     floor.position.set(b.w / 2, -0.5, b.h / 2);
     floor.receiveShadow = true;
     terrainGroup.add(floor);
@@ -842,6 +856,16 @@ const Render3D = (function () {
     });
     return obj;
   }
+
+  /* What each ground is BUILT of, in procedural surfaces rather than kit
+     models. `shell` is the mass, `trim` the slabs, copings and lintels. */
+  const PAL = {
+    panel:     { shell: 'rockcrete', trim: 'rockcrete', ground: 'ash' },
+    stone:     { shell: 'stone',     trim: 'stone',     ground: 'loam' },
+    rock:      { shell: 'stone',     trim: 'stone',     ground: 'snow' },
+    sandstone: { shell: 'stone',     trim: 'stone',     ground: 'sand' },
+    wood:      { shell: 'stone',     trim: 'stone',     ground: 'loam' }
+  };
 
   const RUIN = {
     panel:     { walls: ['structure_closed', 'structure_metal_wall', 'structure_detailed'],
@@ -1104,7 +1128,17 @@ const Render3D = (function () {
          plinth — and once that plinth was made of masonry it was pines
          growing out of a stone terrace and oaks standing on a plank floor.
          Nothing is built here at all. The trees start at the earth. */
-      const built = grown ? false : ruinMass(g, t, style, rnd, massTop, capMat);
+      /* BUILT, not dressed. A blocking piece is a building with walls,
+         openings, floor slabs and piers; a rubble piece is that building
+         after it came down. Both are generated off the rules box, so the
+         rectangle the game measures and the thing you look at are the same
+         object. */
+      const pal = PAL[t.blocks ? biome.mass : biome.deck] || PAL.panel;
+      /* a top-level `const` in a classic script is NOT on window, so this
+         has to be a plain reference guarded by typeof */
+      const canBuild = typeof Build3D !== 'undefined' && typeof Mats !== 'undefined';
+      const built = grown ? false : (canBuild ? (g.add(Build3D.building(t, pal, rnd)), true)
+                                              : false);
 
       if (grown) {
         /* forest floor: a shallow rise of earth, no edge, nothing to climb */
@@ -1153,69 +1187,11 @@ const Render3D = (function () {
        stubs — a metre here, waist height there, one side gone entirely — with
        the heap it collapsed into piled inside it. */
     if (kind === 'rubble') {
-      /* A RUINED BUILDING, NOT A ROCKFALL.
-
-         The kit's broken-wall model is a wedge — a wall with a diagonal
-         collapse across its top — and stretching a few of those and leaning
-         them over gives you exactly what it looks like: boulders. Masonry is
-         right angles. So this is built from squared blocks with a coping
-         course on top, laid in straight runs that meet at the corners, at
-         storey heights that step rather than slope: the ground plan of a
-         building with the roof gone and one wall down. */
-      const style2 = MASS[biome.mass] || MASS.panel;
-      const thick = Math.min(Math.max(0.5, Math.min(t.w, t.h) * 0.16), 0.85);
-      const wall = new THREE.MeshStandardMaterial({
-        color: style2.side, roughness: style2.rough, metalness: style2.metal * 0.5 });
-      const coping = new THREE.MeshStandardMaterial({
-        color: new THREE.Color(style2.cap).multiplyScalar(1.12),
-        roughness: 0.8, metalness: style2.metal * 0.4 });
-
-      /* heights step in courses, so a broken wall has a squared-off top */
-      const course = Math.max(0.42, t.top / 3);
-      const stepped = v => Math.max(course, Math.round(t.top * (0.25 + v) / course) * course);
-
-      const runs = [
-        { len: t.w, ax: 'x', at: t.h / 2 - thick / 2 },
-        { len: t.w, ax: 'x', at: -(t.h / 2 - thick / 2) },
-        { len: t.h - thick * 2, ax: 'z', at: t.w / 2 - thick / 2 },
-        { len: t.h - thick * 2, ax: 'z', at: -(t.w / 2 - thick / 2) }
-      ];
-      /* an interior partition, so it reads as rooms rather than a compound */
-      if (Math.min(t.w, t.h) > 3.2) {
-        runs.push(rnd(9) < 0.5
-          ? { len: t.h - thick * 2, ax: 'z', at: (rnd(13) - 0.5) * t.w * 0.4 }
-          : { len: t.w, ax: 'x', at: (rnd(13) - 0.5) * t.h * 0.4 });
+      /* A ruined building: the ground plan still standing in stubs of wall,
+         right-angled and capped, with the heap it collapsed into inside. */
+      if (typeof Build3D !== 'undefined' && typeof Mats !== 'undefined') {
+        g.add(Build3D.ruin(t, PAL[biome.mass] || PAL.panel, rnd));
       }
-
-      const doorway = Math.floor(rnd(19) * runs.length);
-      runs.forEach(function (run, si) {
-        if (run.len < 0.7) return;
-        if (rnd(si * 31 + 3) < 0.3) return;              /* that wall is gone */
-        const n = Math.max(1, Math.round(run.len / 1.7));
-        const seg = run.len / n;
-        for (let i = 0; i < n; i++) {
-          const v = rnd(si * 91 + i * 13);
-          if (v < 0.2) continue;                          /* a gap in the wall */
-          if (si === doorway && i === Math.floor(n / 2)) continue;   /* the door */
-          const h = stepped(v * 0.8);
-          const off = -run.len / 2 + seg * (i + 0.5);
-          const put = function (m, wide, high, deep, yy) {
-            m.castShadow = true; m.receiveShadow = true;
-            if (run.ax === 'x') m.position.set(off, yy, run.at);
-            else { m.rotation.y = Math.PI / 2; m.position.set(run.at, yy, off); }
-            g.add(m);
-          };
-          const body = new THREE.Mesh(new THREE.BoxGeometry(seg * 0.99, h, thick), wall);
-          body.userData.shade = 0.94;
-          put(body, seg, h, thick, h / 2);
-          /* the coping course: a squared cap, slightly proud, which is the
-             single clearest signal that a thing is built and not fallen */
-          const cap = new THREE.Mesh(
-            new THREE.BoxGeometry(seg * 0.99, 0.13, thick * 1.22), coping);
-          cap.userData.shade = 1.25;
-          put(cap, seg, 0.13, thick, h + 0.065);
-        }
-      });
 
       /* what came off it, heaped along the foot of the walls and inside */
       const kit2 = RUIN[biome.mass] || RUIN.panel;
@@ -1263,63 +1239,31 @@ const Render3D = (function () {
         }
       }
     } else if (t.blocks) {
-      /* fuel drums stay red: a table pulled entirely onto one palette has no
-         landmarks on it, and you navigate a battlefield by landmarks */
-      const props = ['barrels', 'machine_generator', 'barrel', 'machine_barrel', 'box_large'];
-      const n = Math.min(4, Math.max(2, Math.round((t.w + t.h) / 5)));
-      for (let i = 0; i < n; i++) {
-        const name = props[Math.floor(rnd(i * 5) * props.length) % props.length];
-        if (!Assets.has(name)) continue;
-        const p = Assets.fitted(name, 0.85, 0.85, 0.8);
-        const edge = Math.floor(rnd(i * 9 + 1) * 4);
-        const along = (rnd(i * 11 + 3) - 0.5) * 0.72;
-        if (edge < 2) seat(p, t, along * t.w, (edge === 0 ? -1 : 1) * (t.h / 2 + 0.47));
-        else seat(p, t, (edge === 2 ? -1 : 1) * (t.w / 2 + 0.47), along * t.h);
-        /* and if it would be standing in somebody else's wall, it does not
-           stand there at all */
-        if (p.position.y > 0.05) continue;
-        p.rotation.y = rnd(i * 7) * 6.28;
-        if (name.indexOf('barrel') >= 0) p.userData.keepColour = true;
-        g.add(p);
-      }
-      if (t.w > 2.4 && t.h > 2.4 && t.top > 2.5 && Assets.has('structure_diagonal')) {
-        const f = Assets.fitted(rnd(1) < 0.5 ? 'structure_diagonal' : 'supports_high',
-                                t.w * 0.7, t.h * 0.7, 1.7);
-        f.position.y = t.top;
-        f.rotation.y = Math.floor(rnd(2) * 4) * Math.PI / 2;
-        g.add(f);
+      /* Kit at the foot of the wall, built rather than borrowed: drums,
+         crates and a cable spool wearing the same steel and concrete as the
+         building behind them. A bright yellow machine off a toy kit parked
+         against cast concrete is what gives a table away. */
+      if (typeof Build3D !== 'undefined' && typeof Mats !== 'undefined') {
+        const yard = Build3D.yardKit(t, rnd);
+        yard.children.forEach(function (item, i) {
+          const edge = Math.floor(rnd(i * 9 + 1) * 4);
+          const along = (rnd(i * 11 + 3) - 0.5) * 0.72;
+          const lx = edge < 2 ? along * t.w : (edge === 2 ? -1 : 1) * (t.w / 2 + 0.42);
+          const lz = edge < 2 ? (edge === 0 ? -1 : 1) * (t.h / 2 + 0.42) : along * t.h;
+          seat(item, t, lx, lz);
+          item.rotation.y = rnd(i * 7) * 6.28;
+          if (item.position.y > 0.05) item.visible = false;   /* it would be in a wall */
+        });
+        g.add(yard);
       }
     } else {
-      /* A deck is the floor of a building somebody has shot the top off, so
-         what runs round the edge is a broken parapet of the same wall the
-         rest of the piece is built from — not a garden fence. (It was an
-         `iron_fence` from a kit whose texture is green; recolouring the
-         material could not shift it, because the colour is in the map.) */
-      const kit = RUIN[biome.deck] || RUIN.panel;
-      const pw = (kit.walls || []).filter(n => Assets.has(n));
-      if (pw.length && t.w > 2.2 && t.h > 2.2) {
-        const thick = Math.min(0.34, Math.min(t.w, t.h) * 0.1);
-        const name = pw[Math.floor(rnd(87) * pw.length) % pw.length];
-        [{ len: t.w, along: 'x', at: t.h / 2 - thick / 2 },
-         { len: t.w, along: 'x', at: -(t.h / 2 - thick / 2) },
-         { len: t.h - thick * 2, along: 'z', at: t.w / 2 - thick / 2 },
-         { len: t.h - thick * 2, along: 'z', at: -(t.w / 2 - thick / 2) }
-        ].forEach(function (run, side) {
-          if (run.len < 0.6) return;
-          const n = Math.max(1, Math.round(run.len / 1.6));
-          const seg = run.len / n;
-          for (let i = 0; i < n; i++) {
-            const v = rnd(side * 53 + i * 19 + 4);
-            if (v < 0.26) continue;                    /* shot away */
-            const h = 0.5 + v * 0.5;
-            const p = Assets.fitted(name, seg * 1.02, thick, h);
-            p.userData.shade = 1.12;
-            const off = -run.len / 2 + seg * (i + 0.5);
-            if (run.along === 'x') p.position.set(off, t.top, run.at);
-            else { p.rotation.y = Math.PI / 2; p.position.set(run.at, t.top, off); }
-            g.add(p);
-          }
-        });
+      /* The deck's parapet and everything standing on it now come out of the
+         same generator as the building below, so a raised floor reads as the
+         top of the structure rather than as a tray. */
+      if (typeof Build3D !== 'undefined' && typeof Mats !== 'undefined') {
+        const roof = Build3D.rooftop(t, rnd);
+        roof.position.y = t.top;
+        g.add(roof);
       }
       if (Assets.has('stairs') && t.top > 0.9) {
         const nat = Assets.size('stairs');
@@ -1337,44 +1281,6 @@ const Render3D = (function () {
           st.userData.stairsFor = t;
           stairsPlaced.push(side.rect);
           g.add(st);
-        }
-      }
-      /* Nothing grows up here. A cactus on a gantry is how you can tell
-         nobody looked at it — vegetation belongs on the ground, and what
-         stands on a raised deck is what somebody carried up. */
-      const crown = ['satelliteDish', 'machine_wireless', 'machine_generator',
-                     'turret_single', 'pipe_ring'];
-      if (t.w > 4 && t.h > 4) {
-        const name = crown[Math.floor(rnd(3) * crown.length) % crown.length];
-        if (Assets.has(name)) {
-          const d = Assets.grown(name, 1.7, 2.1);
-          d.position.set(t.w * 0.24, t.top, -t.h * 0.24);
-          d.rotation.y = rnd(9) * 6.28;
-          g.add(d);
-        }
-        /* A single cardboard cube parked on a gantry is exactly what "nobody
-           dressed this" looks like. Cargo is a STACK: crates of two sizes,
-           landed crooked, strapped down, with a drum beside them. */
-        if (Assets.has('box_large')) {
-          const pile = new THREE.Group();
-          const lay = [[1.15, 0.8, 0, 0, 0], [0.82, 0.6, 0.82, 0.16, -0.28],
-                       [0.66, 0.5, 1.44, -0.2, 0.22]];
-          lay.forEach(function (c, i) {
-            if (i && rnd(i * 43 + 6) < 0.25) return;
-            const box = Assets.fitted('box_large', c[0], c[0] * 0.86, c[1]);
-            box.position.set(c[3], c[2], c[4]);
-            box.rotation.y = (rnd(i * 13 + 2) - 0.5) * 0.7;
-            pile.add(box);
-          });
-          if (Assets.has('barrel')) {
-            const drum = Assets.grown('barrel', 0.9, 0.7);
-            drum.position.set(-0.95, 0, 0.5);
-            drum.userData.keepColour = true;
-            pile.add(drum);
-          }
-          pile.position.set(-t.w * 0.24, t.top, t.h * 0.2);
-          pile.rotation.y = rnd(4) * 6.28;
-          g.add(pile);
         }
       }
     }
