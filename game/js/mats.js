@@ -406,6 +406,47 @@ const Mats = (function () {
                roughnessMap: greyFrom(rough, w, h, 0, 1) };
     },
 
+    /* Hazard chevrons, painted onto steel and then half worn off. On a real
+       working structure these are the loudest thing on it and the eye goes
+       straight to them — which is exactly why a table without any reads as
+       generic rubble rather than as machinery somebody works on. */
+    hazard: function () {
+      const w = SIZE, h = SIZE;
+      const wear = fbm(w, h, { octaves: 5, base: 7, seed: 401 });
+      const c = surface(w), g = c.getContext('2d');
+      g.fillStyle = rgb(28, 26, 22); g.fillRect(0, 0, w, h);
+      g.save();
+      g.fillStyle = rgb(186, 148, 38);
+      const band = w / 5;
+      for (let i = -6; i < 12; i++) {
+        g.beginPath();
+        g.moveTo(i * band, 0);
+        g.lineTo(i * band + band * 0.5, 0);
+        g.lineTo(i * band + band * 0.5 + h, h);
+        g.lineTo(i * band + h, h);
+        g.closePath();
+        g.fill();
+      }
+      g.restore();
+      /* wear it back to the metal */
+      const img = g.getImageData(0, 0, w, h);
+      for (let i = 0; i < wear.length; i++) {
+        const k = Math.max(0, (wear[i] - 0.55) / 0.45);
+        const j = i * 4;
+        img.data[j]     = img.data[j]     * (1 - k) + 92 * k;
+        img.data[j + 1] = img.data[j + 1] * (1 - k) + 88 * k;
+        img.data[j + 2] = img.data[j + 2] * (1 - k) + 84 * k;
+      }
+      g.putImageData(img, 0, 0);
+      streaks(g, w, h, '92,48,22', 40, 3.3);
+      const height = new Float32Array(wear.length);
+      for (let i = 0; i < wear.length; i++) height[i] = wear[i] * 0.5;
+      const rough = new Float32Array(wear.length);
+      for (let i = 0; i < rough.length; i++) rough[i] = 0.45 + wear[i] * 0.45;
+      return { map: c, normalMap: normalFrom(height, w, h, 1.4),
+               roughnessMap: greyFrom(rough, w, h, 0, 1), metalness: 0.6 };
+    },
+
     /* Forest floor. */
     loam: function () {
       const w = SIZE, h = SIZE;

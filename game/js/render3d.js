@@ -265,12 +265,19 @@ const Render3D = (function () {
     keyLight.shadow.bias = -0.0011;
     keyLight.shadow.normalBias = 0.035;
     scene.add(keyLight, keyLight.target);
-    /* a cold rim off the opposite shoulder, so edges separate from the ground
-       instead of everything sinking into one brown */
-    const rim = new THREE.DirectionalLight(0x86b0ff, 1.5);
+    /* A cold rim off the opposite shoulder, so edges separate from the ground
+       instead of everything sinking into one brown.
+
+       It was a strong blue at 1.5 — nearly as bright as the key — with a warm
+       back light against it, which is a perfectly good way to light FLAT grey
+       and a terrible way to light real concrete: blue fill plus warm ambient
+       on a neutral surface comes out lilac, and every building on the table
+       was reading pink. Both are dialled back to what a rim light is for,
+       which is an edge, not a wash. */
+    const rim = new THREE.DirectionalLight(0xa8c0e0, 0.5);
     rim.position.set(34, 16, 30);
     scene.add(rim);
-    const back = new THREE.DirectionalLight(0xff9d5c, 0.7);
+    const back = new THREE.DirectionalLight(0xffb887, 0.32);
     back.position.set(-20, 10, 34);
     scene.add(back);
 
@@ -483,9 +490,16 @@ const Render3D = (function () {
        cream — which is why the rockcrete tables looked bleached. Pulled down
        across the board; contrast now comes from the materials. */
     renderer.toneMappingExposure = (bi.expose || 1.2) * 0.82;
-    keyLight.color.setHex(bi.key.colour);
+    /* Pulled most of the way to white. These light colours were picked when
+       every surface was a flat untinted grey and the light was the only thing
+       giving a biome its character — so they are strong: the graveyard's key
+       is a lilac. Now the surfaces carry their own colour, and a lilac key
+       over grey concrete gives you a pink building. The biome still shows in
+       the sky, the fog and the ground material; it no longer paints the
+       stonework. */
+    keyLight.color.setHex(bi.key.colour).lerp(new THREE.Color(0xffffff), 0.6);
     keyLight.intensity = bi.key.power * 0.78;
-    hemiLight.color.setHex(bi.hemi.sky);
+    hemiLight.color.setHex(bi.hemi.sky).lerp(new THREE.Color(0xdfe4ea), 0.45);
     hemiLight.groundColor.setHex(bi.hemi.gnd);
     hemiLight.intensity = bi.hemi.power * 0.72;
     return bi;
@@ -743,7 +757,13 @@ const Render3D = (function () {
        are made of, with a normal map, so the light rakes across it. */
     const groundName = (PAL[biome.mass] || PAL.panel).ground;
     const floorMat = typeof Mats !== 'undefined'
-      ? Mats.material(groundName, b.w, b.h, { inchesPerTile: 3.6, bump: 1.25 })
+      /* Toned well down. A floor is horizontal, so it takes the key light
+         square on while every wall takes it at a glance — the same material
+         that reads as grey concrete on a wall goes to white paper on the
+         ground, and the brightest thing on the battlefield ends up being the
+         floor. */
+      ? Mats.material(groundName, b.w, b.h, { inchesPerTile: 3.6, bump: 1.25,
+                                              color: 0x7c7a74 })
       : new THREE.MeshStandardMaterial({ map: groundTexture(b.w, b.h, biome),
                                          roughness: 0.94 - biome.ground.wet, metalness: 0.04 });
     const floor = new THREE.Mesh(new THREE.BoxGeometry(b.w, 1, b.h), floorMat);
@@ -781,7 +801,33 @@ const Render3D = (function () {
 
     b.objectives.forEach(function (o) {
       const g = new THREE.Group();
-      if (Assets.has('turret_single')) g.add(Assets.fitted('turret_single', 1.5, 1.5, 1.2));
+      /* An objective is a thing worth dying over, so it is built rather than
+         borrowed: an armoured plinth carrying a cogitator stack with its
+         status lumen still lit. The kit turret sitting on a gold ring read as
+         a toy parked on the carpet. */
+      if (typeof Mats !== 'undefined') {
+        const plate = Mats.material('steel', 1.6, 1.6, { bump: 1.2 });
+        const base = new THREE.Mesh(new THREE.CylinderGeometry(1.05, 1.2, 0.34, 8), plate);
+        base.position.y = 0.17; base.castShadow = true; base.receiveShadow = true;
+        const stack = new THREE.Mesh(new THREE.BoxGeometry(0.78, 1.05, 0.78), plate);
+        stack.position.y = 0.86; stack.castShadow = true;
+        const cowl = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.3, 0.42, 8), plate);
+        cowl.position.y = 1.58;
+        const lamp = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.2, 10),
+          new THREE.MeshStandardMaterial({ color: COL.goldLit, emissive: 0xffb43c,
+                                           emissiveIntensity: 2.6, roughness: 0.35 }));
+        lamp.position.y = 1.9;
+        const glow = new THREE.PointLight(0xffb43c, 2.2, 6, 2);
+        glow.position.y = 1.9;
+        g.add(base, stack, cowl, lamp, glow);
+        /* a hazard collar, because people work round this thing */
+        const collar = new THREE.Mesh(new THREE.CylinderGeometry(0.86, 0.86, 0.2, 8),
+                                      Mats.material('hazard', 2.2, 0.4, { bump: 0.7 }));
+        collar.position.y = 0.44;
+        g.add(collar);
+      } else if (Assets.has('turret_single')) {
+        g.add(Assets.fitted('turret_single', 1.5, 1.5, 1.2));
+      }
       const ring = new THREE.Mesh(new THREE.TorusGeometry(1.5, 0.08, 8, 44),
         new THREE.MeshStandardMaterial({ color: COL.gold, emissive: 0x4a3a10,
                                          roughness: 0.35, metalness: 0.8 }));
@@ -866,6 +912,29 @@ const Render3D = (function () {
     sandstone: { shell: 'stone',     trim: 'stone',     ground: 'sand' },
     wood:      { shell: 'stone',     trim: 'stone',     ground: 'loam' }
   };
+
+  /* HOW BIG A THING ACTUALLY IS.
+
+     Everything that stood on a piece was scaled to the PIECE's height, which
+     is fine for a tree and absurd for anything else: a gravestone is about
+     chest high, and blowing one up to four inches to fill a blocking piece
+     gives you a row of ginormous monoliths shoulder to shoulder. Height is a
+     property of the object, not of the rectangle it happens to stand in. */
+  const REAL_HEIGHT = {
+    tree_pineTallA: 3.8, tree_pineRoundC: 2.9, tree_pineSmallA: 1.7,
+    tree_pineGroundA: 1.2, tree_oak: 3.5, tree_detailed: 3.2, tree_thin: 3.1,
+    tree_autumn: 3.3, tree_palmTall: 4.0, tree_palmShort: 2.6, tree_trunk: 2.4,
+    tree_deadlog: 0.5, cactus_tall: 2.3, cactus_short: 1.1,
+    rock_largeA: 1.4, rock_largeB: 1.5, rock_largeC: 1.6, rock_tallA: 1.9,
+    rock_tallC: 1.8, rock_sandA: 1.1, rock_sandB: 1.3, rock_sandC: 1.0,
+    rock: 0.9, rock_smallA: 0.5, rock_smallC: 0.45, rocks_smallA: 0.4,
+    gravestone_cross: 1.0, gravestone_round: 0.85, gravestone_broken: 0.65,
+    pillar_obelisk: 2.6, column_large: 2.8, crypt_small: 1.7,
+    stone_tallB: 1.6, stone_largeB: 1.2,
+    stump_old: 0.7, stump_round: 0.55, log: 0.45, log_stack: 0.8,
+    plant_bush: 0.7, plant_bushLarge: 1.1, grass: 0.35, grass_large: 0.5
+  };
+  const realHeight = name => REAL_HEIGHT[name] || 1.4;
 
   const RUIN = {
     panel:     { walls: ['structure_closed', 'structure_metal_wall', 'structure_detailed'],
@@ -1105,7 +1174,13 @@ const Render3D = (function () {
     /* Where the biome grows things, a blocking piece is a stand of them on a
        low bank rather than a wall — the collision box is identical, but a wood
        should look like a wood. */
-    const grown = t.blocks && clumps.length && kind !== 'rubble';
+    /* A piece only gets to BE a stand of trees if the trees really reach the
+       height the rules say it blocks to. Otherwise the table shows you a
+       waist-high thicket that the game treats as a solid wall — so anything
+       that cannot fill its own height gets built instead. */
+    const tallest = clumps.reduce((m, n) => Math.max(m, realHeight(n)), 0);
+    const grown = t.blocks && clumps.length && kind !== 'rubble' &&
+                  tallest >= t.top * 0.78;
     const massTop = grown ? Math.min(t.top * 0.42, 1.5) : t.top;
 
     if (kind !== 'rubble') {
@@ -1151,7 +1226,10 @@ const Render3D = (function () {
           new THREE.CylinderGeometry(Math.min(t.w, t.h) * 0.56, Math.min(t.w, t.h) * 0.62,
                                      0.16, 12),
           new THREE.MeshStandardMaterial({
-            color: new THREE.Color(biome.ground.grit).multiplyScalar(0.85),
+            /* only a shade darker than the ground it sits on — at 0.85 of the
+               grit colour this read as a hole cut in the table */
+            color: new THREE.Color(biome.ground.base || biome.ground.grit)
+              .multiplyScalar(0.82),
             roughness: 1, metalness: 0 }));
         soil.scale.set(t.w / Math.min(t.w, t.h), 1, t.h / Math.min(t.w, t.h));
         soil.position.y = 0.06;
@@ -1231,7 +1309,8 @@ const Render3D = (function () {
           if (!Assets.has(name)) continue;
           /* grown, not squashed — its own proportions, standing as tall as
              the piece the rules say is there */
-          const tall = Math.max(0.8, t.top * (0.86 + v * 0.34));
+          /* its own height, give or take, not the terrain's */
+          const tall = realHeight(name) * (0.82 + v * 0.36);
           const room = Math.min(t.w / nx, t.h / nz) * 1.5;
           const c = Assets.grown(name, tall, room);
           /* rooted at ground level — the whole point */

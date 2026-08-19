@@ -213,6 +213,130 @@ const Build3D = (function () {
       g.add(cap);
     });
 
+    /* ---- WHAT MAKES IT SCI-FI RATHER THAN JUST OLD.
+
+       A broken concrete box is a broken concrete box in any century. What
+       says forty-first millennium is the machinery bolted to it: armour
+       plate up the base, buttresses taking the load, pipework and cable runs
+       climbing the outside, exhaust grilles, hazard chevrons on every edge
+       somebody might walk off, and lumens burning in the dark because
+       whatever is inside has not stopped running. */
+    const plate = Mats.material('steel', 3, 2, { bump: 1.3 });
+    const chev = Mats.material('hazard', 2.6, 0.5, { bump: 0.8 });
+    const lumen = new THREE.MeshStandardMaterial({
+      color: 0xffd9a0, emissive: 0xffa63c, emissiveIntensity: 2.4,
+      roughness: 0.4, metalness: 0 });
+
+    /* buttresses on the long faces, stepped */
+    faces.forEach(function (f, fi) {
+      if (f.len < 2.6 || fi === missing) return;
+      const n = Math.max(1, Math.floor(f.len / 3.2));
+      for (let i = 0; i < n; i++) {
+        const off = -f.len / 2 + (f.len / n) * (i + 0.5);
+        const bw = Math.min(0.7, f.len / (n * 3));
+        const steps = 2 + Math.floor(rnd(fi * 7 + i) * 2);
+        const grp = new THREE.Group();
+        for (let k = 0; k < steps; k++) {
+          const frac = 1 - k / steps;
+          const dep = wallT * (0.5 + frac * 0.9);
+          const hgt = TOP * frac;
+          const m = new THREE.Mesh(new THREE.BoxGeometry(bw, hgt, dep), shell);
+          m.position.set(off, hgt / 2, -dep / 2 - wallT / 2 + 0.02);
+          m.castShadow = true; m.receiveShadow = true;
+          grp.add(m);
+        }
+        grp.position.set(f.at[0], 0, f.at[2]);
+        grp.rotation.y = f.turn;
+        g.add(grp);
+      }
+    });
+
+    /* armour plate round the base, and a chevron band on top of it */
+    faces.forEach(function (f, fi) {
+      if (f.len < 0.8) return;
+      const grp = new THREE.Group();
+      const ph = 0.7 + rnd(fi * 11 + 3) * 0.5;
+      const arm = new THREE.Mesh(new THREE.BoxGeometry(f.len, ph, wallT * 0.42), plate);
+      arm.position.set(0, ph / 2, -wallT * 0.5 - wallT * 0.2);
+      arm.castShadow = true;
+      grp.add(arm);
+      if (rnd(fi * 13 + 5) < 0.6) {
+        const band = new THREE.Mesh(new THREE.BoxGeometry(f.len, 0.22, wallT * 0.5), chev);
+        band.position.set(0, ph + 0.11, -wallT * 0.5 - wallT * 0.24);
+        grp.add(band);
+      }
+      grp.position.set(f.at[0], 0, f.at[2]);
+      grp.rotation.y = f.turn;
+      g.add(grp);
+    });
+
+    /* pipe runs and cable trays climbing one or two faces */
+    faces.forEach(function (f, fi) {
+      if (f.len < 1.6 || rnd(fi * 17 + 9) < 0.45) return;
+      const grp = new THREE.Group();
+      const runs = 2 + Math.floor(rnd(fi * 19) * 2);
+      for (let i = 0; i < runs; i++) {
+        const off = (rnd(fi * 23 + i * 5) - 0.5) * f.len * 0.7;
+        const rad = 0.06 + rnd(fi * 29 + i) * 0.07;
+        const hgt = TOP * (0.55 + rnd(fi * 31 + i) * 0.45);
+        const pipe = new THREE.Mesh(
+          new THREE.CylinderGeometry(rad, rad, hgt, 8), plate);
+        pipe.position.set(off, hgt / 2, -wallT * 0.5 - rad - 0.04);
+        pipe.castShadow = true;
+        grp.add(pipe);
+        for (let k = 0; k < 3; k++) {
+          const br = new THREE.Mesh(
+            new THREE.BoxGeometry(rad * 3, 0.08, wallT * 0.34), plate);
+          br.position.set(off, hgt * (0.2 + k * 0.3), -wallT * 0.5 - wallT * 0.17);
+          grp.add(br);
+        }
+      }
+      grp.position.set(f.at[0], 0, f.at[2]);
+      grp.rotation.y = f.turn;
+      g.add(grp);
+    });
+
+    /* exhaust grilles: a recessed dark box with fins across it */
+    faces.forEach(function (f, fi) {
+      if (f.len < 2.2 || rnd(fi * 37 + 2) < 0.5) return;
+      const grp = new THREE.Group();
+      const gw = Math.min(1.4, f.len * 0.3), gh = 0.8;
+      const back = new THREE.Mesh(new THREE.BoxGeometry(gw, gh, 0.1),
+        new THREE.MeshStandardMaterial({ color: 0x14161a, roughness: 1 }));
+      const yy = 0.9 + rnd(fi * 41) * (TOP - 2.2 > 0 ? TOP - 2.2 : 0.3);
+      back.position.set((rnd(fi * 43) - 0.5) * f.len * 0.5, yy, -wallT * 0.5 + 0.04);
+      grp.add(back);
+      for (let k = 0; k < 5; k++) {
+        const fin = new THREE.Mesh(new THREE.BoxGeometry(gw, 0.07, 0.16), plate);
+        fin.position.set(back.position.x, yy - gh / 2 + 0.1 + k * (gh / 5.4),
+                         -wallT * 0.5 - 0.02);
+        fin.rotation.x = -0.4;
+        grp.add(fin);
+      }
+      grp.position.set(f.at[0], 0, f.at[2]);
+      grp.rotation.y = f.turn;
+      g.add(grp);
+    });
+
+    /* lumens: strip lights under the parapet, still burning */
+    faces.forEach(function (f, fi) {
+      if (f.len < 1.4 || fi === missing || rnd(fi * 47 + 1) < 0.4) return;
+      const n = Math.max(1, Math.floor(f.len / 2.4));
+      for (let i = 0; i < n; i++) {
+        if (rnd(fi * 53 + i * 3) < 0.35) continue;
+        const off = -f.len / 2 + (f.len / n) * (i + 0.5);
+        const hood = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.14, 0.2), plate);
+        const bulb = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.06, 0.1), lumen);
+        const grp = new THREE.Group();
+        hood.position.set(off, TOP - 0.36, -wallT * 0.5 - 0.09);
+        bulb.position.set(off, TOP - 0.45, -wallT * 0.5 - 0.11);
+        grp.add(hood, bulb);
+        grp.position.set(f.at[0], 0, f.at[2]);
+        grp.rotation.y = f.turn;
+        g.add(grp);
+      }
+    });
+
     /* ---- a parapet round the roof, broken */
     const pt = Math.min(0.26, wallT * 0.7);
     faces.forEach(function (f, fi) {
