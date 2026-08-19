@@ -1043,6 +1043,28 @@ const Render3D = (function () {
     return true;
   }
 
+  /* SIT A THING ON WHATEVER IS ACTUALLY UNDER IT.
+
+     Every prop a piece dresses itself with was placed at local y = 0 — table
+     level — no matter what it landed on. Where one piece stands inside or
+     beside a taller one (the Pinnacle's sanctum sits in the middle of its own
+     nave) that put the crates and the fuel drum INSIDE the wall next to them,
+     and left rocks hanging in the air over a terrace they should have been
+     resting on. Both of those are the same missing line. */
+  function groundUnder(t, wx, wz) {
+    let h = 0;
+    (board.terrain || []).forEach(function (o) {
+      if (o === t) return;
+      if (wx > o.x && wx < o.x + o.w && wz > o.y && wz < o.y + o.h) h = Math.max(h, o.top);
+    });
+    return h;
+  }
+
+  function seat(obj, t, lx, lz) {
+    obj.position.set(lx, groundUnder(t, t.x + t.w / 2 + lx, t.y + t.h / 2 + lz), lz);
+    return obj;
+  }
+
   function dressTerrain(t, idx) {
     const g = new THREE.Group();
     g.position.set(t.x + t.w / 2, 0, t.y + t.h / 2);
@@ -1232,9 +1254,10 @@ const Render3D = (function () {
           const room = Math.min(t.w / nx, t.h / nz) * 1.5;
           const c = Assets.grown(name, tall, room);
           /* rooted at ground level — the whole point */
-          c.position.set(-t.w / 2 + (t.w / nx) * (i + 0.5) + (rnd(k * 3) - 0.5) * 0.4,
-                         0.04,
-                         -t.h / 2 + (t.h / nz) * (j + 0.5) + (rnd(k * 5) - 0.5) * 0.4);
+          seat(c, t,
+               -t.w / 2 + (t.w / nx) * (i + 0.5) + (rnd(k * 3) - 0.5) * 0.4,
+               -t.h / 2 + (t.h / nz) * (j + 0.5) + (rnd(k * 5) - 0.5) * 0.4);
+          c.position.y += 0.04;
           c.rotation.y = v * 6.28;
           g.add(c);
         }
@@ -1250,8 +1273,11 @@ const Render3D = (function () {
         const p = Assets.fitted(name, 0.85, 0.85, 0.8);
         const edge = Math.floor(rnd(i * 9 + 1) * 4);
         const along = (rnd(i * 11 + 3) - 0.5) * 0.72;
-        if (edge < 2) p.position.set(along * t.w, 0, (edge === 0 ? -1 : 1) * (t.h / 2 + 0.47));
-        else p.position.set((edge === 2 ? -1 : 1) * (t.w / 2 + 0.47), 0, along * t.h);
+        if (edge < 2) seat(p, t, along * t.w, (edge === 0 ? -1 : 1) * (t.h / 2 + 0.47));
+        else seat(p, t, (edge === 2 ? -1 : 1) * (t.w / 2 + 0.47), along * t.h);
+        /* and if it would be standing in somebody else's wall, it does not
+           stand there at all */
+        if (p.position.y > 0.05) continue;
         p.rotation.y = rnd(i * 7) * 6.28;
         if (name.indexOf('barrel') >= 0) p.userData.keepColour = true;
         g.add(p);
@@ -1386,7 +1412,7 @@ const Render3D = (function () {
       const m = tintTo(Assets.grown(name, 0.15 + v * 0.36, 0.7),
                        new THREE.Color(biome.ground.grit).multiplyScalar(0.72),
                        0.88, i * 211);
-      m.position.set(x, 0, y);
+      m.position.set(x, Board.heightAt(b, p), y);
       m.rotation.y = Assets.seeded(i * 71) * 6.28;
       m.rotation.z = (Assets.seeded(i * 91) - 0.5) * 0.16;
       group.add(m);
@@ -1419,7 +1445,7 @@ const Render3D = (function () {
       return true;
     };
     const lay = function (obj, x, y, turn, shade) {
-      obj.position.set(x, 0.012, y);
+      obj.position.set(x, Board.heightAt(b, { x: x, y: y }) + 0.012, y);
       obj.rotation.y = turn;
       obj.userData.shade = shade || 1;
       group.add(obj);
@@ -1486,7 +1512,7 @@ const Render3D = (function () {
         new THREE.MeshBasicMaterial({ color: 0x0b0908, transparent: true,
                                       opacity: 0.2 + v * 0.22, depthWrite: false }));
       disc.rotation.x = -Math.PI / 2;
-      disc.position.set(p.x, 0.008, p.y);
+      disc.position.set(p.x, Board.heightAt(b, p) + 0.008, p.y);
       disc.userData.keepColour = true;
       group.add(disc);
     }
