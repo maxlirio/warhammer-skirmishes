@@ -782,10 +782,10 @@ const GameUI = (function () {
        mate who steps into a shot. */
     if (S.pending && S.pending.kind === 'pick') {
       const pend = S.pending;
-      const hit2 = Render3D.pickUnit(cx, cy, S);
-      if (hit2 && pend.options.indexOf(hit2.id) >= 0) {
-        act(() => Battle.choosePick(hit2.id), { t: 'pick', id: hit2.id });
-      }
+      /* only the models it is offering — anyone else standing in the way used
+         to swallow the click */
+      const hit2 = Render3D.pickUnitFrom(cx, cy, S, pend.options);
+      if (hit2) act(() => Battle.choosePick(hit2.id), { t: 'pick', id: hit2.id });
       return;
     }
 
@@ -796,7 +796,14 @@ const GameUI = (function () {
         if (!spot) return;
         act(() => Battle.confirmAbility(spot), { t: 'abil2', at: spot });
       } else {
-        const hit2 = Render3D.pickUnit(cx, cy, S);
+        const want = S.units.filter(function (u) {
+          if (!u.alive || u.marker) return false;
+          const me = Battle.unit(pend.unitId);
+          const side = pend.need === 'foe' ? (me && u.owner !== me.owner)
+                                           : (me && u.owner === me.owner);
+          return pend.need === 'friend' || pend.need === 'foe' ? side : true;
+        }).map(u => u.id);
+        const hit2 = Render3D.pickUnitFrom(cx, cy, S, want) || Render3D.pickUnit(cx, cy, S);
         if (hit2) act(() => Battle.confirmAbility(hit2.id), { t: 'abil2', id: hit2.id });
       }
       return;
@@ -814,7 +821,10 @@ const GameUI = (function () {
     if (S.pending) return;
     if (myTurnBlocked(S)) return;
 
-    const hit = Render3D.pickUnit(cx, cy, S);
+    /* selecting one of your own is the same problem: the model you clicked on
+       is the one you meant, not whoever is standing half a step in front */
+    const hit = Render3D.pickUnitFrom(cx, cy, S,
+                  S.units.filter(u => u.alive && !u.reserve).map(u => u.id));
 
     if (mode) {
       if (mode.kind === 'move') {
@@ -839,19 +849,22 @@ const GameUI = (function () {
           return;
         }
       }
-      if (hit && mode.targets && mode.targets.indexOf(hit.id) >= 0) {
-        const id = mode.unitId, kind = mode.kind;
+      /* the same again for a shot: the target list is what you are choosing
+         from, so that is what the click is tested against */
+      const aim = mode.targets ? Render3D.pickUnitFrom(cx, cy, S, mode.targets) : null;
+      if (aim) {
+        const id = mode.unitId, kind = mode.kind, tid = aim.id;
         if (kind === 'charge') {
           mode = null;
-          act(() => Battle.doCharge(id, hit.id), { t: 'charge', id: id, tid: hit.id });
+          act(() => Battle.doCharge(id, tid), { t: 'charge', id: id, tid: tid });
           return;
         }
-        pickWeapon(id, hit.id, kind === 'shoot' ? 'ranged' : 'melee', function (name) {
+        pickWeapon(id, tid, kind === 'shoot' ? 'ranged' : 'melee', function (name) {
           mode = null;
-          if (kind === 'shoot') act(() => Battle.doShoot(id, hit.id, name),
-                                    { t: 'shoot', id: id, tid: hit.id, w: name });
-          else act(() => Battle.doFight(id, hit.id, name),
-                   { t: 'fight', id: id, tid: hit.id, w: name });
+          if (kind === 'shoot') act(() => Battle.doShoot(id, tid, name),
+                                    { t: 'shoot', id: id, tid: tid, w: name });
+          else act(() => Battle.doFight(id, tid, name),
+                   { t: 'fight', id: id, tid: tid, w: name });
         });
         return;
       }

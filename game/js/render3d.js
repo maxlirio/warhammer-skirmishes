@@ -1073,9 +1073,29 @@ const Render3D = (function () {
          low bank with a wood standing on it — and a skinned box with four
          trees on it is still a skinned box, so the bank gets built as well:
          a crag on natural ground, a low ruined wall on built ground. */
-      const built = ruinMass(g, t, style, rnd, massTop, capMat);
+      /* A WOOD IS TREES IN THE GROUND.
 
-      if (!built) {
+         This piece is a stand of trees; the rules box is its trunks and
+         canopy, not a building. Building a mass under it put the wood on a
+         plinth — and once that plinth was made of masonry it was pines
+         growing out of a stone terrace and oaks standing on a plank floor.
+         Nothing is built here at all. The trees start at the earth. */
+      const built = grown ? false : ruinMass(g, t, style, rnd, massTop, capMat);
+
+      if (grown) {
+        /* forest floor: a shallow rise of earth, no edge, nothing to climb */
+        const soil = new THREE.Mesh(
+          new THREE.CylinderGeometry(Math.min(t.w, t.h) * 0.56, Math.min(t.w, t.h) * 0.62,
+                                     0.16, 12),
+          new THREE.MeshStandardMaterial({
+            color: new THREE.Color(biome.ground.grit).multiplyScalar(0.85),
+            roughness: 1, metalness: 0 }));
+        soil.scale.set(t.w / Math.min(t.w, t.h), 1, t.h / Math.min(t.w, t.h));
+        soil.position.y = 0.06;
+        soil.receiveShadow = true;
+        soil.userData.keepColour = true;
+        g.add(soil);
+      } else if (!built) {
         const mass = new THREE.Mesh(new THREE.BoxGeometry(t.w, massTop, t.h),
           [sideMat, sideMat, capMat, capMat, sideMat, sideMat]);
         mass.position.y = massTop / 2;
@@ -1109,48 +1129,82 @@ const Render3D = (function () {
        stubs — a metre here, waist height there, one side gone entirely — with
        the heap it collapsed into piled inside it. */
     if (kind === 'rubble') {
-      const kit = RUIN[biome.mass] || RUIN.panel;
-      const walls = kit.walls.filter(n => Assets.has(n));
-      const thick = Math.min(Math.max(0.45, Math.min(t.w, t.h) * 0.2), 0.9);
+      /* A RUINED BUILDING, NOT A ROCKFALL.
 
-      if (walls.length) {
-        [{ len: t.w, along: 'x', at: t.h / 2 - thick / 2 },
-         { len: t.w, along: 'x', at: -(t.h / 2 - thick / 2) },
-         { len: t.h - thick * 2, along: 'z', at: t.w / 2 - thick / 2 },
-         { len: t.h - thick * 2, along: 'z', at: -(t.w / 2 - thick / 2) }
-        ].forEach(function (run, si) {
-          if (run.len < 0.6) return;
-          if (rnd(si * 31 + 3) < 0.4) return;          /* that wall is gone */
-          const name = walls[Math.floor(rnd(si * 7 + 2) * walls.length) % walls.length];
-          const n = Math.max(1, Math.round(run.len / 1.9));
-          const seg = run.len / n;
-          for (let i = 0; i < n; i++) {
-            const v = rnd(si * 91 + i * 13);
-            if (v < 0.34) continue;                    /* and this length of it */
-            const h = Math.max(0.35, t.top * (0.4 + v * 0.95));
-            const p = Assets.fitted(name, seg * 1.02, thick, h);
-            const off = -run.len / 2 + seg * (i + 0.5);
-            const lean = (rnd(si * 17 + i * 5) - 0.5) * 0.11;
-            if (run.along === 'x') { p.position.set(off, 0, run.at); p.rotation.z = lean; }
-            else { p.rotation.y = Math.PI / 2; p.position.set(run.at, 0, off); p.rotation.x = lean; }
-            g.add(p);
-          }
-        });
+         The kit's broken-wall model is a wedge — a wall with a diagonal
+         collapse across its top — and stretching a few of those and leaning
+         them over gives you exactly what it looks like: boulders. Masonry is
+         right angles. So this is built from squared blocks with a coping
+         course on top, laid in straight runs that meet at the corners, at
+         storey heights that step rather than slope: the ground plan of a
+         building with the roof gone and one wall down. */
+      const style2 = MASS[biome.mass] || MASS.panel;
+      const thick = Math.min(Math.max(0.5, Math.min(t.w, t.h) * 0.16), 0.85);
+      const wall = new THREE.MeshStandardMaterial({
+        color: style2.side, roughness: style2.rough, metalness: style2.metal * 0.5 });
+      const coping = new THREE.MeshStandardMaterial({
+        color: new THREE.Color(style2.cap).multiplyScalar(1.12),
+        roughness: 0.8, metalness: style2.metal * 0.4 });
+
+      /* heights step in courses, so a broken wall has a squared-off top */
+      const course = Math.max(0.42, t.top / 3);
+      const stepped = v => Math.max(course, Math.round(t.top * (0.25 + v) / course) * course);
+
+      const runs = [
+        { len: t.w, ax: 'x', at: t.h / 2 - thick / 2 },
+        { len: t.w, ax: 'x', at: -(t.h / 2 - thick / 2) },
+        { len: t.h - thick * 2, ax: 'z', at: t.w / 2 - thick / 2 },
+        { len: t.h - thick * 2, ax: 'z', at: -(t.w / 2 - thick / 2) }
+      ];
+      /* an interior partition, so it reads as rooms rather than a compound */
+      if (Math.min(t.w, t.h) > 3.2) {
+        runs.push(rnd(9) < 0.5
+          ? { len: t.h - thick * 2, ax: 'z', at: (rnd(13) - 0.5) * t.w * 0.4 }
+          : { len: t.w, ax: 'x', at: (rnd(13) - 0.5) * t.h * 0.4 });
       }
 
-      /* the heap inside, from what the walls were made of and what the ground
-         is made of — spilling low so models can still be seen over it */
-      const heap = (biome.scatter || []).concat([kit.debris, 'rock_largeC', 'debris'])
+      const doorway = Math.floor(rnd(19) * runs.length);
+      runs.forEach(function (run, si) {
+        if (run.len < 0.7) return;
+        if (rnd(si * 31 + 3) < 0.3) return;              /* that wall is gone */
+        const n = Math.max(1, Math.round(run.len / 1.7));
+        const seg = run.len / n;
+        for (let i = 0; i < n; i++) {
+          const v = rnd(si * 91 + i * 13);
+          if (v < 0.2) continue;                          /* a gap in the wall */
+          if (si === doorway && i === Math.floor(n / 2)) continue;   /* the door */
+          const h = stepped(v * 0.8);
+          const off = -run.len / 2 + seg * (i + 0.5);
+          const put = function (m, wide, high, deep, yy) {
+            m.castShadow = true; m.receiveShadow = true;
+            if (run.ax === 'x') m.position.set(off, yy, run.at);
+            else { m.rotation.y = Math.PI / 2; m.position.set(run.at, yy, off); }
+            g.add(m);
+          };
+          const body = new THREE.Mesh(new THREE.BoxGeometry(seg * 0.99, h, thick), wall);
+          body.userData.shade = 0.94;
+          put(body, seg, h, thick, h / 2);
+          /* the coping course: a squared cap, slightly proud, which is the
+             single clearest signal that a thing is built and not fallen */
+          const cap = new THREE.Mesh(
+            new THREE.BoxGeometry(seg * 0.99, 0.13, thick * 1.22), coping);
+          cap.userData.shade = 1.25;
+          put(cap, seg, 0.13, thick, h + 0.065);
+        }
+      });
+
+      /* what came off it, heaped along the foot of the walls and inside */
+      const kit2 = RUIN[biome.mass] || RUIN.panel;
+      const heap = (biome.scatter || []).concat([kit2.debris, 'debris', 'rock_smallA'])
         .filter(n => Assets.has(n));
-      const n = Math.max(4, Math.round(t.w * t.h / 2.2));
-      for (let i = 0; i < n && heap.length; i++) {
+      const n2 = Math.max(4, Math.round(t.w * t.h / 2.6));
+      for (let i = 0; i < n2 && heap.length; i++) {
         const v = rnd(i * 7 + 1);
         const r = Assets.grown(heap[Math.floor(v * heap.length) % heap.length],
-                               0.3 + v * t.top * 0.55, Math.min(1.6, t.w / 2));
-        /* piled toward the middle, thinning out at the edges */
-        const s = 0.34 + rnd(i * 23) * 0.42;
-        r.position.set((rnd(i * 3) - 0.5) * t.w * s, 0, (rnd(i * 5) - 0.5) * t.h * s);
-        r.rotation.set((rnd(i * 9) - 0.5) * 0.4, v * 6.28, (rnd(i * 11) - 0.5) * 0.4);
+                               0.22 + v * 0.4, Math.min(1.2, t.w / 3));
+        const sp = 0.3 + rnd(i * 23) * 0.5;
+        r.position.set((rnd(i * 3) - 0.5) * t.w * sp, 0, (rnd(i * 5) - 0.5) * t.h * sp);
+        r.rotation.set((rnd(i * 9) - 0.5) * 0.3, v * 6.28, (rnd(i * 11) - 0.5) * 0.3);
         g.add(r);
       }
       return finishDress(g, t);
@@ -1172,11 +1226,12 @@ const Render3D = (function () {
           if (!Assets.has(name)) continue;
           /* grown, not squashed — its own proportions, standing as tall as
              the piece the rules say is there */
-          const tall = Math.max(0.6, t.top * (0.86 + v * 0.34) - massTop);
+          const tall = Math.max(0.8, t.top * (0.86 + v * 0.34));
           const room = Math.min(t.w / nx, t.h / nz) * 1.5;
           const c = Assets.grown(name, tall, room);
+          /* rooted at ground level — the whole point */
           c.position.set(-t.w / 2 + (t.w / nx) * (i + 0.5) + (rnd(k * 3) - 0.5) * 0.4,
-                         massTop,
+                         0.04,
                          -t.h / 2 + (t.h / nz) * (j + 0.5) + (rnd(k * 5) - 0.5) * 0.4);
           c.rotation.y = v * 6.28;
           g.add(c);
@@ -1245,10 +1300,10 @@ const Render3D = (function () {
         const rise = Math.max(0.6, t.top - from);
         let run = (nat.z / (nat.y || 1)) * rise;
         if (run > 7.6) run = 7.6;
-        const wide = (nat.x / (nat.y || 1)) * rise;
-        const side = bestApproach(t, run);
+        const wide = Math.max(1.1, (nat.x / (nat.y || 1)) * rise);
+        const side = bestApproach(t, run, wide);
         if (side) {
-          const st = Assets.fitted('stairs', Math.max(1.1, wide), run, rise);
+          const st = Assets.fitted('stairs', wide, run, rise);
           st.rotation.y = side.turn;
           st.position.set(side.x, side.level, side.z);
           st.userData.stairsFor = t;
@@ -1467,7 +1522,7 @@ const Render3D = (function () {
 
      The kit's steps rise toward +Z — measured off the mesh, not guessed — so
      the turn brings their high end round to face the deck. */
-  function approaches(t, depth) {
+  function approaches(t, depth, width) {
     const sides = [
       { nx: 0, nz: -1, turn: 0 },
       { nx: 0, nz: 1, turn: Math.PI },
@@ -1498,7 +1553,11 @@ const Render3D = (function () {
       /* the patch of table this flight would occupy, in world coordinates */
       const cx = t.x + t.w / 2 + s2.nx * (half + depth / 2);
       const cz = t.y + t.h / 2 + s2.nz * (half + depth / 2);
-      const along = 1.9;
+      /* The reserved rectangle has to be the flight's REAL footprint. It was
+         a fixed 1.9" across while the mesh is scaled to `wide`, which for a
+         tall deck is far more than that — so two flights could each think the
+         other was somewhere else and land on top of one another. */
+      const along = Math.max(1.9, width || 1.9);
       out.push({ clear: clear, turn: s2.turn, level: level,
                  x: s2.nx * (t.w / 2 + depth / 2),
                  z: s2.nz * (t.h / 2 + depth / 2),
@@ -1517,8 +1576,8 @@ const Render3D = (function () {
   const overlaps = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x &&
                              a.y < b.y + b.h && a.y + a.h > b.y;
 
-  function bestApproach(t, depth) {
-    const ranked = approaches(t, depth);
+  function bestApproach(t, depth, width) {
+    const ranked = approaches(t, depth, width);
     for (let i = 0; i < ranked.length; i++) {
       if (!stairsPlaced.some(r => overlaps(ranked[i].rect, r))) return ranked[i];
     }
@@ -2519,6 +2578,79 @@ const Render3D = (function () {
     return best;
   }
 
+  /* CHOOSING FROM A LIST THE GAME HAS ALREADY NARROWED DOWN.
+
+     `pickUnit` answers "who is under the cursor". That is the wrong question
+     when the game is asking "which of THESE" — the models on a 46" table seen
+     from a low angle overlap constantly, and the ray very often passes through
+     somebody who is not on the list on its way to somebody who is. The caller
+     then found a unit that was not an option and did nothing at all: you click
+     the enemy you mean, and the table ignores you. That is what "you can't
+     select targets" and "Da Hunta's ability is broken" both were.
+
+     So this asks the right question. The nearest LEGAL model, preferring one
+     the ray actually goes through, and otherwise the closest legal one to the
+     cursor on screen. */
+  function pickUnitFrom(x, y, S, ids) {
+    if (!ids || !ids.length) return null;
+    const allow = Object.create(null);
+    ids.forEach(function (i) { allow[i] = true; });
+
+    const r = setNdc(x, y);
+
+    /* Nearest to where you clicked, ON SCREEN — not front-most along the ray.
+
+       A raycast answers "whose polygons are in front", which is the right
+       answer for a first-person game and the wrong one here. These models are
+       an inch wide on a 46" table; at any normal camera height half of them
+       overlap the model behind, and a strict raycast hands you the neighbour
+       whose shoulder happens to cross the one you aimed at. Measured: clicking
+       a model's own centre returned a DIFFERENT model six times out of fifteen.
+
+       Screen distance to the model's centre is what the player actually means.
+       The ray is kept only to break a tie when two of them land on nearly the
+       same pixel, where "the one in front" really is the right answer. */
+    const v = new THREE.Vector3();
+    const toScreen = function (wx, wy, wz) {
+      v.set(wx, wy, wz).project(camera);
+      if (v.z > 1) return null;
+      return { x: r.left + (v.x + 1) / 2 * r.width,
+               y: r.top + (1 - (v.y + 1) / 2) * r.height };
+    };
+    /* distance to the model's whole standing height on screen, not to one
+       point on it — click its boots or its head and it is still that model */
+    const near = [];
+    S.units.forEach(function (u) {
+      if (!u.alive || u.reserve || !allow[u.id]) return;
+      const foot = Board.heightAt(board, u);
+      const a = toScreen(u.x, foot + 0.05, u.y);
+      const b = toScreen(u.x, foot + 1.85, u.y);
+      if (!a || !b) return;
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const len2 = dx * dx + dy * dy;
+      const t = len2 ? Math.max(0, Math.min(1, ((x - a.x) * dx + (y - a.y) * dy) / len2)) : 0;
+      near.push({ u: u, d: Math.hypot(a.x + dx * t - x, a.y + dy * t - y) });
+    });
+    if (!near.length) return null;
+    near.sort((a, b) => a.d - b.d);
+    if (near[0].d > 120) return null;              /* nowhere near anybody */
+
+    /* Genuinely the same pixel: let the ray say which is in front. Kept very
+       tight — at ten pixels this was overriding a clean aim at a model six
+       pixels behind its neighbour, which is the bug it was meant to help. */
+    if (near.length > 1 && near[1].d - near[0].d < 3) {
+      ray.setFromCamera(ndc, camera);
+      const hits = ray.intersectObjects(unitGroup.children, true);
+      for (let i = 0; i < hits.length; i++) {
+        const id = hits[i].object.userData.unitId;
+        if (!id || !allow[id]) continue;
+        const tie = near.find(k => k.u.id === id && k.d - near[0].d < 3);
+        if (tie) return tie.u;
+      }
+    }
+    return near[0].u;
+  }
+
   function pickUnit(x, y, S) {
     setNdc(x, y);
     ray.setFromCamera(ndc, camera);
@@ -2543,7 +2675,7 @@ const Render3D = (function () {
   const focusOn = p => leanIn(p, Math.max(18, cam.dist * 0.6));
 
   return {
-    attach, resize, draw, pick, pickUnit, pickNearest, viewFrom, focusOn, setTap,
+    attach, resize, draw, pick, pickUnit, pickUnitFrom, pickNearest, viewFrom, focusOn, setTap,
     leanIn, leanOut, busy, COL, rollDie, rollingNow,
     get camera() { return camera; },
     get scene() { return scene; }

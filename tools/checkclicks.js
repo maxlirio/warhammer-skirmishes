@@ -163,6 +163,82 @@ function ok(cond, label, detail) {
     }
   }
 
+  console.log('\n== choosing a model when others are in the way');
+  {
+    /* A fresh table: the sections above leave a token on the board and a
+       selection in the panel, and this one is about a clean click. */
+    await pg.goto('file://' + ROOT + '/game/index.html');
+    await pg.waitForTimeout(700);
+    await pg.locator('.misscard', { hasText: 'NO CARD' }).first().click();
+    await pg.click('#startBtn');
+    await pg.waitForTimeout(9000);
+
+    /* Put the two forces nose to nose, in two tight files, so there is a real
+       shot to take AND the models genuinely overlap on screen — which is the
+       geometry that broke: the ray reaches somebody who is not a legal target
+       before it reaches somebody who is. */
+    const shooter = await pg.evaluate(() => {
+      const S = Battle.get();
+      let n = 0;
+      while (S.pending && S.pending.kind === 'deploy' && n++ < 40) {
+        Battle.placeDeploy(S.pending.spots[0]);
+      }
+      let m = 0;
+      while (S.pending && S.pending.kind === 'pick' && m++ < 6) {
+        Battle.choosePick(S.pending.options[0]);
+      }
+      const mine = S.units.filter(u => u.owner === 0 && u.alive && !u.marker && !u.reserve);
+      const foes = S.units.filter(u => u.owner === 1 && u.alive && !u.marker && !u.reserve);
+      const cx = S.board.w / 2, cy = S.board.h / 2;
+      mine.forEach((u, i) => { u.x = cx - 5; u.y = cy - 3 + i * 1.4; });
+      foes.forEach((u, i) => { u.x = cx + 5; u.y = cy - 3 + i * 1.4; });
+      S.players[0].ap = 6;
+      S.control = { player: 0, forcedUnitId: null };
+      Battle.emit();
+      for (const u of mine) {
+        const t = Battle.rangedTargets(u.id);
+        if (t.length > 1) return { id: u.id, name: u.name, targets: t };
+      }
+      return null;
+    });
+    await pg.waitForTimeout(900);
+    ok(!!shooter, 'with the lines closed up, somebody has more than one target');
+
+    if (shooter) {
+      await pg.locator('#plist0 .urow', { hasText: shooter.name }).first().click();
+      await pg.waitForTimeout(1000);
+      const sh = pg.locator('.abtn', { hasText: 'SHOOT' }).first();
+      const haveShoot = await sh.count() > 0;
+      ok(haveShoot, 'SHOOT is offered for them');
+      if (haveShoot) {
+        await sh.click();
+        await pg.waitForTimeout(500);
+
+        /* aim at the one furthest down the file, which has its own friends
+           standing between it and the camera */
+        const tgt = await pg.evaluate(([ids]) => {
+          const u = Battle.unit(ids[ids.length - 1]);
+          return { id: u.id, name: u.name, x: u.x, y: u.y };
+        }, [shooter.targets]);
+        const px = await screenOf(tgt.x, tgt.y, 0.7);
+        const before = await pg.evaluate(() => Battle.get().strikes.length);
+        await pg.mouse.click(px.x, px.y);
+        await pg.waitForTimeout(2600);
+        const after = await pg.evaluate(() => ({
+          strikes: Battle.get().strikes.length,
+          pending: Battle.get().pending ? Battle.get().pending.kind : null,
+          log: Battle.get().log.slice(-8).map(l => l.text).join(' | ')
+        }));
+        ok(after.strikes > before || after.pending,
+           'clicking the enemy actually fires at them',
+           'nothing happened — ' + after.log.slice(-120));
+        ok(after.log.indexOf(tgt.name) >= 0,
+           'and at the model that was clicked, not one standing in front of it',
+           'wanted ' + tgt.name + ' — got: ' + after.log.slice(-160));
+      }
+    }
+  }
+
   ok(errs.length === 0, 'and nothing threw along the way', errs.slice(0, 2).join(' | '));
 
   console.log('\n== summary\n' + (checks - failed) + '/' + checks + ' checks passed');
