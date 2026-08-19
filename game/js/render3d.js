@@ -20,6 +20,7 @@ const Render3D = (function () {
   let terrainGroup, unitGroup, overlayGroup, fxGroup, markerGroup;
   let relicNode = null;   /* declared up here: drawBoard clears it, and drawBoard
                              runs long before makeRelic is defined */
+  const tokenNodes = {};  /* same reason */
   const unitNodes = {};
   let board = null;
   let lastT = 0;
@@ -727,6 +728,7 @@ const Render3D = (function () {
     stairsPlaced = [];
     [terrainGroup, markerGroup].forEach(g => { while (g.children.length) g.remove(g.children[0]); });
     relicNode = null;      /* it lived in markerGroup, which was just emptied */
+    Object.keys(tokenNodes).forEach(k => { delete tokenNodes[k]; });
 
     const floor = new THREE.Mesh(new THREE.BoxGeometry(b.w, 1, b.h),
       new THREE.MeshStandardMaterial({ map: groundTexture(b.w, b.h, biome),
@@ -1813,6 +1815,149 @@ const Render3D = (function () {
     relicNode.scale.setScalar(holder ? 0.42 : 1);
   }
 
+  /* TOKENS — the things people throw.
+
+     These were never drawn. Not drawn badly: the renderer had no code for
+     S.tokens at all. A smoke bomb landed, gave every shot through it -2 to
+     hit for the rest of the turn, and showed nothing; a grenade landed, sat
+     there for the chain, went off and killed somebody, and showed nothing.
+     The rules were doing their job into an empty room, which is why it read
+     as "the smoke bomb does not work" and "the bombs never explode". */
+
+  function makeToken(t) {
+    const g = new THREE.Group();
+    const smoke = t.label === 'SMOKE BOMB';
+    const r = t.radius || 3;
+
+    /* the ring on the ground: exactly the area the rules use */
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(r, 0.05, 6, 48),
+      new THREE.MeshBasicMaterial({ color: smoke ? 0xbfc6cc : 0xd07038,
+                                    transparent: true, opacity: 0.55, depthWrite: false }));
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = 0.04;
+    g.add(ring);
+
+    if (smoke) {
+      /* A DOME, and a thick one — you should not be able to see a model
+         clearly through it, because the rules say you cannot shoot through it
+         cleanly either. Built from overlapping billows so it churns. */
+      const puffs = new THREE.Group();
+      const mat = new THREE.MeshStandardMaterial({
+        color: 0x9aa1a6, roughness: 1, metalness: 0,
+        transparent: true, opacity: 0.42, depthWrite: false });
+      /* a DOME sitting on the ground, not a ball hanging over it: the billows
+         are spread wide and squashed down, and the lowest ones touch the
+         floor, because that is where the rules say the cover is */
+      for (let i = 0; i < 18; i++) {
+        const s = Assets.seeded(i * 37 + 11);
+        const b = new THREE.Mesh(new THREE.SphereGeometry(r * (0.5 + s * 0.36), 10, 8), mat);
+        const a = (i / 18) * Math.PI * 2 * 1.7 + s;
+        const rad = r * 0.6 * Math.sqrt(Assets.seeded(i * 53 + 3));
+        b.position.set(Math.cos(a) * rad, 0.16 + s * r * 0.5, Math.sin(a) * rad);
+        b.scale.set(1, 0.62, 1);
+        b.userData.spin = 0.15 + s * 0.4;
+        b.userData.bob = s * 6.28;
+        puffs.add(b);
+      }
+      /* and a skirt of it lying along the ground */
+      for (let i = 0; i < 8; i++) {
+        const s = Assets.seeded(i * 91 + 5);
+        const b = new THREE.Mesh(new THREE.SphereGeometry(r * (0.44 + s * 0.3), 9, 7), mat);
+        const a = (i / 8) * Math.PI * 2;
+        b.position.set(Math.cos(a) * r * 0.72, 0.1, Math.sin(a) * r * 0.72);
+        b.scale.set(1, 0.34, 1);
+        b.userData.spin = 0.1 + s * 0.25;
+        b.userData.bob = s * 6.28;
+        puffs.add(b);
+      }
+      g.add(puffs);
+      g.userData.puffs = puffs;
+    } else {
+      /* a live charge: dark casing, a fuse light that quickens */
+      const body = new THREE.Mesh(new THREE.SphereGeometry(0.3, 12, 10),
+        new THREE.MeshStandardMaterial({ color: 0x24261f, roughness: 0.5, metalness: 0.7 }));
+      body.position.y = 0.3;
+      body.castShadow = true;
+      g.add(body);
+      const collar = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.13, 0.16, 10),
+        new THREE.MeshStandardMaterial({ color: 0x6a6257, roughness: 0.6, metalness: 0.8 }));
+      collar.position.y = 0.58;
+      g.add(collar);
+      const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 6),
+        new THREE.MeshBasicMaterial({ color: 0xff4a2a }));
+      lamp.position.y = 0.7;
+      g.add(lamp);
+      const glow = new THREE.PointLight(0xff4a2a, 2.2, 5, 2);
+      glow.position.y = 0.7;
+      g.add(glow);
+      g.userData.lamp = lamp;
+      g.userData.glow = glow;
+    }
+    g.userData.smoke = smoke;
+    return g;
+  }
+
+  function syncTokens(S) {
+    const live = {};
+    (S.tokens || []).forEach(function (t) {
+      live[t.id] = true;
+      let node = tokenNodes[t.id];
+      if (!node) {
+        node = tokenNodes[t.id] = makeToken(t);
+        markerGroup.add(node);
+        /* it arrives — a bang of dust for a charge, a bloom for smoke */
+        const at = new THREE.Vector3(t.x, Board.heightAt(S.board, t) + 0.3, t.y);
+        if (t.label === 'SMOKE BOMB') { node.userData.grow = 0; if (Sfx) Sfx.smoke(); }
+        else sparks(at, 0.5);
+      }
+      node.position.set(t.x, Board.heightAt(S.board, t) + 0.02, t.y);
+      node.userData.token = t;
+    });
+
+    /* anything that has gone: if it was armed, it went OFF */
+    Object.keys(tokenNodes).forEach(function (id) {
+      if (live[id]) return;
+      const node = tokenNodes[id];
+      const t = node.userData.token;
+      delete tokenNodes[id];
+      markerGroup.remove(node);
+      if (t && t.tokenEffects) {
+        const at = new THREE.Vector3(t.x, (lastState ? Board.heightAt(lastState.board, t) : 0) + 0.5, t.y);
+        blast(at, (t.radius || 3) / 3);
+      }
+    });
+  }
+
+  /* A charge going off. Big enough that you never have to read the log to
+     know it happened. */
+  function blast(at, scale) {
+    sparks(at, 1.5 * scale);
+    const ball = new THREE.Mesh(new THREE.SphereGeometry(0.6 * scale, 14, 12),
+      new THREE.MeshBasicMaterial({ color: 0xffd08a, transparent: true, opacity: 1,
+                                    blending: THREE.AdditiveBlending, depthWrite: false }));
+    ball.position.copy(at);
+    fxGroup.add(ball);
+    fx.push({ kind: 'blast', node: ball, t: 0, life: 0.5, scale: scale });
+
+    const smoke = new THREE.Mesh(new THREE.SphereGeometry(1.1 * scale, 12, 10),
+      new THREE.MeshStandardMaterial({ color: 0x3a352e, roughness: 1,
+                                       transparent: true, opacity: 0.7, depthWrite: false }));
+    smoke.position.copy(at);
+    fxGroup.add(smoke);
+    fx.push({ kind: 'smoke', node: smoke, t: 0, life: 1.4, scale: scale });
+
+    const ringGeo = new THREE.RingGeometry(0.2, 0.5, 30);
+    const shock = new THREE.Mesh(ringGeo,
+      new THREE.MeshBasicMaterial({ color: 0xffc98a, transparent: true, opacity: 0.85,
+                                    side: THREE.DoubleSide, depthWrite: false }));
+    shock.rotation.x = -Math.PI / 2;
+    shock.position.set(at.x, at.y - 0.4, at.z);
+    fxGroup.add(shock);
+    fx.push({ kind: 'shock', node: shock, t: 0, life: 0.55, scale: scale * 6 });
+
+    if (Sfx) Sfx.blast();
+  }
+
   function syncUnits(S) {
     S.units.forEach(function (u) {
       let node = unitNodes[u.id];
@@ -2381,6 +2526,22 @@ const Render3D = (function () {
     lastT = now;
 
     markerGroup.children.forEach(g => { if (g.userData.spin) g.userData.spin.rotation.y += dt * 0.4; });
+    Object.keys(tokenNodes).forEach(function (id) {
+      const n = tokenNodes[id];
+      if (!n.userData.puffs) {
+        /* a fuse light that quickens as the chain runs down */
+        if (n.userData.lamp) {
+          const b = 0.5 + 0.5 * Math.sin(now * 0.009);
+          n.userData.lamp.material.color.setRGB(1, 0.28 * b, 0.16 * b);
+          n.userData.glow.intensity = 1.2 + b * 2.4;
+        }
+        return;
+      }
+      n.userData.puffs.children.forEach(function (p, i) {
+        p.rotation.y += dt * p.userData.spin;
+        p.position.y += Math.sin(now * 0.0011 + p.userData.bob) * dt * 0.22;
+      });
+    });
     if (relicNode && relicNode.visible) {
       relicNode.userData.shard.rotation.y += dt * 0.9;
       relicNode.userData.shard.rotation.x += dt * 0.35;
@@ -2429,6 +2590,19 @@ const Render3D = (function () {
         });
         pos.needsUpdate = true;
         e.node.material.opacity = Math.max(0, 1 - k * k);
+      }
+      if (e.kind === 'blast') {
+        e.node.material.opacity = Math.max(0, 1 - k * 1.3);
+        e.node.scale.setScalar(1 + k * 4.5 * e.scale);
+      }
+      if (e.kind === 'smoke') {
+        e.node.material.opacity = Math.max(0, 0.7 * (1 - k));
+        e.node.scale.setScalar(0.5 + k * 2.2);
+        e.node.position.y += dt * 1.1;
+      }
+      if (e.kind === 'shock') {
+        e.node.material.opacity = Math.max(0, 0.85 * (1 - k * k));
+        e.node.scale.setScalar(0.4 + k * e.scale);
       }
       if (e.kind === 'stain') {
         const peak = e.peak || 0.7;
@@ -2521,6 +2695,7 @@ const Render3D = (function () {
     lastState = S;
     syncUnits(S);
     syncRelic(S);
+    syncTokens(S);
     setOverlay(view);
 
     S.strikes.forEach(function (k) {
