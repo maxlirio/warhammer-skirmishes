@@ -45,6 +45,7 @@ const Render3D = (function () {
 
   const cam = { az: -Math.PI / 2, el: 0.78, dist: 46, target: new THREE.Vector3() };
   let want = null, userZoomed = false;
+  const held = {};
 
   function placeCamera() {
     const r = cam.dist * Math.cos(cam.el);
@@ -122,6 +123,10 @@ const Render3D = (function () {
         clampTarget();
       };
       let used = true;
+      /* A tap still nudges; HOLDING now drives, which is what "WASD movement"
+         means to anyone who has played anything. The frame loop reads `held`. */
+      if ('wasd'.indexOf(k) >= 0 || k.indexOf('arrow') === 0 ||
+          k === 'q' || k === 'e' || k === 'r' || k === 'f') held[k] = true;
       if (k === 'a' || k === 'arrowleft') pan(-1, 0);
       else if (k === 'd' || k === 'arrowright') pan(1, 0);
       else if (k === 'w' || k === 'arrowup') pan(0, -1);
@@ -136,6 +141,29 @@ const Render3D = (function () {
       else used = false;
       if (used) { want = null; if (k !== ' ') userZoomed = true; placeCamera(); e.preventDefault(); }
     });
+    window.addEventListener('keyup', function (e) { delete held[e.key.toLowerCase()]; });
+    window.addEventListener('blur', function () { for (const k in held) delete held[k]; });
+  }
+
+  /* Called every frame: whatever is being held down, keep doing. */
+  function flyCamera(dt) {
+    let moved = false;
+    const step = cam.dist * 1.1 * dt;
+    const right = new THREE.Vector3(Math.sin(cam.az), 0, -Math.cos(cam.az));
+    const fwd = new THREE.Vector3(Math.cos(cam.az), 0, Math.sin(cam.az));
+    const go = function (fx, fz) {
+      cam.target.addScaledVector(right, fx * step).addScaledVector(fwd, fz * step);
+      moved = true;
+    };
+    if (held.a || held.arrowleft) go(-1, 0);
+    if (held.d || held.arrowright) go(1, 0);
+    if (held.w || held.arrowup) go(0, -1);
+    if (held.s || held.arrowdown) go(0, 1);
+    if (held.q) { cam.az -= 1.6 * dt; moved = true; }
+    if (held.e) { cam.az += 1.6 * dt; moved = true; }
+    if (held.r) { cam.el = Math.min(1.48, cam.el + 1.0 * dt); moved = true; }
+    if (held.f) { cam.el = Math.max(0.10, cam.el - 1.0 * dt); moved = true; }
+    if (moved) { clampTarget(); want = null; userZoomed = true; placeCamera(); }
   }
 
   function clampTarget() {
@@ -1276,6 +1304,27 @@ const Render3D = (function () {
         g.add(Build3D.ruin(t, PAL[biome.mass] || PAL.panel, rnd));
       }
 
+      /* A SURFACE TO STAND ON.
+
+         The rules let a model stand on top of this piece at t.top, and the
+         heap was built from loose rock about half that tall — so a model
+         "standing on the rubble" hovered half an inch over it with the rocks
+         visibly below its feet. If the game says you can stand at 1.1", there
+         has to be something at 1.1" to stand on. */
+      {
+        const mound = new THREE.Mesh(
+          new THREE.CylinderGeometry(Math.min(t.w, t.h) * 0.52, Math.min(t.w, t.h) * 0.62,
+                                     Math.max(0.2, t.top * 0.92), 9),
+          Mats && typeof Mats !== 'undefined'
+            ? Mats.material((PAL[biome.mass] || PAL.panel).ground, 4, 2, { bump: 1.3 })
+            : new THREE.MeshStandardMaterial({ color: 0x6a655c, roughness: 1 }));
+        mound.scale.set(t.w / Math.min(t.w, t.h), 1, t.h / Math.min(t.w, t.h));
+        mound.position.y = Math.max(0.2, t.top * 0.92) / 2;
+        mound.castShadow = true; mound.receiveShadow = true;
+        mound.userData.keepColour = true;
+        g.add(mound);
+      }
+
       /* what came off it, heaped along the foot of the walls and inside */
       const kit2 = RUIN[biome.mass] || RUIN.panel;
       const heap = (biome.scatter || []).concat([kit2.debris, 'debris', 'rock_smallA'])
@@ -1286,7 +1335,14 @@ const Render3D = (function () {
         const r = Assets.grown(heap[Math.floor(v * heap.length) % heap.length],
                                0.22 + v * 0.4, Math.min(1.2, t.w / 3));
         const sp = 0.3 + rnd(i * 23) * 0.5;
-        seat(r, t, (rnd(i * 3) - 0.5) * t.w * sp, (rnd(i * 5) - 0.5) * t.h * sp);
+        const lx = (rnd(i * 3) - 0.5) * t.w * sp, lz = (rnd(i * 5) - 0.5) * t.h * sp;
+        seat(r, t, lx, lz);
+        /* the ones out in the middle sit on top of the mound */
+        const onMound = Math.hypot(lx / (t.w / 2), lz / (t.h / 2)) < 0.82;
+        if (onMound) {
+          r.position.y += Math.max(0.2, t.top * 0.92);
+          r.userData.rests = r.position.y;
+        }
         r.rotation.set((rnd(i * 9) - 0.5) * 0.3, v * 6.28, (rnd(i * 11) - 0.5) * 0.3);
         g.add(r);
       }
@@ -1513,9 +1569,24 @@ const Render3D = (function () {
       const p = { x: Assets.seeded(i * 211 + 13) * b.w, y: Assets.seeded(i * 251 + 5) * b.h };
       if (!clear(p, 0.4)) continue;
       const v = Assets.seeded(i * 43);
-      const disc = new THREE.Mesh(new THREE.CircleGeometry(1.1 + v * 2.2, 18),
-        new THREE.MeshBasicMaterial({ color: 0x0b0908, transparent: true,
-                                      opacity: 0.2 + v * 0.22, depthWrite: false }));
+      /* Soft-edged and faint. A hard black circle at a fifth opacity reads as
+         a hole cut in the floor, not as a burn — and there were several of
+         them overlapping. */
+      if (!scorchTex) {
+        const cv = document.createElement('canvas');
+        cv.width = cv.height = 128;
+        const cg = cv.getContext('2d');
+        const grad = cg.createRadialGradient(64, 64, 4, 64, 64, 62);
+        grad.addColorStop(0, 'rgba(12,10,9,0.85)');
+        grad.addColorStop(0.55, 'rgba(16,14,12,0.4)');
+        grad.addColorStop(1, 'rgba(20,18,16,0)');
+        cg.fillStyle = grad;
+        cg.fillRect(0, 0, 128, 128);
+        scorchTex = new THREE.CanvasTexture(cv);
+      }
+      const disc = new THREE.Mesh(new THREE.CircleGeometry(1.1 + v * 2.2, 20),
+        new THREE.MeshBasicMaterial({ map: scorchTex, transparent: true,
+                                      opacity: 0.16 + v * 0.14, depthWrite: false }));
       disc.rotation.x = -Math.PI / 2;
       disc.position.set(p.x, Board.heightAt(b, p) + 0.008, p.y);
       disc.userData.keepColour = true;
@@ -1606,6 +1677,7 @@ const Render3D = (function () {
      Two staircases crossing each other on the same face is what happens when
      each piece chooses its side without looking. */
   let stairsPlaced = [];
+  let scorchTex = null;
   const overlaps = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x &&
                              a.y < b.y + b.h && a.y + a.h > b.y;
 
@@ -1754,7 +1826,23 @@ const Render3D = (function () {
                                     side: THREE.DoubleSide, depthWrite: false }));
     fill.rotation.x = -Math.PI / 2;
     token.add(disc, fill);
-    if (Assets.has('barrel')) token.add(Assets.fitted('barrel', 0.55, 0.55, 0.85));
+    /* A crosshair painted on the ground where the arc is watched. It was a
+       fuel drum, which says nothing about what an OVERWATCH marker is for and
+       reads as a piece of scenery somebody left in the open. */
+    const cross = new THREE.Group();
+    const arm = new THREE.MeshBasicMaterial({ color: colour, transparent: true,
+                                              opacity: 0.9, depthWrite: false });
+    [[1.9, 0.1], [0.1, 1.9]].forEach(function (d) {
+      const bar = new THREE.Mesh(new THREE.PlaneGeometry(d[0], d[1]), arm);
+      bar.rotation.x = -Math.PI / 2;
+      bar.position.y = 0.05;
+      cross.add(bar);
+    });
+    const inner = new THREE.Mesh(new THREE.RingGeometry(0.72, 0.82, 40), arm);
+    inner.rotation.x = -Math.PI / 2;
+    inner.position.y = 0.05;
+    cross.add(inner);
+    token.add(cross);
     token.visible = false;
     markerGroup.add(token);
     g.userData.token = token;
@@ -2556,6 +2644,7 @@ const Render3D = (function () {
     const dt = Math.min(0.05, (now - lastT) / 1000);
     lastT = now;
 
+    flyCamera(dt);
     markerGroup.children.forEach(g => { if (g.userData.spin) g.userData.spin.rotation.y += dt * 0.4; });
     Object.keys(tokenNodes).forEach(function (id) {
       const n = tokenNodes[id];
@@ -2581,9 +2670,25 @@ const Render3D = (function () {
     }
     if (tray) stepTray(dt);
 
-    if (!playing && cine.length) playing = cine.shift();
+    if (!playing && cine.length) { playing = cine.shift(); playing.age = 0; }
     if (playing) {
-      playStrike(playing, dt);
+      /* A WATCHDOG ON THE CINEMATIC.
+
+         busy() gates every click, and it is true while a shot is playing out.
+         If that playback ever fails to reach its end — a step that throws, a
+         model removed underneath it, a stage waiting on something that never
+         arrives — the table stops accepting input and the game is over as far
+         as the players are concerned. "It locks up in the middle of combat"
+         is exactly that shape. No single shot needs eight seconds; past that,
+         it is finished whether it thinks so or not. */
+      playing.age += dt;
+      try {
+        playStrike(playing, dt);
+      } catch (err) {
+        playing.done = true;
+        if (window.console) console.error('strike playback failed, releasing table', err);
+      }
+      if (playing.age > 8) playing.done = true;
       if (playing.done) playing = null;
     }
 

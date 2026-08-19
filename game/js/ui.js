@@ -365,6 +365,7 @@ const GameUI = (function () {
 
   function render(S) {
     if (S.winner !== null) { showVictory(S); return; }
+    followForced(S);
     /* Come in close while somebody is placing a model, then pull back out. */
     const placing = S.pending && (S.pending.kind === 'move' || S.pending.kind === 'put');
     if (placing && !leaning) {
@@ -656,6 +657,18 @@ const GameUI = (function () {
   }
 
   /* ------------------------------------------------------- entering a mode */
+
+  /* If the chain has pinned the action to one unit, that is the unit you are
+     about to act with — so it is the one selected. Making the player hunt for
+     it in the list and click it, when there is only one legal answer, is busy
+     work the game can do for them. */
+  function followForced(S) {
+    const f = S.control && S.control.forcedUnitId;
+    if (f && selected !== f && Battle.unit(f) && Battle.unit(f).alive) {
+      selected = f;
+      mode = null;
+    }
+  }
 
   function select(id) {
     selected = id;

@@ -1858,8 +1858,25 @@ const Battle = (function () {
             });
             return;
           }
+          /* GET IN FRONT OF ME means exactly that: the unit has to be
+             standing in the shot, not merely somewhere the attacker could
+             also have shot at. It was offering anybody in range and line of
+             sight, so a model twenty inches off to one side could "step in
+             front of" a round it was nowhere near. */
+          const inTheWay = function (x) {
+            const a = atk2.attacker, t3 = t2;
+            const dx = t3.x - a.x, dy = t3.y - a.y;
+            const len2 = dx * dx + dy * dy;
+            if (len2 < 1e-6) return false;
+            /* how far along the shot it stands, and how far off the line */
+            const s2 = ((x.x - a.x) * dx + (x.y - a.y) * dy) / len2;
+            if (s2 <= 0.05 || s2 >= 1) return false;       /* behind, or past the target */
+            const off = Math.abs((x.x - a.x) * dy - (x.y - a.y) * dx) / Math.sqrt(len2);
+            return off <= x.radius + 1.2;                  /* within a step of the line */
+          };
           const swaps = alive().filter(x => x.owner === t2.owner && x.id !== t2.id &&
-                                            !isMarker(x) && couldBeHit(atk2.attacker, x, atk2));
+                                            !isMarker(x) && inTheWay(x) &&
+                                            couldBeHit(atk2.attacker, x, atk2));
           if (!swaps.length) { log('Nobody else can be put in the way.', 'muted'); resolveAttack(atk2); return; }
           S.pending = { kind: 'redirect', atk: atk2, ability: ab.name,
                         options: swaps.map(x => x.id) };
