@@ -35,7 +35,10 @@ const CARDS = ['NO CARD', 'SABOTAGE', 'KING OF THE HILL', 'AMBUSH',
    which is where a box stops looking like scenery. */
 const VIEWS = [
   { tag: 'table', pitch: 0.62, dist: 1.0 },
-  { tag: 'eye',   pitch: 0.13, dist: 0.55 }
+  { tag: 'eye',   pitch: 0.13, dist: 0.55 },
+  /* straight down, which is how a battlefield gets judged at a glance and
+     where a table of plain rectangles has nowhere to hide */
+  { tag: 'top',   pitch: 3.2,  dist: 0.62 }
 ];
 
 (async () => {
@@ -78,8 +81,13 @@ const VIEWS = [
         const cam = Render3D.camera;
         const c = { x: b.w / 2, z: b.h / 2 };
         const r = Math.max(b.w, b.h) * (0.85 * dist);
-        cam.position.set(c.x - r * 0.75, 4 + r * pitch, c.z + r * 0.75);
-        cam.lookAt(c.x, pitch < 0.3 ? 2.2 : 0, c.z);
+        if (pitch > 2) {                       /* straight down */
+          cam.position.set(c.x, Math.max(b.w, b.h) * 1.15, c.z + 0.01);
+          cam.lookAt(c.x, 0, c.z);
+        } else {
+          cam.position.set(c.x - r * 0.75, 4 + r * pitch, c.z + r * 0.75);
+          cam.lookAt(c.x, pitch < 0.3 ? 2.2 : 0, c.z);
+        }
         cam.updateProjectionMatrix();
       }, [v.pitch, v.dist]);
       await pg.waitForTimeout(700);
