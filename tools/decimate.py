@@ -169,7 +169,9 @@ def cut_the_base_off(obj):
     if area[best] <= 0:
         return None
     share = area[best] / (sum(area) or 1.0)
-    cut = top_z[best] + span * 0.004
+    # Just above the flat top, not a millimetre more: every extra fraction is
+    # another slice of boot gone, and the boots are what sit on the new base.
+    cut = top_z[best] + span * 0.0015
 
     bpy.ops.object.select_all(action='DESELECT')
     obj.select_set(True)

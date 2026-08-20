@@ -439,9 +439,9 @@ const PRESETS = [
     ],
     abilities: [
       { id: 'gk_barrage', name: 'Sanctifying Barrage', cost: 1,
-        text: 'Your next attack with a Storm Bolter rolls 2 dice rather than 1.',
+        text: 'Your Storm Bolter gains BURST 2 for your next attack.',
         effects: [{ kind: 'dice', value: 2, weaponName: 'Storm Bolter', scope: 'player',
-                    text: 'Your next attack with a Storm Bolter rolls 2 dice rather than 1.' }] },
+                    text: 'Your Storm Bolter gains BURST 2 for your next attack.' }] },
       { id: 'gk_gate', name: 'Gate of Infinity', cost: 2, moves: true,
         text: 'Choose a friendly unit. Place that unit anywhere on the battlefield. This ' +
               'triggers overwatch. That unit may not MOVE this turn.',
@@ -454,7 +454,7 @@ const PRESETS = [
   },
   units: [
     {
-      name: 'Brother Drusius', move: 5, killVP: 2, maxWounds: 2, toughness: 5, oc: 1,
+      name: 'Brother Drusius', move: 5, killVP: 2, maxWounds: 2, toughness: 4, oc: 1,
       reserve: true,
       notes: '"The fires of purity thirst for your blood!"',
       weapons: [
@@ -484,10 +484,9 @@ const PRESETS = [
       ],
       abilities: [
         { name: 'Heavy Gatling', trigger: 'passive', cost: 0,
-          text: 'This unit\'s Psilencer rolls 4 dice instead of one if this unit has not ' +
-                'moved this turn.',
+          text: 'This unit\'s Psilencer has BURST 4 if this unit has not moved this turn.',
           effects: [{ kind: 'dice', value: 4, weaponName: 'Psilencer', condition: 'notmoved',
-                      text: 'Heavy Gatling: the Psilencer rolls 4 dice if this unit has not ' +
+                      text: 'Heavy Gatling: the Psilencer has BURST 4 if this unit has not ' +
                             'moved this turn.' }] },
         { name: 'Warp Shift', trigger: 'ap', cost: 2, moves: true, opponentReacts: true,
           text: 'Place this unit anywhere on any elevated part of the battlefield. This ' +
@@ -505,7 +504,7 @@ const PRESETS = [
         { name: 'Nemesis Sword', type: 'melee', range: 1, hit: 2, strength: 5, damage: 2 }
       ],
       abilities: [
-        { name: 'Gate of Infinity', trigger: 'end', cost: 0, usesPerGame: 1, moves: true,
+        { name: 'Warpstride', trigger: 'end', cost: 0, usesPerGame: 1, moves: true,
           text: 'Usable once per game. Place up to two friendly units anywhere on the ' +
                 'battlefield greater than 6" away from an enemy unit. This ability triggers ' +
                 'overwatch.',

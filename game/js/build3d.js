@@ -26,6 +26,13 @@ const Build3D = (function () {
 
   const V = THREE.Vector3;
 
+  /* a darker version of a tint, for the shadowed interior of a shell */
+  function shade(hex, k) {
+    const c = new THREE.Color(hex);
+    c.multiplyScalar(k);
+    return c.getHex();
+  }
+
   /* A wall with rectangular holes in it, as one solid mesh.
 
      Made by laying the wall out as a grid of panels and leaving the panels
@@ -115,9 +122,13 @@ const Build3D = (function () {
     const W = t.w, H = t.h, TOP = t.top;
     const wallT = Math.min(Math.max(0.34, Math.min(W, H) * 0.12), 0.7);
 
-    const shell = Mats.material(pal.shell, 6, TOP, { bump: 1.2 });
-    const trim = Mats.material(pal.trim || pal.shell, 4, 1, { bump: 0.9, color: 0xc8c4bb });
-    const inner = Mats.material(pal.shell, 6, TOP, { bump: 1.0, color: 0x6e6a63 });
+    /* the biome's own concrete, not everybody's grey */
+    const SH = pal.shellTint === undefined ? 0xffffff : pal.shellTint;
+    const TR = pal.trimTint === undefined ? 0xc8c4bb : pal.trimTint;
+    const shell = Mats.material(pal.shell, 6, TOP, { bump: 1.2, color: SH });
+    const trim = Mats.material(pal.trim || pal.shell, 4, 1, { bump: 0.9, color: TR });
+    const inner = Mats.material(pal.shell, 6, TOP,
+                                { bump: 1.0, color: shade(SH, 0.42) });
     const steel = Mats.material('steel', 3, 3, { bump: 1.1 });
 
     /* storeys, so a tall piece gets floors rather than one long wall */
@@ -222,7 +233,8 @@ const Build3D = (function () {
        somebody might walk off, and lumens burning in the dark because
        whatever is inside has not stopped running. */
     const plate = Mats.material('steel', 3, 2, { bump: 1.3 });
-    const chev = Mats.material('hazard', 2.6, 0.5, { bump: 0.8 });
+    const chev = Mats.material('hazard', 2.6, 0.5,
+                               { bump: 0.8, color: pal.accent || 0xffffff });
     const lumen = new THREE.MeshStandardMaterial({
       color: 0xffd9a0, emissive: 0xffa63c, emissiveIntensity: 2.4,
       roughness: 0.4, metalness: 0 });
@@ -376,8 +388,10 @@ const Build3D = (function () {
     g.userData.keepColour = true;
     const W = t.w, H = t.h, TOP = Math.max(0.8, t.top);
     const wallT = Math.min(Math.max(0.36, Math.min(W, H) * 0.14), 0.7);
-    const shell = Mats.material(pal.shell, 5, TOP, { bump: 1.3 });
-    const trim = Mats.material(pal.trim || pal.shell, 3, 1, { bump: 0.9, color: 0xbdb8ae });
+    const SH = pal.shellTint === undefined ? 0xffffff : pal.shellTint;
+    const TR = pal.trimTint === undefined ? 0xbdb8ae : pal.trimTint;
+    const shell = Mats.material(pal.shell, 5, TOP, { bump: 1.3, color: SH });
+    const trim = Mats.material(pal.trim || pal.shell, 3, 1, { bump: 0.9, color: TR });
     const steel = Mats.material('steel', 2, 2, { bump: 1.1 });
 
     const course = Math.max(0.4, TOP / 3);
@@ -427,6 +441,269 @@ const Build3D = (function () {
       }
     });
     return g;
+  }
+
+  /* ======================================================= OTHER SHAPES
+
+     One archetype for every building on every table is what makes seven
+     battlefields look like the same battlefield rearranged. These are the rest
+     of what a manufactory district is made of, and each one is chosen from the
+     rules box's own proportions — a tall narrow footprint wants a silo, a wide
+     shallow one wants a shed — so the shape follows the ground rather than
+     being sprinkled over it.
+
+     Every one obeys the same two laws as the block: nothing leaves t.w × t.h,
+     and a piece the rules say blocks is opaque along every horizontal line. */
+
+  function shellMats(pal, TOP) {
+    const SH = pal.shellTint === undefined ? 0xffffff : pal.shellTint;
+    const TR = pal.trimTint === undefined ? 0xc8c4bb : pal.trimTint;
+    return {
+      shell: Mats.material(pal.shell, 6, TOP, { bump: 1.2, color: SH }),
+      trim: Mats.material(pal.trim || pal.shell, 4, 1, { bump: 0.9, color: TR }),
+      inner: Mats.material(pal.shell, 6, TOP, { bump: 1.0, color: shade(SH, 0.42) }),
+      plate: Mats.material('steel', 3, 2, { bump: 1.3 }),
+      chev: Mats.material('hazard', 2.6, 0.5, { bump: 0.8, color: pal.accent || 0xffffff })
+    };
+  }
+
+  /* A SILO. A drum with ribs round it, a domed cap and a ladder up one side.
+     Fills a squarish footprint completely, which is what makes it opaque. */
+  function silo(t, pal, rnd) {
+    const g = new THREE.Group();
+    g.userData.keepColour = true;
+    const M = shellMats(pal, t.top);
+    const rx = t.w / 2, rz = t.h / 2, TOP = t.top;
+
+    const drum = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, TOP * 0.86, 26), M.shell);
+    drum.scale.set(rx * 0.98, 1, rz * 0.98);
+    drum.position.y = TOP * 0.43;
+    drum.castShadow = true; drum.receiveShadow = true;
+    g.add(drum);
+
+    /* ribs — the thing that says pressure vessel rather than pillar */
+    const ribs = Math.max(2, Math.round(TOP / 1.1));
+    for (let i = 1; i < ribs; i++) {
+      const rib = new THREE.Mesh(new THREE.TorusGeometry(1, 0.055, 6, 26), M.trim);
+      rib.rotation.x = -Math.PI / 2;
+      rib.scale.set(rx, rz, 1);
+      rib.position.y = (TOP * 0.86) * (i / ribs);
+      g.add(rib);
+    }
+
+    const cap = new THREE.Mesh(
+      new THREE.SphereGeometry(1, 26, 12, 0, Math.PI * 2, 0, Math.PI / 2), M.shell);
+    cap.scale.set(rx * 0.98, Math.min(rx, rz) * 0.75, rz * 0.98);
+    cap.position.y = TOP * 0.86;
+    cap.castShadow = true;
+    g.add(cap);
+
+    /* a skirt of hazard paint round the foot, and a ladder */
+    const skirt = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 0.34, 26), M.chev);
+    skirt.scale.set(rx * 1.005, 1, rz * 1.005);
+    skirt.position.y = 0.17;
+    g.add(skirt);
+
+    const a = rnd(11) * 6.28;
+    for (let i = 0; i < Math.round(TOP / 0.42); i++) {
+      const rung = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.05, 0.05), M.plate);
+      rung.position.set(Math.cos(a) * rx * 0.99, 0.3 + i * 0.42, Math.sin(a) * rz * 0.99);
+      rung.rotation.y = -a;
+      g.add(rung);
+    }
+    return g;
+  }
+
+  /* A SHED. Low walls carrying a barrel vault, ribbed like corrugated iron.
+     Wants a wide shallow footprint. */
+  function shed(t, pal, rnd) {
+    const g = new THREE.Group();
+    g.userData.keepColour = true;
+    const M = shellMats(pal, t.top);
+    const W = t.w, H = t.h, TOP = t.top;
+    const along = W >= H;                    /* which way the vault runs */
+    const span = along ? H : W;
+    const run = along ? W : H;
+    const wallH = TOP * 0.42;
+    const wallT = Math.min(0.5, span * 0.14);
+
+    if (t.blocks) {
+      const core = new THREE.Mesh(
+        new THREE.BoxGeometry(W - wallT, TOP * 0.94, H - wallT), M.inner);
+      core.position.y = TOP * 0.47;
+      g.add(core);
+    }
+
+    /* the side walls */
+    [-1, 1].forEach(function (sgn) {
+      const wl = new THREE.Mesh(
+        new THREE.BoxGeometry(along ? run : wallT, wallH, along ? wallT : run), M.shell);
+      wl.position.set(along ? 0 : sgn * (W / 2 - wallT / 2), wallH / 2,
+                      along ? sgn * (H / 2 - wallT / 2) : 0);
+      wl.castShadow = true; wl.receiveShadow = true;
+      g.add(wl);
+    });
+
+    /* the vault: a half cylinder, ribbed */
+    const vault = new THREE.Mesh(
+      new THREE.CylinderGeometry(1, 1, run * 0.99, 22, 1, true, 0, Math.PI), M.plate);
+    vault.rotation.z = Math.PI / 2;
+    if (!along) vault.rotation.y = Math.PI / 2;
+    vault.scale.set(span / 2, 1, (TOP - wallH) * 1.0);
+    vault.position.y = wallH;
+    vault.castShadow = true;
+    g.add(vault);
+
+    const nrib = Math.max(2, Math.round(run / 1.3));
+    for (let i = 0; i <= nrib; i++) {
+      const rib = new THREE.Mesh(
+        new THREE.TorusGeometry(1, 0.05, 5, 20, Math.PI), M.trim);
+      rib.scale.set(span / 2 * 1.01, (TOP - wallH) * 1.01, 1);
+      const off = -run / 2 + (run / nrib) * i;
+      if (along) { rib.position.set(off, wallH, 0); rib.rotation.y = Math.PI / 2; }
+      else { rib.position.set(0, wallH, off); }
+      g.add(rib);
+    }
+
+    /* a big door at one end, and a chevron band over it */
+    const dw = Math.min(span * 0.5, 2.2);
+    const door = new THREE.Mesh(
+      new THREE.BoxGeometry(along ? 0.12 : dw, wallH * 0.86, along ? dw : 0.12),
+      new THREE.MeshStandardMaterial({ color: 0x15161a, roughness: 1 }));
+    door.position.set(along ? -(W / 2 - 0.06) : 0, wallH * 0.43,
+                      along ? 0 : -(H / 2 - 0.06));
+    g.add(door);
+    const lintel = new THREE.Mesh(
+      new THREE.BoxGeometry(along ? 0.2 : dw * 1.2, 0.22, along ? dw * 1.2 : 0.2), M.chev);
+    lintel.position.set(along ? -(W / 2 - 0.1) : 0, wallH * 0.86 + 0.11,
+                        along ? 0 : -(H / 2 - 0.1));
+    g.add(lintel);
+    return g;
+  }
+
+  /* A BASTION. Battered walls — wider at the foot than the head — with a
+     firing slit round it and a heavy parapet. Squat, square, and obviously
+     something you would rather be inside than in front of. */
+  function bastion(t, pal, rnd) {
+    const g = new THREE.Group();
+    g.userData.keepColour = true;
+    const M = shellMats(pal, t.top);
+    const W = t.w, H = t.h, TOP = t.top;
+
+    /* the batter, as a short stack of boxes each a little narrower */
+    const lifts = 5;
+    for (let i = 0; i < lifts; i++) {
+      const k = i / lifts;
+      const inset = Math.min(W, H) * 0.09 * k;
+      const b = new THREE.Mesh(
+        new THREE.BoxGeometry(W - inset * 2, TOP * 0.86 / lifts, H - inset * 2), M.shell);
+      b.position.y = (TOP * 0.86) * (k + 0.5 / lifts);
+      b.castShadow = true; b.receiveShadow = true;
+      g.add(b);
+    }
+
+    /* the firing slit: a dark band right round, above head height */
+    const slitY = Math.max(1.95, TOP * 0.55);
+    if (slitY < TOP * 0.8) {
+      const inset = Math.min(W, H) * 0.09 * (slitY / (TOP * 0.86));
+      const slit = new THREE.Mesh(
+        new THREE.BoxGeometry(W - inset * 2 + 0.04, 0.3, H - inset * 2 + 0.04),
+        new THREE.MeshStandardMaterial({ color: 0x121316, roughness: 1 }));
+      slit.position.y = slitY;
+      g.add(slit);
+    }
+
+    /* the parapet, heavier than a block's */
+    const capInset = Math.min(W, H) * 0.09;
+    const cap = new THREE.Mesh(
+      new THREE.BoxGeometry(W - capInset * 1.2, 0.26, H - capInset * 1.2), M.trim);
+    cap.position.y = TOP * 0.86 + 0.13;
+    cap.castShadow = true;
+    g.add(cap);
+    const merlons = Math.max(2, Math.round((W + H) / 2.4));
+    for (let i = 0; i < merlons; i++) {
+      if (rnd(i * 13 + 3) < 0.25) continue;
+      const around = (i / merlons) * 4;
+      const side = Math.floor(around);
+      const f = around - side;
+      const iw = W - capInset * 1.2, ih = H - capInset * 1.2;
+      const m = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.42, 0.5), M.shell);
+      if (side === 0) m.position.set(-iw / 2 + iw * f, TOP * 0.86 + 0.47, -ih / 2);
+      else if (side === 1) m.position.set(iw / 2, TOP * 0.86 + 0.47, -ih / 2 + ih * f);
+      else if (side === 2) m.position.set(iw / 2 - iw * f, TOP * 0.86 + 0.47, ih / 2);
+      else m.position.set(-iw / 2, TOP * 0.86 + 0.47, ih / 2 - ih * f);
+      m.castShadow = true;
+      g.add(m);
+    }
+    return g;
+  }
+
+  /* A TOWER. Stacked setbacks, each storey a little smaller than the one
+     under it, with a capped head. Wants a small footprint and height. */
+  function tower(t, pal, rnd) {
+    const g = new THREE.Group();
+    g.userData.keepColour = true;
+    const M = shellMats(pal, t.top);
+    const W = t.w, H = t.h, TOP = t.top;
+    const tiers = 2 + Math.floor(rnd(7) * 2);
+    let y = 0;
+    for (let i = 0; i < tiers; i++) {
+      const k = i / tiers;
+      const inset = Math.min(W, H) * 0.13 * k;
+      const hgt = (TOP * 0.9) / tiers;
+      const b = new THREE.Mesh(
+        new THREE.BoxGeometry(W - inset * 2, hgt, H - inset * 2), M.shell);
+      b.position.y = y + hgt / 2;
+      b.castShadow = true; b.receiveShadow = true;
+      g.add(b);
+      /* a string course marking each setback */
+      const band = new THREE.Mesh(
+        new THREE.BoxGeometry(W - inset * 2 + 0.12, 0.16, H - inset * 2 + 0.12), M.trim);
+      band.position.y = y + hgt;
+      g.add(band);
+      /* a slit window on each face of each tier */
+      if (y + hgt * 0.6 > 1.95) {
+        [[0, 1], [0, -1], [1, 0], [-1, 0]].forEach(function (d, j) {
+          if (rnd(i * 31 + j * 5) < 0.35) return;
+          const sw = new THREE.Mesh(
+            new THREE.BoxGeometry(d[0] ? 0.12 : 0.28, hgt * 0.4, d[0] ? 0.28 : 0.12),
+            new THREE.MeshStandardMaterial({ color: 0x121316, roughness: 1 }));
+          sw.position.set(d[0] * ((W - inset * 2) / 2), y + hgt * 0.6,
+                          d[1] * ((H - inset * 2) / 2));
+          g.add(sw);
+        });
+      }
+      y += hgt;
+    }
+    /* the head: a flared cap */
+    const top = Math.min(W, H) * 0.13 * ((tiers - 1) / tiers);
+    const head = new THREE.Mesh(
+      new THREE.BoxGeometry(W - top * 2 + 0.4, TOP * 0.1, H - top * 2 + 0.4), M.trim);
+    head.position.y = y + TOP * 0.05;
+    head.castShadow = true;
+    g.add(head);
+    return g;
+  }
+
+  /* Which of them this piece of ground wants. Deterministic per piece: the
+     same rectangle always builds the same thing. */
+  function structure(t, pal, rnd) {
+    const W = t.w, H = t.h, TOP = t.top;
+    const foot = Math.min(W, H);
+    const longest = Math.max(W, H);
+    const squarish = longest / Math.max(0.001, foot) < 1.5;
+    const roll = rnd(997);
+
+    if (t.blocks && squarish && foot <= 4.5 && TOP >= foot * 0.95 && roll < 0.6) {
+      return roll < 0.3 ? silo(t, pal, rnd) : tower(t, pal, rnd);
+    }
+    if (longest >= foot * 1.7 && TOP <= longest * 0.6 && roll < 0.55) {
+      return shed(t, pal, rnd);
+    }
+    if (t.blocks && TOP <= foot * 1.1 && roll < 0.5) {
+      return bastion(t, pal, rnd);
+    }
+    return building(t, pal, rnd);
   }
 
   /* ---------------------------------------------------------- roof fixtures
@@ -544,5 +821,6 @@ const Build3D = (function () {
     return g;
   }
 
-  return { building, ruin, wall, rebar, rooftop, yardKit };
+  return { building, ruin, wall, rebar, rooftop, yardKit,
+           structure, silo, shed, bastion, tower };
 })();

@@ -1688,19 +1688,22 @@ const gk = sandbox.PRESETS.find(f => f.id === 'greyknights');
   check('the opponent cannot buy in someone else’s phase',
     Engine.cardAbilities(1).length, 0);
 
-  /* 3 PSY — Warp Charge: 2 AP, no target to choose. */
+  /* 1 PSY — Sanctifying Barrage: the Storm Bolter gains BURST 2. Bought first
+     because the buff it leaves is what the shooting checks below are for. */
+  Engine.useCardAbility(0, 'gk_barrage');
+  check('a power with no target resolves at once', G().flow, null);
+  check('it is waiting as a buff', G().players[0].buffs.length, 1);
+  check('PSY is spent', G().players[0].card.resource.value, 4);
+
+  /* ONE A TURN. The pool is not the limit — the card is, so having bought one
+     there is nothing else to be had this turn however much PSY is left over. */
+  check('a second power is refused however much PSY is left',
+    Engine.cardAbilities(0).find(a => a.id === 'gk_warpcharge').available.why,
+    'already used a PSY ability this turn');
   const apBeforeCharge = ap(0);
   Engine.useCardAbility(0, 'gk_warpcharge');
-  check('a power with no target resolves at once', G().flow, null);
-  check('Warp Charge pays out 2 AP', ap(0) - apBeforeCharge, 2);
-  check('PSY is spent', G().players[0].card.resource.value, 2);
-
-  /* 1 PSY — Sanctifying Barrage: the next Storm Bolter attack rolls 2 dice. */
-  Engine.useCardAbility(0, 'gk_barrage');
-  check('it is waiting as a buff', G().players[0].buffs.length, 1);
-  check('PSY down to 1', G().players[0].card.resource.value, 1);
-  check('so the 2 PSY power is now out of reach',
-    Engine.cardAbilities(0).find(a => a.id === 'gk_gate').available.why, 'not enough PSY');
+  check('and refusing it means refusing it', ap(0) - apBeforeCharge, 0);
+  check('with the PSY untouched', G().players[0].card.resource.value, 4);
 
   Engine.confirmStartPhase();
   check('powers are dead outside the Start Phase',
@@ -1773,7 +1776,7 @@ console.log('\n== GREY KNIGHTS: dice buffs, reserves and teleports ==');
   check('a whiff still spends it', G().players[0].buffs.length, 0);
 })();
 
-console.log('\n== GREY KNIGHTS: Purifying Flame, Into the Warp, Gate of Infinity ==');
+console.log('\n== GREY KNIGHTS: Purifying Flame, Into the Warp, Warpstride ==');
 (function () {
   const knights = buildPreset(gk, 0);
   const foes = [
@@ -1803,9 +1806,9 @@ console.log('\n== GREY KNIGHTS: Purifying Flame, Into the Warp, Gate of Infinity
   check('it tops up the card', G().players[0].card.resource.value - psyBefore, 1);
   check('the chain carries on — the opponent may react', G().chain.active, true);
 
-  /* END: Gate of Infinity places up to two friendlies — and no more. */
+  /* END: Warpstride places up to two friendlies — and no more. */
   Engine.forceEndTurn();
-  const gate = U('Justicar Aurelius').abilities.find(a => a.name === 'Gate of Infinity');
+  const gate = U('Justicar Aurelius').abilities.find(a => a.name === 'Warpstride');
   Engine.usePhaseAbility(U('Justicar Aurelius').id, gate.id);
   check('it asks which units', G().flow.kind, 'ability');
   const placeEff = gate.effects[0];
@@ -1818,7 +1821,7 @@ console.log('\n== GREY KNIGHTS: Purifying Flame, Into the Warp, Gate of Infinity
   check('both are marked as having moved',
     [U('Brother Lucius').movedThisTurn, U('Justicar Aurelius').movedThisTurn], [true, true]);
   check('once per game', U('Justicar Aurelius').abilities
-    .find(a => a.name === 'Gate of Infinity').used, 1);
+    .find(a => a.name === 'Warpstride').used, 1);
 })();
 
 console.log('\n== GREY KNIGHTS: Gate of Infinity off the card ==');

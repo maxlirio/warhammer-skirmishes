@@ -961,6 +961,10 @@ const Battle = (function () {
       if (card.value < a.cost) why = 'needs ' + a.cost + ' ' + card.resource.name;
       if (S.turn.player !== player) why = 'only in your own turn';
       if (S.chain.active) why = 'the chain has already opened';
+      /* ONE a turn. The pool is not the limit — the card is. */
+      if (card.usedTurn === S.turn.number) {
+        why = 'you have already used a ' + card.resource.name + ' ability this turn';
+      }
       return { index: i, name: a.name, cost: a.cost, text: a.text || '', ok: !why, why: why };
     });
   }
@@ -969,6 +973,7 @@ const Battle = (function () {
     const card = S.cards[player];
     const a = card && (card.abilities || [])[index];
     if (!a || card.value < a.cost || S.turn.player !== player || S.chain.active) return;
+    if (card.usedTurn === S.turn.number) return;
     const need = (a.effects || []).some(e => e.kind === 'place') ? 'friend' : null;
     if (need && arg === undefined) {
       S.pending = { kind: 'card', player: player, index: index, need: need,
@@ -977,6 +982,7 @@ const Battle = (function () {
       return;
     }
     card.value -= a.cost;
+    card.usedTurn = S.turn.number;
     log(S.players[player].name + ' spends ' + a.cost + ' ' + card.resource.name +
         ': ' + a.name + '.', 'action');
     if (a.text) log(a.text, 'note');

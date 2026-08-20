@@ -28,6 +28,7 @@ const Render3D = (function () {
   const cine = [];
   let playing = null;
   let seenStrike = -1;
+  let seenDie = -1;
   let lastState = null;
   const seenClimb = {};
   let shake = 0;
@@ -50,9 +51,9 @@ const Render3D = (function () {
      the player's, because somebody painted them. Ownership is the base ring. */
   const SCANNED = { 'Brother Drusius': 'drusius' };
 
-  /* How tall a base stands. Taken from a real one — the scanner's base on
-     Drusius measured 13.7% of his total height. */
-  const BASE_H = 0.23;
+  /* No plinth any more — the ring lies on the floor. Kept at zero so anything
+     still measuring against it lines up with the ground. */
+  const BASE_H = 0;
 
   /* ------------------------------------------------------------ the camera */
 
@@ -494,20 +495,38 @@ const Render3D = (function () {
     }
     if (!rolling) return;
     rolling.t += dt;
-    const drop = Math.min(1, rolling.t / 0.5);
-    const e = 1 - Math.pow(1 - drop, 3);
+
+    /* IT HAS TO LOOK LIKE A ROLL.
+
+       It used to tumble for half a second and then snap to its face, which the
+       eye reads as a number appearing rather than a die being thrown. Now it
+       falls, bounces twice — losing height each time, the way a die does —
+       tumbling the whole while, and only settles onto its face after the last
+       bounce. The number arrives when the die stops, not before. */
+    const TUMBLE = 0.95;
+    const drop = Math.min(1, rolling.t / TUMBLE);
+    const e = 1 - Math.pow(1 - drop, 2);
     trayDie.position.lerpVectors(rolling.from, new THREE.Vector3(0, 0.34, 0), e);
-    if (rolling.t < 0.5) {
-      trayDie.rotation.x += rolling.spin.x * dt;
-      trayDie.rotation.y += rolling.spin.y * dt;
-      trayDie.rotation.z += rolling.spin.z * dt;
-    } else {
-      trayDie.quaternion.slerp(rolling.rest, Math.min(1, dt * 10));
-      if (rolling.t > 0.52 && rolling.t < 0.62) {
-        trayDie.position.y = 0.34 + Math.sin((rolling.t - 0.52) / 0.1 * Math.PI) * 0.18;
-        if (!rolling.clacked) { rolling.clacked = true; Sfx.clang(0.28); }
+    if (rolling.t < TUMBLE) {
+      /* two bounces off the bottom of the bowl, decaying */
+      const b1 = 0.42, b2 = 0.72;
+      let lift = 0;
+      if (rolling.t > b1 && rolling.t < b2) {
+        lift = Math.sin((rolling.t - b1) / (b2 - b1) * Math.PI) * 0.42;
+        if (!rolling.clacked) { rolling.clacked = true; Sfx.clang(0.3); }
+      } else if (rolling.t >= b2) {
+        lift = Math.sin((rolling.t - b2) / (TUMBLE - b2) * Math.PI) * 0.16;
+        if (!rolling.clacked2) { rolling.clacked2 = true; Sfx.clang(0.18); }
       }
-      if (!rolling.said && rolling.t > 0.75) {
+      trayDie.position.y += lift;
+      /* spin fast at first and slow as it loses energy */
+      const k = 1 - rolling.t / TUMBLE;
+      trayDie.rotation.x += rolling.spin.x * dt * (0.3 + k * 1.6);
+      trayDie.rotation.y += rolling.spin.y * dt * (0.3 + k * 1.6);
+      trayDie.rotation.z += rolling.spin.z * dt * (0.3 + k * 1.6);
+    } else {
+      trayDie.quaternion.slerp(rolling.rest, Math.min(1, dt * 9));
+      if (!rolling.said && rolling.t > TUMBLE + 0.12) {
         rolling.said = true;
         const ok = rolling.target ? (rolling.value !== 1 && rolling.value >= rolling.target) : null;
         trayLabel.material.map = trayText(rolling.label,
@@ -515,7 +534,7 @@ const Render3D = (function () {
         trayLabel.material.needsUpdate = true;
       }
     }
-    if (rolling.t > 1.5) rolling = null;
+    if (rolling.t > TUMBLE + 0.85) rolling = null;
   }
 
   function skyTexture(biome) {
@@ -814,7 +833,7 @@ const Render3D = (function () {
        painting of one. The old ground texture was smeared noise with scribbly
        cracks drawn on it; this is the same procedural material the buildings
        are made of, with a normal map, so the light rakes across it. */
-    const groundName = (PAL[biome.mass] || PAL.panel).ground;
+    const groundName = palette(null).ground;
     const floorMat = typeof Mats !== 'undefined'
       /* Toned well down. A floor is horizontal, so it takes the key light
          square on while every wall takes it at a glance — the same material
@@ -964,13 +983,59 @@ const Render3D = (function () {
 
   /* What each ground is BUILT of, in procedural surfaces rather than kit
      models. `shell` is the mass, `trim` the slabs, copings and lintels. */
-  const PAL = {
+  /* EVERY BATTLEFIELD ITS OWN COLOUR.
+
+     These were keyed on what a piece was MADE of — panel, stone, rock — which
+     meant five recipes shared between seven tables, and four of them resolved
+     to plain grey stone. Seven battlefields came out looking like the same
+     buildings moved around. Keyed on the BIOME instead, each place gets its
+     own concrete: bleached bone in the desert, wet slate in the snow, ash-
+     stained rockcrete in the manufactorum, mossed granite in the graveyard.
+     The MATERIAL is the same procedural recipe; the tint on it is not, and
+     the tint is what you actually see from across a table.
+
+     `accent` is what the hazard chevrons and the machinery are painted, which
+     is the loudest colour on any of these tables and so worth setting per
+     place as well. */
+  const PAL_BY_MASS = {
     panel:     { shell: 'rockcrete', trim: 'rockcrete', ground: 'ash' },
     stone:     { shell: 'stone',     trim: 'stone',     ground: 'loam' },
     rock:      { shell: 'stone',     trim: 'stone',     ground: 'snow' },
     sandstone: { shell: 'stone',     trim: 'stone',     ground: 'sand' },
     wood:      { shell: 'stone',     trim: 'stone',     ground: 'loam' }
   };
+
+  const PAL_BY_BIOME = {
+    /* the manufactorum: cold grey rockcrete, ash-stained */
+    rockcrete: { shell: 'rockcrete', trim: 'rockcrete', ground: 'ash',
+                 shellTint: 0xb9bcbe, trimTint: 0xd2d4d4, accent: 0xc9a227 },
+    /* the rail yard: scorched, rust-brown, everything smoke-dirtied */
+    ash:       { shell: 'rockcrete', trim: 'rockcrete', ground: 'ash',
+                 shellTint: 0x9b8f83, trimTint: 0xb8ac9c, accent: 0xb5561f },
+    /* the pinnacle: wet dark slate against snow */
+    snow:      { shell: 'stone',     trim: 'stone',     ground: 'snow',
+                 shellTint: 0x8b939c, trimTint: 0xa9b2bb, accent: 0x3f7fb0 },
+    /* the kill zone: bleached bone sandstone */
+    desert:    { shell: 'stone',     trim: 'stone',     ground: 'sand',
+                 shellTint: 0xd8c49a, trimTint: 0xeadcbb, accent: 0xbf7326 },
+    /* the crossroads: pale render gone green at the foot */
+    forest:    { shell: 'stone',     trim: 'stone',     ground: 'loam',
+                 shellTint: 0xa9ae9a, trimTint: 0xc4c8b4, accent: 0x6f8f3a },
+    /* three stations: mossed granite, almost black in the shade */
+    graveyard: { shell: 'stone',     trim: 'stone',     ground: 'loam',
+                 shellTint: 0x7f8479, trimTint: 0x9aa093, accent: 0x9e8b52 },
+    /* the long walk: sun-bleached ferrocrete, dust over everything */
+    wasteland: { shell: 'rockcrete', trim: 'rockcrete', ground: 'ash',
+                 shellTint: 0xc2b49b, trimTint: 0xdacfb8, accent: 0xa8452c }
+  };
+
+  const palette = function (t) {
+    const byBiome = PAL_BY_BIOME[board && board.biome];
+    if (byBiome) return byBiome;
+    return PAL_BY_MASS[t && t.blocks ? biome.mass : (t ? biome.deck : biome.mass)] ||
+           PAL_BY_MASS.panel;
+  };
+  const PAL = PAL_BY_MASS;
 
   /* HOW BIG A THING ACTUALLY IS.
 
@@ -1272,11 +1337,14 @@ const Render3D = (function () {
          after it came down. Both are generated off the rules box, so the
          rectangle the game measures and the thing you look at are the same
          object. */
-      const pal = PAL[t.blocks ? biome.mass : biome.deck] || PAL.panel;
+      const pal = palette(t);
       /* a top-level `const` in a classic script is NOT on window, so this
          has to be a plain reference guarded by typeof */
       const canBuild = typeof Build3D !== 'undefined' && typeof Mats !== 'undefined';
-      const built = grown ? false : (canBuild ? (g.add(Build3D.building(t, pal, rnd)), true)
+      /* structure() picks the archetype from the rules box's own proportions:
+         a tall narrow footprint wants a silo or a tower, a long shallow one
+         wants a shed, a squat square one wants a bastion. */
+      const built = grown ? false : (canBuild ? (g.add(Build3D.structure(t, pal, rnd)), true)
                                               : false);
 
       if (grown) {
@@ -1332,7 +1400,7 @@ const Render3D = (function () {
       /* A ruined building: the ground plan still standing in stubs of wall,
          right-angled and capped, with the heap it collapsed into inside. */
       if (typeof Build3D !== 'undefined' && typeof Mats !== 'undefined') {
-        g.add(Build3D.ruin(t, PAL[biome.mass] || PAL.panel, rnd));
+        g.add(Build3D.ruin(t, palette(t), rnd));
       }
 
       /* A SURFACE TO STAND ON.
@@ -1347,7 +1415,7 @@ const Render3D = (function () {
           new THREE.CylinderGeometry(Math.min(t.w, t.h) * 0.52, Math.min(t.w, t.h) * 0.62,
                                      Math.max(0.2, t.top * 0.92), 9),
           Mats && typeof Mats !== 'undefined'
-            ? Mats.material((PAL[biome.mass] || PAL.panel).ground, 4, 2, { bump: 1.3 })
+            ? Mats.material(palette(t).ground, 4, 2, { bump: 1.3 })
             : new THREE.MeshStandardMaterial({ color: 0x6a655c, roughness: 1 }));
         mound.scale.set(t.w / Math.min(t.w, t.h), 1, t.h / Math.min(t.w, t.h));
         mound.position.y = Math.max(0.2, t.top * 0.92) / 2;
@@ -1788,38 +1856,34 @@ const Render3D = (function () {
     const colour = u.owner === 0 ? COL.p0 : COL.p1;
     const g = new THREE.Group();
 
-    /* ONE BASE, FOR EVERYBODY.
+    /* NO PLINTH. Models stand on the ground.
 
-       A miniature is scanned standing on its base, and the base is the worst
-       part of every scan: a flat disc the photographs only ever see edge-on,
-       so it comes back lumpy and no two of them come back lumpy in the same
-       way. The pipeline cuts it off; this is what goes in its place. Same
-       black disc under every model on the table, scanned or placeholder, so
-       they line up like a squad instead of like a shelf of oddments.
+       The scanner's own base still comes off in the pipeline — it is the worst
+       part of every scan, a flat disc the photographs only ever see edge-on.
+       But replacing it with a raised disc was worse than leaving it: the trim
+       takes the soles off with the base they were fused to, so what is left
+       met the new disc at the ankle and read as a man standing in a bucket.
 
-       BASE_H is what a real one comes to: Drusius's own was 13.7% of his
-       height, which is where the trim was measured. */
-    const shell = new THREE.MeshStandardMaterial({
-      color: 0x0e0d0c, roughness: 0.62, metalness: 0.12 });
-    const plinth = new THREE.Mesh(
-      new THREE.CylinderGeometry(u.radius * 0.97, u.radius, BASE_H * 0.72, 34), shell);
-    plinth.position.y = BASE_H * 0.36;
-    plinth.receiveShadow = true; plinth.castShadow = true;
-    g.add(plinth);
-    /* a chamfer on the top edge, which is what stops a cylinder reading as a
-       cylinder and starts it reading as a base */
-    const lip = new THREE.Mesh(
-      new THREE.CylinderGeometry(u.radius * 0.9, u.radius * 0.97, BASE_H * 0.28, 34), shell);
-    lip.position.y = BASE_H * 0.86;
-    lip.receiveShadow = true; lip.castShadow = true;
-    g.add(lip);
 
-    const rim = new THREE.Mesh(new THREE.TorusGeometry(u.radius, 0.045, 8, 30),
+       A raised disc under everybody swallowed their feet — the trim takes the
+       soles off with the scanned base, so what is left meets the disc at the
+       ankle and reads as a man standing in a bucket. What ownership actually
+       needs is the ring, and a ring can lie flat on the floor where a model's
+       boots can sit on top of it. */
+    const rim = new THREE.Mesh(new THREE.TorusGeometry(u.radius, 0.05, 8, 34),
       new THREE.MeshStandardMaterial({ color: colour, emissive: colour,
                                        emissiveIntensity: 0.5, roughness: 0.5 }));
     rim.rotation.x = -Math.PI / 2;
-    rim.position.y = BASE_H * 0.72;
+    rim.position.y = 0.035;
     g.add(rim);
+    /* a shadow of a disc inside the ring, so it sits on the ground rather
+       than floating over it */
+    const pad = new THREE.Mesh(new THREE.CircleGeometry(u.radius, 34),
+      new THREE.MeshBasicMaterial({ color: 0x0b0a09, transparent: true,
+                                    opacity: 0.34, depthWrite: false }));
+    pad.rotation.x = -Math.PI / 2;
+    pad.position.y = 0.02;
+    g.add(pad);
 
     const body = new THREE.Group();
     const scan = SCANNED[u.name];
@@ -1827,8 +1891,8 @@ const Render3D = (function () {
     const isScan = name === scan;
     if (Assets.has(name)) {
       /* the figure alone, standing ON the base rather than including one */
-      const fig = isScan ? Assets.grown(name, 1.7 - BASE_H, 1.5)
-                         : Assets.fitted(name, 0.95, 0.95, 1.7 - BASE_H);
+      const fig = isScan ? Assets.grown(name, 1.7, 1.5)
+                         : Assets.fitted(name, 0.95, 0.95, 1.7);
       fig.traverse(function (o) {
         if (!o.isMesh) return;
         o.material = o.material.clone();
@@ -1837,7 +1901,12 @@ const Render3D = (function () {
       });
       body.add(fig);
     }
-    body.position.y = BASE_H;
+    /* A hair proud of the base. The trim takes the soles off with the base
+       they were fused to, so what is left meets the disc exactly — and a boot
+       whose bottom edge is coplanar with a black disc reads as a boot sunk
+       into it. Standing him a thousandth clear puts a shadow under the foot,
+       which is what tells you it is standing on something. */
+    body.position.y = 0.02;
     g.add(body);
     g.userData.body = body;
 
@@ -2394,6 +2463,23 @@ const Render3D = (function () {
   function missPoint(k) {
     const from = worldOf(k.from), to = worldOf(k.to);
     const dir = to.clone().sub(from).normalize();
+
+    /* A MISSED SWING DOES NOT LAND FIVE INCHES BEHIND THE MAN.
+
+       A round that misses carries on and strikes something past its target, so
+       the miss point was thrown two to four inches beyond and up to an inch
+       and a half wide. That is right for a bullet and nonsense for a blade:
+       the sword is a yard long and it either connects or it goes past his ear.
+       So a melee miss lands on him, near enough — sparks off the armour where
+       the blow was turned. */
+    if (k.melee) {
+      const wide = new THREE.Vector3(-dir.z, 0, dir.x)
+        .multiplyScalar((Assets.seeded(k.at * 13 + 5) - 0.5) * 0.5);
+      const q = to.clone().addScaledVector(dir, -0.25).add(wide);
+      q.y = k.to.z + 0.9;
+      return q;
+    }
+
     const side = new THREE.Vector3(-dir.z, 0, dir.x)
       .multiplyScalar((Assets.seeded(k.at * 13 + 5) - 0.5) * 3);
     const p = to.clone().addScaledVector(dir, 2 + Assets.seeded(k.at * 7) * 2.5).add(side);
@@ -2435,7 +2521,17 @@ const Render3D = (function () {
       }
       if (c.t >= T.AIM) {
         /* one die, in the bowl, before the shot goes */
-        if (k.rolls && k.rolls.hitTarget) rollDie(k.rolls.hit, k.rolls.hitTarget, 'TO HIT');
+        /* EVERY die, not just the first. A Storm Bolter throws two and the
+           tray only ever showed one of them — so an attack that hit on the
+           second die displayed a failed first die and read as a lie. */
+        if (k.rolls && k.rolls.hitTarget) {
+          const all = (k.rolls.hitRolls && k.rolls.hitRolls.length)
+            ? k.rolls.hitRolls : [k.rolls.hit];
+          all.forEach(function (v, i) {
+            rollDie(v, k.rolls.hitTarget,
+                    all.length > 1 ? 'TO HIT ' + (i + 1) + '/' + all.length : 'TO HIT');
+          });
+        }
         c.stage = 'waitHit'; c.t = 0;
       }
       return;
@@ -2948,15 +3044,29 @@ const Render3D = (function () {
     syncTokens(S);
     setOverlay(view);
 
+    /* ONE ORDER, ONE CURSOR EACH.
+
+       Strikes and loose dice are two lists that both stamp themselves with the
+       same sequence counter, and they were sharing a single "seen" mark. So
+       scanning the strikes first pushed the mark past every die rolled BEFORE
+       them — which is every charge roll, every scatter, every grenade
+       distance. They were dropped without a word, the tray never showed them,
+       and it sat there wearing the verdict of whatever it had last been told,
+       which is why it read FAILED through attacks that hit.
+
+       Merged and played in the order they happened, so the charge roll lands
+       before the charge does. */
+    const pending = [];
     S.strikes.forEach(function (k) {
-      if (k.at <= seenStrike) return;
-      seenStrike = k.at;
-      queueStrike(k);
+      if (k.at > seenStrike) pending.push({ at: k.at, strike: k });
     });
     (S.dice || []).forEach(function (d) {
-      if (d.at <= seenStrike) return;
-      seenStrike = d.at;
-      rollDie(d.value, d.target, d.label);
+      if (d.at > seenDie) pending.push({ at: d.at, die: d });
+    });
+    pending.sort(function (a, b) { return a.at - b.at; });
+    pending.forEach(function (e) {
+      if (e.strike) { seenStrike = Math.max(seenStrike, e.at); queueStrike(e.strike); }
+      else { seenDie = Math.max(seenDie, e.at); rollDie(e.die.value, e.die.target, e.die.label); }
     });
     S.units.forEach(function (u) {
       if (!u.climbed || seenClimb[u.id] === u.climbed.at) return;
@@ -3058,14 +3168,33 @@ const Render3D = (function () {
     });
     if (!near.length) return null;
     near.sort((a, b) => a.d - b.d);
-    if (near[0].d > 120) return null;              /* nowhere near anybody */
+
+    /* IF YOU CLICKED SOMEBODY, YOU MEANT SOMEBODY.
+
+       The ray is checked first for a model that is NOT on the list. Clicking
+       an enemy who is out of reach used to fall through to "nearest legal
+       model on screen" and quietly attack a different one — which is how a
+       melee attack ended up resolving against a man five inches away, and how
+       a one-inch blade reached something it could not possibly reach. Aiming
+       at an illegal target now does nothing at all, which is the honest
+       answer to it. */
+    ray.setFromCamera(ndc, camera);
+    const hits = ray.intersectObjects(unitGroup.children, true);
+    for (let i = 0; i < hits.length; i++) {
+      const id = hits[i].object.userData.unitId;
+      if (!id) continue;
+      if (allow[id]) break;                        /* the ray found a legal one */
+      const u = S.units.find(q => q.id === id);
+      if (u && u.alive && !u.reserve) return null; /* it found an illegal one */
+      break;
+    }
+
+    if (near[0].d > 90) return null;               /* nowhere near anybody */
 
     /* Genuinely the same pixel: let the ray say which is in front. Kept very
        tight — at ten pixels this was overriding a clean aim at a model six
        pixels behind its neighbour, which is the bug it was meant to help. */
     if (near.length > 1 && near[1].d - near[0].d < 3) {
-      ray.setFromCamera(ndc, camera);
-      const hits = ray.intersectObjects(unitGroup.children, true);
       for (let i = 0; i < hits.length; i++) {
         const id = hits[i].object.userData.unitId;
         if (!id || !allow[id]) continue;

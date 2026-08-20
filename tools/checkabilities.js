@@ -530,7 +530,7 @@ console.log('\n== the small print');
   ok(before && before.ok, 'Lucius may MOVE normally');
   lucius.noMoveTurn = S.turn.number;
   const after = G.Battle.actionsFor(lucius.id).find(a => a.id === 'move');
-  ok(after && !after.ok, 'but not after being placed by Gate of Infinity',
+  ok(after && !after.ok, 'but not after being placed by Warpstride',
      after ? after.why || 'still offered' : 'no move action');
 }
 {
@@ -568,10 +568,10 @@ console.log('\n== the small print');
   S.control.player = 0;
   G.Battle.endTurn();
   ok(S.pending && S.pending.kind === 'endability',
-     'the End Phase offers Aurelius his Gate of Infinity',
+     'the End Phase offers Aurelius his Warpstride',
      S.pending ? S.pending.kind : 'the turn just ended');
   if (S.pending && S.pending.kind === 'endability') {
-    ok(S.pending.name === 'Gate of Infinity', 'by name', S.pending.name);
+    ok(S.pending.name === 'Warpstride', 'by name', S.pending.name);
     G.Battle.answerEndAbility(true);
     ok(S.pending && S.pending.kind === 'pick', 'and asks which unit to place');
     if (S.pending && S.pending.kind === 'pick') {

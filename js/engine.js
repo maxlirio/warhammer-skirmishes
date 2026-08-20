@@ -1636,7 +1636,10 @@ const Engine = (function () {
       const cost = Number(a.cost) || 0;
       let why = '';
       if (!inStart) why = 'only in ' + pname(playerId) + '’s Start Phase';
-      else if (c.resource && cost > res) why = 'not enough ' + c.resource.name;
+      else if (c.usedTurn === g.turn.number) {
+        /* ONE a turn. The pool is not the limit — the card is. */
+        why = 'already used a ' + (c.resource ? c.resource.name : 'card') + ' ability this turn';
+      } else if (c.resource && cost > res) why = 'not enough ' + c.resource.name;
       return Object.assign({}, a, { available: { ok: !why, why: why } });
     });
   }
@@ -1672,6 +1675,7 @@ const Engine = (function () {
     const ab = cardAbility(playerId, abilityId);
     if (!c || !ab) return;
     const cost = Number(ab.cost) || 0;
+    c.usedTurn = S().turn.number;
     if (c.resource) {
       c.resource.value = Math.max(0, (Number(c.resource.value) || 0) - cost);
       log(pname(playerId) + ' spends ' + cost + ' ' + c.resource.name + ' on “' + ab.name +
