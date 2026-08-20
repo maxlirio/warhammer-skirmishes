@@ -130,6 +130,127 @@ def turn_upright(obj, rx, ry, rz):
     bpy.context.view_layer.update()
 
 
+def colour_from(target, src_path, tex_px, src_rot):
+    """Take the geometry from one file and the colour from another.
+
+    A scanner gives you two things and they are good at different jobs. The
+    PRINTABLE mesh has been repaired to be watertight — no spikes, no holes,
+    no floating scraps, because none of those would print — but it is an STL
+    and carries no colour at all. The TEXTURED mesh has the photographs on it
+    and a surface full of the reconstruction's mistakes.
+
+    So: keep the printable body, and bake the textured one's skin onto it. They
+    are the same object scanned once, so once they are on the same scale and
+    centred on each other they line up, and the transfer is a short ray from
+    one surface to the other.
+    """
+    scene = bpy.context.scene
+    print('  colour      reading %r' % (src_path,))
+    if not src_path or not os.path.exists(src_path):
+        print('  colour      no such file')
+        return False
+    before = set(bpy.context.scene.objects)
+    ext = os.path.splitext(src_path)[1].lower()
+    if ext in ('.glb', '.gltf'):
+        bpy.ops.import_scene.gltf(filepath=src_path)
+    else:
+        print('  colour      cannot read ' + ext)
+        return False
+    fresh = [o for o in bpy.context.scene.objects
+             if o not in before and o.type == 'MESH']
+    if not fresh:
+        print('  colour      no mesh in ' + os.path.basename(src_path))
+        return False
+
+    # join the colour source into one object
+    bpy.ops.object.select_all(action='DESELECT')
+    for o in fresh:
+        o.select_set(True)
+    bpy.context.view_layer.objects.active = fresh[0]
+    if len(fresh) > 1:
+        bpy.ops.object.join()
+    source = bpy.context.view_layer.objects.active
+
+    if src_rot:
+        m = mathutils.Matrix.Rotation(math.radians(src_rot), 4, 'X')
+        source.data.transform(source.matrix_world.inverted() @ m @ source.matrix_world)
+        source.data.update()
+
+    # put it exactly over the target: same longest side, same centre
+    def bounds(o):
+        vs = o.data.vertices
+        lo = [min(v.co[i] for v in vs) for i in range(3)]
+        hi = [max(v.co[i] for v in vs) for i in range(3)]
+        return lo, hi
+
+    tlo, thi = bounds(target)
+    slo, shi = bounds(source)
+    tspan = max(thi[i] - tlo[i] for i in range(3))
+    sspan = max(shi[i] - slo[i] for i in range(3))
+    k = tspan / sspan if sspan > 1e-9 else 1.0
+    m = mathutils.Matrix.Scale(k, 4)
+    source.data.transform(m)
+    slo, shi = bounds(source)
+    shift = mathutils.Matrix.Translation(
+        mathutils.Vector([((thi[i] + tlo[i]) - (shi[i] + slo[i])) / 2.0 for i in range(3)]))
+    source.data.transform(shift)
+    source.data.update()
+    slo, shi = bounds(source)
+    drift = max(abs((thi[i] + tlo[i]) / 2 - (shi[i] + slo[i]) / 2) for i in range(3))
+    print('  colour      source scaled x%.4f, centres within %.4f' % (k, drift))
+
+    # somewhere to put it
+    bpy.ops.object.select_all(action='DESELECT')
+    target.select_set(True)
+    bpy.context.view_layer.objects.active = target
+    bpy.ops.object.mode_set(mode='EDIT')
+    bpy.ops.mesh.select_all(action='SELECT')
+    bpy.ops.uv.smart_project(angle_limit=math.radians(66), island_margin=0.004)
+    bpy.ops.object.mode_set(mode='OBJECT')
+
+    img = bpy.data.images.new('baked', tex_px, tex_px)
+    mat = bpy.data.materials.new('scan_baked')
+    mat.use_nodes = True
+    nt = mat.node_tree
+    bsdf = nt.nodes.get('Principled BSDF')
+    if bsdf:
+        bsdf.inputs['Metallic'].default_value = 0.0
+        if 'Roughness' in bsdf.inputs:
+            bsdf.inputs['Roughness'].default_value = 0.72
+    texnode = nt.nodes.new('ShaderNodeTexImage')
+    texnode.image = img
+    nt.links.new(texnode.outputs['Color'], bsdf.inputs['Base Color'])
+    nt.nodes.active = texnode
+    target.data.materials.clear()
+    target.data.materials.append(mat)
+
+    scene.render.engine = 'CYCLES'
+    scene.cycles.samples = 1
+    scene.cycles.device = 'CPU'
+    scene.render.bake.use_selected_to_active = True
+    scene.render.bake.cage_extrusion = tspan * 0.03
+    scene.render.bake.max_ray_distance = tspan * 0.06
+    scene.render.bake.use_pass_direct = False
+    scene.render.bake.use_pass_indirect = False
+    scene.render.bake.use_pass_color = True
+
+    bpy.ops.object.select_all(action='DESELECT')
+    source.select_set(True)
+    target.select_set(True)
+    bpy.context.view_layer.objects.active = target
+    ok = True
+    try:
+        bpy.ops.object.bake(type='DIFFUSE')
+    except RuntimeError as err:
+        print('  colour      BAKE FAILED: %s' % err)
+        ok = False
+    bpy.data.objects.remove(source, do_unlink=True)
+    if ok:
+        img.pack()
+        texnode.image = img
+    return ok
+
+
 VOXELS = 300          # how many voxels across the model's longest side
 ADAPT = 0.0           # how hard to simplify flat areas, in voxels
 
@@ -546,6 +667,11 @@ def main():
         globals()['VOXELS'] = int(args[9])
     if len(args) > 10:
         globals()['ADAPT'] = float(args[10])
+    # Geometry from this file, colour from another: set COLOUR_FROM to a
+    # textured .glb of the same object, and COLOUR_ROT to whatever rotation
+    # that file needs to stand up.
+    colour_src = os.environ.get('COLOUR_FROM', '')
+    colour_rot = float(os.environ.get('COLOUR_ROT', '0'))
 
     wipe()
     ext = os.path.splitext(src)[1].lower()
@@ -605,6 +731,26 @@ def main():
         bpy.context.view_layer.objects.active = obj
         bpy.ops.mesh.customdata_custom_splitnormals_clear()
     before, after = decimate_to(obj, target_tris)
+
+    if colour_src:
+        stand_on_the_ground(obj)
+        got = colour_from(obj, colour_src, max_px, colour_rot)
+        lifted = lift_exposure() if (lift and got) else []
+        print('')
+        print('  ' + os.path.basename(src) + '  ->  ' + os.path.basename(dst))
+        print('  triangles   %d -> %d' % (before, after))
+        print('  colour      from ' + os.path.basename(colour_src) +
+              ('' if got else '  (FAILED — no colour)'))
+        for line in lifted:
+            print('  exposure    ' + line)
+        stand_on_the_ground(obj)
+        size = sit_it_down(obj, dst)
+        if size:
+            print('  bounds      %.2f wide, %.2f deep, %.2f tall' % size)
+        print('  file        %.2f MB -> %.2f MB'
+              % (os.path.getsize(src) / 1048576.0, os.path.getsize(dst) / 1048576.0))
+        print('')
+        return
 
     # Weld AFTER decimating, not before. Welding first sews the surface
     # together beautifully and then the collapse decimator will not touch the
