@@ -163,8 +163,10 @@ const MAPS = (function () {
         { x: 17, y: 11,   w: 2, h: 2,   top: 1.4, blocks: false, kind: 'rubble' },
         { x: 17, y: 17,   w: 2, h: 2,   top: 1.4, blocks: false, kind: 'rubble' }
       ], w),
-      objectives: [{ x: 9, y: 15 }, { x: 35, y: 15 }, { x: 22, y: 15 },
-                   { x: 22, y: 6 }, { x: 22, y: 24 }]
+      /* ONE, in the middle. Five markers on a table with five models a side
+         means nobody can contest anything — you spread out to hold them and
+         then there is nothing left to fight with. */
+      objectives: [{ x: w / 2, y: h / 2 }]
     };
   }
 
@@ -228,19 +230,25 @@ const MAPS = (function () {
       terrain: mirrored([
         { x: 13, y: 8,  w: 16, h: 14, top: 1.6, blocks: false, kind: 'nave' },
         { x: 15, y: 9.5, w: 12, h: 11, top: 3.0, blocks: false, kind: 'nave' },
-        { x: 17.5, y: 11, w: 7, h: 8,  top: 5.4, blocks: false, kind: 'sanctum' },
-        /* the outbuildings at its foot */
-        { x: 8,  y: 3,  w: 4.5, h: 4, top: 4.0, blocks: true,  kind: 'blockhouse' },
-        { x: 8,  y: 23, w: 4.5, h: 4, top: 4.0, blocks: true,  kind: 'blockhouse' },
-        { x: 7,  y: 9,  w: 3, h: 3,   top: 3.2, blocks: true,  kind: 'annexe' },
-        { x: 7,  y: 18, w: 3, h: 3,   top: 3.2, blocks: true,  kind: 'annexe' },
-        { x: 8,  y: 13.5, w: 2.5, h: 3, top: 2.8, blocks: true, kind: 'pillar' },
+        { x: 17.5, y: 11, w: 7, h: 8,  top: 6.2, blocks: false, kind: 'sanctum' },
+        /* The outbuildings at its foot — deliberately OFF the axes. The card
+           wants the massif to command the table, and now that sight is a real
+           line rather than "taller than the wall wins", anything left standing
+           on the lane out from the peak genuinely blocks it. Cover goes in the
+           quadrants; the approaches stay open. */
+        { x: 8,  y: 2.5, w: 4.5, h: 4, top: 3.8, blocks: true,  kind: 'blockhouse' },
+        { x: 8,  y: 23.5, w: 4.5, h: 4, top: 3.8, blocks: true, kind: 'blockhouse' },
+        { x: 7,  y: 8,  w: 3, h: 3.4, top: 3.2, blocks: true,  kind: 'annexe' },
+        { x: 7,  y: 18.6, w: 3, h: 3.4, top: 3.2, blocks: true, kind: 'annexe' },
+        { x: 10.5, y: 7.5, w: 2.5, h: 3, top: 2.8, blocks: true, kind: 'pillar' },
+        { x: 10.5, y: 19.5, w: 2.5, h: 3, top: 2.8, blocks: true, kind: 'pillar' },
         /* a walled approach on each side of the hill */
         { x: 14, y: 3,  w: 6, h: 2, top: 2.6, blocks: true,  kind: 'wall' },
         { x: 14, y: 25, w: 6, h: 2, top: 2.6, blocks: true,  kind: 'wall' },
         { x: 12, y: 5,  w: 2, h: 2.5, top: 2.2, blocks: false, kind: 'step' },
         { x: 12, y: 22.5, w: 2, h: 2.5, top: 2.2, blocks: false, kind: 'step' },
-        { x: 11.5, y: 12.5, w: 2, h: 5, top: 1.2, blocks: false, kind: 'rubble' }
+        { x: 11.5, y: 4,  w: 2, h: 4, top: 1.2, blocks: false, kind: 'rubble' },
+        { x: 11.5, y: 22, w: 2, h: 4, top: 1.2, blocks: false, kind: 'rubble' }
       ], w),
       objectives: []
     };
@@ -292,7 +300,7 @@ const MAPS = (function () {
              'deep enough to keep a name out of sight.',
       w: w, h: h,
       deploy: [{ x: 0, y: 0, w: 6, h: h }, { x: w - 6, y: 0, w: 6, h: h }],
-      /* A CROSSROADS with a shrine at the junction. Four corner holdings deep
+      /* A CROSSROADS with a shrine at the junction, and woods you go INTO. Four corner holdings deep
          enough to keep a named head out of sight, walled yards behind them,
          and four clear lanes running onto the marker in the middle. */
       terrain: mirrored([
@@ -307,7 +315,12 @@ const MAPS = (function () {
         /* the steps up onto the junction itself */
         { x: 16, y: 9,  w: 3, h: 3,   top: 2.2, blocks: false, kind: 'step' },
         { x: 16, y: 16, w: 3, h: 3,   top: 2.2, blocks: false, kind: 'step' },
-        { x: 16.5, y: 12.5, w: 3, h: 3, top: 1.2, blocks: false, kind: 'rubble' }
+        { x: 16.5, y: 12.5, w: 3, h: 3, top: 1.2, blocks: false, kind: 'rubble' },
+        /* stands of trees: they hide you and you walk in among them */
+        { x: 15, y: 2,  w: 5, h: 4, top: 3.4, blocks: true, soft: true, kind: 'wood' },
+        { x: 15, y: 22, w: 5, h: 4, top: 3.4, blocks: true, soft: true, kind: 'wood' },
+        { x: 9,  y: 10, w: 4, h: 3, top: 3.2, blocks: true, soft: true, kind: 'wood' },
+        { x: 9,  y: 15, w: 4, h: 3, top: 3.2, blocks: true, soft: true, kind: 'wood' }
       ], w),
       objectives: [{ x: 20, y: 14 }]
     };

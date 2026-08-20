@@ -86,6 +86,20 @@ console.log('\n== Astra Militarum');
   const beforeAp = G.Battle.get().players[1].ap;
   const beforeY = alfred.y, beforeLvl = G.Board.heightAt(G.Battle.get().board, alfred);
   useAbility(G, alfred, 'Grappling Hook');
+  /* It is a MOVE now, not a teleport: it asks where, and the whole point of
+     the card is that the answer may be the top of something. Take the highest
+     spot it offers, which is what a player using a hook is there to do. */
+  {
+    const P = G.Battle.get().pending;
+    ok(P && P.kind === 'put', 'Grappling Hook asks where to hook to',
+       P ? P.kind : 'nothing');
+    if (P && P.kind === 'put') {
+      ok(P.radius === 5, 'up to 5", as the card says', P.radius + '"');
+      const high = P.spots.slice().sort((p, q) =>
+        G.Board.heightAt(G.Battle.get().board, q) - G.Board.heightAt(G.Battle.get().board, p))[0];
+      G.Battle.placePut(high);
+    }
+  }
   ok(Math.hypot(alfred.x - (wall.x + wall.w / 2), alfred.y - beforeY) > 0.5,
      'Grappling Hook actually moves Alfred',
      'moved ' + Math.abs(alfred.y - beforeY).toFixed(2) + '"');

@@ -1203,33 +1203,43 @@ const Battle = (function () {
           break;
         }
         case 'hook': {
-          /* Grappling Hook: straight at the nearest scenery, height ignored */
-          const reach = Number(e.value) || 5, sniff = Number(e.near) || 3;
-          const near = S.board.terrain
-            .map(t2 => ({ t: t2, d: Board.distToBox(t2, u) }))
-            .filter(o => o.d <= sniff)
-            .sort((x, y) => x.d - y.d)[0];
-          if (!near) { log('No terrain within 3".', 'muted'); break; }
-          const cx = near.t.x + near.t.w / 2, cy = near.t.y + near.t.h / 2;
-          const ang2 = Math.atan2(cy - u.y, cx - u.x);
-          /* "ignoring height" is the whole point of a hook: of everywhere along
-             the line it can reach, take the highest it can stand on, and only
-             fall back to flat ground if it cannot get up at all. */
-          let best = null, bestUp = -1;
-          for (let d = 0.5; d <= reach + 1e-6; d += 0.25) {
-            const q = { x: u.x + Math.cos(ang2) * d, y: u.y + Math.sin(ang2) * d };
-            const lvl = Board.heightAt(S.board, q);
-            if (!Board.standable(S.board, q, u.radius, lvl)) continue;
-            if (alive().some(o => o !== u && rangeTo(o, q) < o.radius + u.radius)) continue;
-            if (lvl > bestUp || (lvl === bestUp && best === null)) { bestUp = lvl; best = q; }
-          }
-          if (best) {
-            u.facing = ang2;
-            u.x = best.x; u.y = best.y;
-            u.movedTurn = S.turn.number;
-            u.climbed = { top: Board.heightAt(S.board, u), at: S.seq++ };
-            log(u.name + ' hooks up onto the ' + (near.t.kind || 'terrain') + '.', 'note');
-          }
+          /* GRAPPLING HOOK: a 5" MOVE that ignores height.
+
+             It was a teleport with no choice in it — the game picked the
+             nearest scenery, fired the model at it and put them down. What the
+             card describes is a move: five inches, measured flat, and the
+             height of what you land on does not matter, which is the whole
+             point of a hook. So the player is offered every spot within five
+             inches they could stand on — including the tops of things they
+             could never have climbed — and chooses. */
+          const reach = Number(e.value) || 5;
+          pendingEffects.push(function (next) {
+            const from = { x: u.x, y: u.y };
+            askPut(u, reach, 'GRAPPLING HOOK — ' + reach + '"',
+                   'Anywhere within ' + reach + '". Height is ignored: the top of ' +
+                   'anything you could not otherwise climb counts, so long as you ' +
+                   'can stand on it.',
+                   function (q) {
+                     const lvl = Board.heightAt(S.board, q);
+                     if (!Board.standable(S.board, q, u.radius, lvl)) return false;
+                     return !alive().some(o => o !== u && rangeTo(o, q) < o.radius + u.radius);
+                   },
+                   function (at) {
+                     if (at) {
+                       u.facing = Math.atan2(at.y - u.y, at.x - u.x);
+                       u.x = at.x; u.y = at.y;
+                       u.movedTurn = S.turn.number;
+                       const top = Board.heightAt(S.board, u);
+                       u.climbed = { from: from, to: { x: u.x, y: u.y }, top: top, at: S.seq++ };
+                       log(u.name + ' hooks ' + Board.dist(from, u).toFixed(1) + '" — ' +
+                           (top > 0.1 ? 'up onto ' + top.toFixed(1) + '".' : 'across the floor.'),
+                           'note');
+                       const w2 = triggeredWatchers(u);
+                       if (w2.length) { openOverwatch(u, w2, next); return; }
+                     }
+                     next();
+                   });
+          });
           break;
         }
         case 'place': {

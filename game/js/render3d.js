@@ -47,6 +47,25 @@ const Render3D = (function () {
   let want = null, userZoomed = false;
   const held = {};
 
+  /* LOOK AROUND FROM WHERE YOU STAND.
+
+     The camera is an orbit: the eye is derived from a point on the table, so
+     dragging swung it round that point and the whole battlefield appeared to
+     rotate under you. What you want when you drag is to turn your head. Same
+     three numbers, solved the other way round — the EYE is held still and the
+     point it is looking at moves on a sphere around it. */
+  function lookAround(dx, dy) {
+    const eye = camera.position.clone();
+    cam.az += dx;
+    cam.el = Math.max(-0.55, Math.min(1.45, cam.el + dy));
+    const r = cam.dist * Math.cos(cam.el);
+    cam.target.set(eye.x - r * Math.cos(cam.az),
+                   eye.y - cam.dist * Math.sin(cam.el),
+                   eye.z - r * Math.sin(cam.az));
+    camera.position.copy(eye);
+    camera.lookAt(cam.target);
+  }
+
   function placeCamera() {
     const r = cam.dist * Math.cos(cam.el);
     camera.position.set(
@@ -87,11 +106,10 @@ const Render3D = (function () {
         const fwd = new THREE.Vector3(Math.cos(cam.az), 0, Math.sin(cam.az));
         cam.target.addScaledVector(right, -dx * s2).addScaledVector(fwd, -dy * s2);
         clampTarget();
+        placeCamera();
       } else {
-        cam.az += dx * 0.007;
-        cam.el = Math.max(0.10, Math.min(1.48, cam.el + dy * 0.006));
+        lookAround(dx * 0.006, dy * 0.005);
       }
-      placeCamera();
     });
 
     const release = function (e) {
@@ -1207,7 +1225,7 @@ const Render3D = (function () {
        waist-high thicket that the game treats as a solid wall — so anything
        that cannot fill its own height gets built instead. */
     const tallest = clumps.reduce((m, n) => Math.max(m, realHeight(n)), 0);
-    const grown = t.blocks && clumps.length && kind !== 'rubble' &&
+    const grown = (t.blocks || t.soft) && clumps.length && kind !== 'rubble' &&
                   tallest >= t.top * 0.78;
     const massTop = grown ? Math.min(t.top * 0.42, 1.5) : t.top;
 
@@ -1416,39 +1434,13 @@ const Render3D = (function () {
         });
         g.add(roof);
       }
-      if (Assets.has('stairs') && t.top > 0.9) {
-        const nat = Assets.size('stairs');
-        const probe = bestApproach(t, (nat.z / nat.y) * t.top);
-        const from = probe ? probe.level : 0;
-        const rise = Math.max(0.6, t.top - from);
-        let run = (nat.z / (nat.y || 1)) * rise;
-        if (run > 7.6) run = 7.6;
-        const wide = Math.max(1.1, (nat.x / (nat.y || 1)) * rise);
-        const side = bestApproach(t, run, wide);
-        if (side) {
-          const st = Assets.fitted('stairs', wide, run, rise);
-          st.rotation.y = side.turn;
-          st.position.set(side.x, side.level, side.z);
-          st.userData.stairsFor = t;
-          stairsPlaced.push(side.rect);
-          g.add(st);
-          /* Open the parapet where the steps arrive. The building is generated
-             before the flight is placed, so the way in has to be cut
-             afterwards — otherwise the stairs climb to a solid wall and stop,
-             which is exactly what it looked like. */
-          const gate = { x: side.x, z: side.z, r: Math.max(1.1, wide) * 0.75 + 0.4 };
-          g.traverse(function (o) {
-            if (!o.userData || !o.userData.parapet) return;
-            o.children.forEach(function (seg) {
-              const wx = o.position.x + seg.position.x * Math.cos(o.rotation.y) +
-                         seg.position.z * Math.sin(o.rotation.y);
-              const wz = o.position.z - seg.position.x * Math.sin(o.rotation.y) +
-                         seg.position.z * Math.cos(o.rotation.y);
-              if (Math.hypot(wx - gate.x, wz - gate.z) < gate.r) seg.visible = false;
-            });
-          });
-        }
-      }
+      /* NO STAIRCASES.
+
+         Every piece of terrain is climbable by the rules — walking into it
+         takes you up it — so a flight of steps was always decoration, and it
+         was decoration that went wrong in every direction: backwards, into a
+         wall, crossing another, and a monstrous one straddling the Pinnacle.
+         The way up is the piece itself. */
     }
     return finishDress(g, t);
   }
@@ -2181,23 +2173,29 @@ const Render3D = (function () {
      and the part of it you could actually stand on was somewhere above it.
      Split by level and draw one for each: a move onto a four-inch deck is
      shaded four inches up, where the model will be standing. */
-  function areaMesh(points, colour, opacity, cell, lift) {
+  function areaMesh(points, colour, opacity, cell, lift, split) {
     if (!points.length) return new THREE.Group();
-    if (lift === undefined && board) {
+    /* `lift` is how far ABOVE THE GROUND to float it, not an absolute height.
+
+       It used to be absolute, and both callers passed a number — so the shading
+       was pinned a few hundredths above the table no matter what it was
+       describing. Stand on a building and the ground you could move to was
+       drawn on the floor INSIDE it, where you cannot see it. */
+    if (!split && board) {
+      const off = lift === undefined ? 0.06 : lift;
       const levels = {};
       points.forEach(function (p) {
         const y = Math.round(Board.heightAt(board, p) * 20) / 20;
         (levels[y] = levels[y] || []).push(p);
       });
       const keys = Object.keys(levels);
-      if (keys.length > 1) {
-        const g = new THREE.Group();
-        keys.forEach(function (k) {
-          g.add(areaMesh(levels[k], colour, opacity, cell, Number(k) + 0.06));
-        });
-        return g;
-      }
-      if (keys.length === 1) lift = Number(keys[0]) + 0.06;
+      const g = new THREE.Group();
+      keys.forEach(function (k) {
+        g.add(areaMesh(levels[k], colour, opacity, cell, Number(k) + off, true));
+      });
+      /* one level is the common case; hand back the plane itself so callers
+         that reach for .material still work */
+      return keys.length === 1 ? g.children[0] : g;
     }
     let minx = Infinity, maxx = -Infinity, miny = Infinity, maxy = -Infinity;
     points.forEach(function (p) {
@@ -2245,6 +2243,7 @@ const Render3D = (function () {
                                     depthWrite: false, side: THREE.DoubleSide }));
     m.rotation.x = -Math.PI / 2;
     m.position.set(minx + w / 2, (lift === undefined ? 0.06 : lift), miny + h / 2);
+    m.renderOrder = 3;
     return m;
   }
 
@@ -2307,7 +2306,11 @@ const Render3D = (function () {
       if (view.areaGlow) {
         const e = areaMesh(view.area, view.areaColour || COL.goldLit, 0.45,
                            (view.areaCell || 0.22) * 2.6, 0.03);
-        e.material.blending = THREE.AdditiveBlending;
+        /* it may be a group now — one plane per level of ground */
+        e.traverse(function (o) {
+          if (o.isMesh && o.material) o.material.blending = THREE.AdditiveBlending;
+        });
+        if (e.isMesh && e.material) e.material.blending = THREE.AdditiveBlending;
         overlayGroup.add(e);
       }
     }
@@ -2438,38 +2441,19 @@ const Render3D = (function () {
         }
         shake = Math.max(shake, k.melee ? 0.1 : 0.2);
       }
-      if (c.t >= T.FIRE) {
-        c.stage = 'flight'; c.t = 0;
-        /* the tallest thing the round has to get over on its way */
-        c.clear = 0;
-        if (board && !k.melee) {
-          const a2 = { x: c.muzzlePos.x, y: c.muzzlePos.z };
-          const b2 = { x: c.impact.x, y: c.impact.z };
-          let top = 0;
-          board.terrain.forEach(function (t2) {
-            if (Board.segHitsBox(t2, a2, b2)) top = Math.max(top, t2.top);
-          });
-          const lineY = Math.min(c.muzzlePos.y, c.impact.y);
-          if (top > lineY) c.clear = (top - lineY) + 0.45;
-        }
-      }
+      if (c.t >= T.FIRE) { c.stage = 'flight'; c.t = 0; }
       return;
     }
 
     if (c.stage === 'flight') {
       const span = k.melee ? 0.16 : T.FLIGHT;
       const p = Math.min(1, c.t / span);
-      if (c.bolt) {
-        c.bolt.position.copy(c.muzzlePos).lerp(c.impact, p);
-        /* OVER the wall, not through it.
-
-           Line of sight is judged from the higher of the two models, so a
-           shooter up on a gantry may legally shoot a man on the floor across
-           the top of a wall between them — and the round, flying a straight
-           line between two model-height points, went through the middle of it.
-           Arch the shot over whatever it has to clear. */
-        if (c.clear > 0) c.bolt.position.y += Math.sin(p * Math.PI) * c.clear;
-      }
+      /* Straight. A round does not curve over a wall — if it cannot go
+         straight it does not go. That is now guaranteed upstream: line of
+         sight is a real three-dimensional line, so a shot is only ever offered
+         when the line from the shooter to the target actually clears
+         everything between them. */
+      if (c.bolt) c.bolt.position.copy(c.muzzlePos).lerp(c.impact, p);
       a.userData.body.rotation.x *= 0.85;
       if (p >= 1) {
         if (c.bolt) { fxGroup.remove(c.bolt); c.bolt = null; }

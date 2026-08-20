@@ -22,7 +22,7 @@ const Board = (function () {
       terrain: map.terrain.map(t => Object.assign({}, t)),
       deploy: map.deploy.map(d => Object.assign({}, d)),
       objectives: map.objectives.map((o, i) => ({ x: o.x, y: o.y, id: 'obj' + i })),
-      walls: map.terrain.filter(t => t.blocks)
+      walls: map.terrain.filter(t => t.blocks && !t.soft)
     };
   }
 
@@ -31,10 +31,18 @@ const Board = (function () {
 
   /* How high you stand at a point. All terrain is climbable, so anything whose
      footprint you are inside is something you are standing on top of. */
+  /* FOLIAGE is a third kind of terrain.
+
+     `blocks` has always meant two things at once — you cannot see past it and
+     you cannot walk through it — and a wood is not like that. You walk INTO a
+     wood; it hides you; you do not climb on top of the canopy and stand there
+     like a bird. So `soft` pieces block sight at their height and do nothing
+     else: you pass through them and you stand on the ground inside. */
   function heightAt(b, p) {
     let top = 0;
     for (let i = 0; i < b.terrain.length; i++) {
       const t = b.terrain[i];
+      if (t.soft) continue;                          /* you are under it, not on it */
       if (inBox(t, p) && t.top > top) top = t.top;
     }
     return top;
@@ -48,6 +56,7 @@ const Board = (function () {
      you are already stood on is not one of them. */
   function wallsFor(b, from, level) {
     return b.terrain.filter(function (t) {
+      if (t.soft) return false;                      /* walk straight into it */
       if (t.top <= level + STEP_OVER) return false;
       if (from && inBox(t, from)) return false;      /* you are on top of it */
       return true;
@@ -69,12 +78,14 @@ const Board = (function () {
     const perch = radius * 0.6;
     for (let i = 0; i < b.terrain.length; i++) {
       const t = b.terrain[i];
+      if (t.soft) continue;                          /* stand anywhere in a wood */
       if (t.top <= lvl + EPS) continue;              /* at or below your feet */
       if (distToBox(t, p) < radius - EPS) return false;   /* half inside its side */
     }
     /* if you are up on something, you have to be far enough in to balance */
     for (let i = 0; i < b.terrain.length; i++) {
       const t = b.terrain[i];
+      if (t.soft) continue;
       if (Math.abs(t.top - lvl) > EPS || !inBox(t, p)) continue;
       if (p.x < t.x + perch || p.x > t.x + t.w - perch ||
           p.y < t.y + perch || p.y > t.y + t.h - perch) return false;
@@ -110,19 +121,72 @@ const Board = (function () {
     return t1 > t0 + EPS;
   }
 
+  /* Where along the segment it crosses the box, in plan. Null if it misses.
+     segHitsBox works this out and throws it away; sight needs to keep it. */
+  function segBoxSpan(t, a, c) {
+    const minx = t.x, maxx = t.x + t.w, miny = t.y, maxy = t.y + t.h;
+    let t0 = 0, t1 = 1;
+    const dx = c.x - a.x, dy = c.y - a.y;
+    if (Math.abs(dx) < EPS) {
+      if (a.x <= minx || a.x >= maxx) return null;
+    } else {
+      let n0 = (minx - a.x) / dx, n1 = (maxx - a.x) / dx;
+      if (n0 > n1) { const s = n0; n0 = n1; n1 = s; }
+      t0 = Math.max(t0, n0); t1 = Math.min(t1, n1);
+      if (t0 >= t1) return null;
+    }
+    if (Math.abs(dy) < EPS) {
+      if (a.y <= miny || a.y >= maxy) return null;
+    } else {
+      let n0 = (miny - a.y) / dy, n1 = (maxy - a.y) / dy;
+      if (n0 > n1) { const s = n0; n0 = n1; n1 = s; }
+      t0 = Math.max(t0, n0); t1 = Math.min(t1, n1);
+      if (t0 >= t1) return null;
+    }
+    return t1 > t0 + EPS ? { t0: t0, t1: t1 } : null;
+  }
+
   /* ------------------------------------------------------------ line of sight
-     You see over anything that does not stand higher than the higher of the two
-     of you — so a wall that blocks two models on the floor stops mattering the
-     moment one of them climbs something taller than it. */
-  function canSee(b, from, to) {
-    const eye = Math.max(heightAt(b, from), heightAt(b, to));
+
+     A REAL LINE, in three dimensions.
+
+     This used to be a shortcut: you saw over anything not taller than the
+     higher of the two of you. That is roughly right and occasionally a lie —
+     it grants a shot from a gantry to a man on the floor behind a wall
+     standing between them, when the line from one to the other plainly goes
+     through the wall. The renderer then had to arch the round over it, and a
+     bullet that curves over a wall is not a bullet.
+
+     So the line is drawn properly: from the shooter's eye to the target,
+     dropping as it goes, and each piece it crosses in plan is asked whether
+     the line is still ABOVE it over the stretch where it crosses. Height falls
+     off linearly, so the lowest the line gets over that stretch is at one end
+     or the other, and comparing both is exact. High ground still lets you see
+     over a wall — but only when the geometry actually does. */
+  const EYE = 1.15;                    /* eye height above the base */
+
+  function clearLine(b, from, to, eyeA, eyeB) {
+    const ay = heightAt(b, from) + eyeA;
+    const by = heightAt(b, to) + eyeB;
     for (let i = 0; i < b.terrain.length; i++) {
       const t = b.terrain[i];
-      if (t.top <= eye + EPS) continue;               /* low enough to see over */
-      if (!t.blocks && (inBox(t, from) || inBox(t, to))) continue;  /* stood on it */
-      if (segHitsBox(t, from, to)) return false;
+      if (!t.blocks && !t.soft && (inBox(t, from) || inBox(t, to))) continue;  /* stood on it */
+      /* Inside a wood you can see out of it and be seen — it is the trees
+         BETWEEN you and somebody else that hide you, not the ones you are
+         standing among. */
+      if (t.soft && (inBox(t, from) || inBox(t, to))) continue;
+      if (t.top <= Math.min(ay, by) + EPS) continue;   /* below both ends */
+      const span = segBoxSpan(t, from, to);
+      if (!span) continue;
+      const h0 = ay + (by - ay) * span.t0;
+      const h1 = ay + (by - ay) * span.t1;
+      if (Math.min(h0, h1) <= t.top + EPS) return false;
     }
     return true;
+  }
+
+  function canSee(b, from, to) {
+    return clearLine(b, from, to, EYE, EYE * 0.7);
   }
 
   /* The same question, asked of somebody who has got their head down.
@@ -136,15 +200,8 @@ const Board = (function () {
      `drop` is how far below their standing height the model gets; anything
      taller than the ducked eye line now blocks. */
   function canSeeDucked(b, from, to, drop) {
-    const down = drop === undefined ? 0.9 : drop;
-    const eye = Math.max(heightAt(b, from), Math.max(0, heightAt(b, to) - down));
-    for (let i = 0; i < b.terrain.length; i++) {
-      const t = b.terrain[i];
-      if (t.top <= eye + EPS) continue;
-      if (!t.blocks && (inBox(t, from) || inBox(t, to))) continue;
-      if (segHitsBox(t, from, to)) return false;
-    }
-    return true;
+    const down = drop === undefined ? 0.75 : drop;
+    return clearLine(b, from, to, EYE, Math.max(0.1, EYE * 0.7 - down));
   }
 
   /* ------------------------------------------------------------- movement
@@ -352,7 +409,7 @@ const Board = (function () {
 
   return {
     build, inside, inBox, dist, heightAt, distToBox, standable, wallsFor, STEP_OVER,
-    canSee, canSeeDucked, segHitsBox, moveField, costTo, canReach, pathTo, climbSpots, climbFor,
+    canSee, canSeeDucked, clearLine, segBoxSpan, segHitsBox, moveField, costTo, canReach, pathTo, climbSpots, climbFor,
     sampleReach, sampleSight, nudgeToLegal
   };
 })();

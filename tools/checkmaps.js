@@ -46,7 +46,10 @@ const zoneMid = z => ({ x: z.x + z.w / 2, y: z.y + z.h / 2 });
 
 /* What each card needs on the ground, beyond the things every table needs. */
 const WANTS = {
-  null:            { markers: 5, note: 'objectives everywhere, since holding them is all there is' },
+  /* One, in the middle. Five markers on a table with five models a side means
+     nobody can contest anything: you spread thin to hold them and have nothing
+     left to fight with. */
+  null:            { markers: 1, note: 'one marker in the middle, worth fighting over' },
   sabotage:        { markers: 0, note: 'the targets are units in the deployment zones' },
   hill:            { markers: 0, note: 'one obviously tallest piece near the middle' },
   ambush:          { markers: 0, note: 'cover at both ends, open ground between' },
