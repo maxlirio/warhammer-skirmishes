@@ -9,6 +9,11 @@
 const fs = require('fs');
 const path = require('path');
 
+/* SCANS ARE NOT BAKED. A kit prop is a few dozen kilobytes; a scan of a real
+   miniature, remeshed to a clean surface, is several megabytes — and baking
+   one into this script pushed it past twelve. They live in game/assets/scans/
+   and are fetched, which the game can do now that it is served rather than
+   opened off a disc. */
 const dir = path.join(__dirname, '..', 'game', 'assets', 'kit');
 const files = fs.readdirSync(dir).filter(f => f.endsWith('.glb')).sort();
 

@@ -130,6 +130,169 @@ def turn_upright(obj, rx, ry, rz):
     bpy.context.view_layer.update()
 
 
+VOXELS = 300          # how many voxels across the model's longest side
+ADAPT = 0.0           # how hard to simplify flat areas, in voxels
+
+
+def remesh_and_bake(obj, size, target_tris, tex_px):
+    """Rebuild the surface, then paint the old one back onto it.
+
+    The shards are IN THE SCAN. The raw 147,172-triangle mesh straight out of
+    the scanner is already covered in them — flakes and spikes standing off the
+    shoulder pads and the halberd, floating scraps, surfaces doubled back on
+    themselves. No amount of welding, normal recalculation or gentler decimation
+    touches that, because there is nothing wrong with how it is being processed;
+    the reconstruction produced a bad surface.
+
+    So the surface is thrown away and rebuilt. A voxel remesh takes the shape
+    and returns clean, watertight, evenly-spaced topology — which drops the
+    spikes and closes the holes, because neither survives being re-sampled on a
+    grid.
+
+    That costs the UVs, and with them the texture, so the texture is baked back
+    on: the original is kept aside, the rebuilt mesh gets a fresh unwrap, and
+    the colour is transferred across from one to the other. What comes out has
+    the old skin on a new body.
+    """
+    scene = bpy.context.scene
+
+    # keep the original aside as the source of colour
+    source = obj.copy()
+    source.data = obj.data.copy()
+    scene.collection.objects.link(source)
+    source.name = 'scan_source'
+
+    # --- rebuild the shape -------------------------------------------------
+    bpy.ops.object.select_all(action='DESELECT')
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+    # fine enough to keep a face and a purity seal, coarse enough to lose the
+    # noise: about 300 voxels across the model's longest side
+    obj.data.remesh_voxel_size = max(1e-4, size / float(VOXELS))
+    # Simplify DURING the remesh, not after it. Collapse decimation on a
+    # remeshed scan tears it to pieces — 205,424 triangles down to 20,000 came
+    # out shredded every time, with or without the loose scraps removed —
+    # because it is collapsing across a surface full of thin resolved noise.
+    # Adaptivity does the reduction inside the remesher, on flat ground only,
+    # and the surface survives.
+    obj.data.remesh_voxel_adaptivity = max(1e-4, size / float(VOXELS)) * ADAPT
+    bpy.ops.object.voxel_remesh()
+
+    # KEEP ONLY THE BODY.
+    #
+    # The scan's floating flakes survive the remesh as their own little closed
+    # shells, and collapse decimation eats them alive: it spends its budget
+    # collapsing hundreds of scraps to nothing and tears holes through the
+    # model doing it. Remeshed and left whole the surface is clean; remeshed
+    # and decimated it came out shredded, and the scraps are why. Split the
+    # result into loose parts, keep the largest, bin the rest.
+    bpy.ops.object.select_all(action='DESELECT')
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+    bpy.ops.object.mode_set(mode='EDIT')
+    bpy.ops.mesh.select_all(action='SELECT')
+    bpy.ops.mesh.separate(type='LOOSE')
+    bpy.ops.object.mode_set(mode='OBJECT')
+    parts = [o for o in bpy.context.selected_objects if o.type == 'MESH']
+    if len(parts) > 1:
+        parts.sort(key=lambda o: len(o.data.vertices), reverse=True)
+        body = parts[0]
+        for scrap in parts[1:]:
+            bpy.data.objects.remove(scrap, do_unlink=True)
+        obj = body
+        bpy.ops.object.select_all(action='DESELECT')
+        obj.select_set(True)
+        bpy.context.view_layer.objects.active = obj
+        print('  scraps      %d loose pieces -> kept the body' % len(parts))
+
+    remeshed = triangle_count_of(obj)
+
+    # bring it down to budget — the remesh comes out heavy
+    if remeshed > target_tris:
+        mod = obj.modifiers.new(name='decimate', type='DECIMATE')
+        mod.decimate_type = 'COLLAPSE'
+        mod.ratio = max(0.005, float(target_tris) / float(remeshed))
+        mod.use_collapse_triangulate = True
+        bpy.context.view_layer.update()
+        dg = bpy.context.evaluated_depsgraph_get()
+        baked_mesh = bpy.data.meshes.new_from_object(obj.evaluated_get(dg))
+        obj.modifiers.clear()
+        stale = obj.data
+        obj.data = baked_mesh
+        if stale.users == 0:
+            bpy.data.meshes.remove(stale)
+
+    bpy.ops.object.shade_smooth()
+
+    # --- give it somewhere to put the colour --------------------------------
+    bpy.ops.object.select_all(action='DESELECT')
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+    bpy.ops.object.mode_set(mode='EDIT')
+    bpy.ops.mesh.select_all(action='SELECT')
+    bpy.ops.uv.smart_project(angle_limit=math.radians(66), island_margin=0.004)
+    bpy.ops.object.mode_set(mode='OBJECT')
+
+    img = bpy.data.images.new('baked', tex_px, tex_px)
+    mat = bpy.data.materials.new('scan_baked')
+    mat.use_nodes = True
+    nt = mat.node_tree
+    bsdf = nt.nodes.get('Principled BSDF')
+    if bsdf:
+        bsdf.inputs['Metallic'].default_value = 0.0
+        if 'Roughness' in bsdf.inputs:
+            bsdf.inputs['Roughness'].default_value = 0.72
+    texnode = nt.nodes.new('ShaderNodeTexImage')
+    texnode.image = img
+    nt.links.new(texnode.outputs['Color'], bsdf.inputs['Base Color'])
+    nt.nodes.active = texnode
+    obj.data.materials.clear()
+    obj.data.materials.append(mat)
+
+    # --- bake the old skin onto the new body --------------------------------
+    scene.render.engine = 'CYCLES'
+    scene.cycles.samples = 1
+    scene.cycles.device = 'CPU'
+    scene.render.bake.use_selected_to_active = True
+    scene.render.bake.cage_extrusion = size * 0.02
+    scene.render.bake.max_ray_distance = size * 0.04
+    scene.render.bake.use_pass_direct = False
+    scene.render.bake.use_pass_indirect = False
+    scene.render.bake.use_pass_color = True
+
+    bpy.ops.object.select_all(action='DESELECT')
+    source.select_set(True)
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+    try:
+        bpy.ops.object.bake(type='DIFFUSE')
+        ok = True
+    except RuntimeError as err:
+        print('  bake        FAILED: %s' % err)
+        ok = False
+
+    bpy.data.objects.remove(source, do_unlink=True)
+
+    if ok:
+        img.pack()
+        texnode.image = img
+    return obj, remeshed, triangle_count_of(obj), ok
+
+
+def model_span(obj):
+    """The model's longest side, which every threshold here is relative to."""
+    vs = obj.data.vertices
+    if not len(vs):
+        return 1.0
+    return max((max(v.co[i] for v in vs) - min(v.co[i] for v in vs)) for i in range(3))
+
+
+def triangle_count_of(obj):
+    me = obj.data
+    me.calc_loop_triangles()
+    return len(me.loop_triangles)
+
+
 def weld_the_scan(obj, size):
     """Sew the surface together before anything else touches it.
 
@@ -376,6 +539,13 @@ def main():
     ry = float(args[5]) if len(args) > 5 else 0.0
     rz = float(args[6]) if len(args) > 6 else 0.0
     lift = (args[7].lower() not in ('0', 'no', 'off')) if len(args) > 7 else True
+    # REBUILD is on by default for scans: the surface a scanner hands you is
+    # not one you can clean, only one you can replace.
+    rebuild = (args[8].lower() not in ('0', 'no', 'off')) if len(args) > 8 else True
+    if len(args) > 9:
+        globals()['VOXELS'] = int(args[9])
+    if len(args) > 10:
+        globals()['ADAPT'] = float(args[10])
 
     wipe()
     ext = os.path.splitext(src)[1].lower()
@@ -400,12 +570,35 @@ def main():
 
     turn_upright(obj, rx, ry, rz)
 
+    span = model_span(obj)
+
+    if rebuild:
+        raw = triangle_count()
+        obj, remeshed, after, baked_ok = remesh_and_bake(obj, span, target_tris, max_px)
+        before = raw
+        welded_from = welded_to = 0
+        vol_before = vol_after = signed_volume(obj)
+        print('')
+        print('  ' + os.path.basename(src) + '  ->  ' + os.path.basename(dst))
+        print('  rebuilt     %d triangles -> voxel surface %d -> %d'
+              % (raw, remeshed, after))
+        print('  texture     baked onto a fresh unwrap at %dpx%s'
+              % (max_px, '' if baked_ok else '  (BAKE FAILED — no colour)'))
+        lifted = lift_exposure() if lift else []
+        for line in lifted:
+            print('  exposure    ' + line)
+        stand_on_the_ground(obj)
+        size = sit_it_down(obj, dst)
+        if size:
+            print('  bounds      %.2f wide, %.2f deep, %.2f tall' % size)
+        print('  file        %.2f MB -> %.2f MB'
+              % (os.path.getsize(src) / 1048576.0, os.path.getsize(dst) / 1048576.0))
+        print('')
+        return
+
     # Sew it up BEFORE decimating. The order is the whole point: welding gives
     # the surface neighbours to walk across, decimating a welded mesh keeps them,
     # and normals recalculated at the end therefore actually propagate.
-    me0 = obj.data
-    span = max((max(v.co[i] for v in me0.vertices) - min(v.co[i] for v in me0.vertices))
-               for i in range(3)) if len(me0.vertices) else 1.0
     if obj.data.has_custom_normals:
         bpy.ops.object.select_all(action='DESELECT')
         obj.select_set(True)

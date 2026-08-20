@@ -57,15 +57,41 @@ const Assets = (function () {
     return buf;
   }
 
-  /* Parsed out of the baked-in data rather than fetched, because fetch will not
-     touch a file:// URL and the game has to open off a disc. */
+  /* The kit is parsed out of the baked-in data; SCANS are fetched.
+
+     Baking was there because fetch will not touch a file:// URL and the game
+     had to open off a disc. It does not any more — and a scan of a real
+     miniature, remeshed to a clean surface, is several megabytes on its own.
+     One of them pushed the baked script past twelve. So the kit stays baked,
+     because it is small and there is a lot of it, and scans are fetched from
+     assets/scans/, because they are large and there are few. */
+  function fetchScan(name) {
+    /* Opened off a disc there is nothing to fetch from, and trying logs a
+       network error for every scan. The kit still works either way; only the
+       scanned miniatures need a server. */
+    if (location.protocol === 'file:') return Promise.resolve(null);
+    return fetch('assets/scans/' + name + '.glb')
+      .then(function (r) { return r.ok ? r.arrayBuffer() : null; })
+      .catch(function () { return null; });
+  }
+
   function load(base, onProgress) {
     loader = new window.GLTFLoader();
-    const names = KIT.filter(n => window.KIT_DATA && KIT_DATA[n]);
+    const baked = KIT.filter(n => window.KIT_DATA && KIT_DATA[n]);
+    const names = baked.concat(SCANS.filter(n => baked.indexOf(n) < 0));
     progress = { done: 0, total: names.length };
     return Promise.all(names.map(function (name) {
-      return new Promise(function (resolve) {
-        loader.parse(b64ToBuffer(KIT_DATA[name]), '', function (gltf) {
+      const bytes = (window.KIT_DATA && KIT_DATA[name])
+        ? Promise.resolve(b64ToBuffer(KIT_DATA[name]))
+        : fetchScan(name);
+      return bytes.then(function (buf) { return new Promise(function (resolve) {
+        if (!buf) {
+          progress.done++;
+          if (onProgress) onProgress(progress.done, progress.total, name);
+          resolve();
+          return;
+        }
+        loader.parse(buf, '', function (gltf) {
           const root = gltf.scene;
           root.traverse(function (o) {
             if (!o.isMesh) return;
@@ -109,7 +135,7 @@ const Assets = (function () {
           if (onProgress) onProgress(progress.done, progress.total, name);
           resolve();
         });
-      });
+      }); });
     }));
   }
 

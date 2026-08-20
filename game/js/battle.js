@@ -639,6 +639,20 @@ const Battle = (function () {
 
     if (u.marker) return [];             /* a crate does not take actions */
 
+    /* IN RESERVE, the only thing on the list is the way on.
+
+       A unit waiting to deep strike was being offered MOVE, SHOOT, CHARGE,
+       FIGHT and OVERWATCH, each greyed out with "in reserve" beside it — five
+       lines of things he cannot do, above the one thing he can. He is not on
+       the battlefield. There is exactly one action available to him. */
+    if (u.reserve) {
+      return abilityActions(u)
+        .filter(a => (abilityOf(u, a.index).effects || []).some(e => e.kind === 'place'))
+        .map(a => ({ id: 'ability:' + a.index, cost: a.cost,
+                     ok: ap >= a.cost && !a.why, why: a.why,
+                     name: a.name, ability: a.index, text: a.text }));
+    }
+
     const carrying = !!u.carryingRelic;
     add('move', 1, u.noMoveTurn === S.turn.number ? 'placed this turn — may not MOVE' : null);
     add('shoot', 1, rangedTargets(unitId).length ? null : 'nothing in sight');
