@@ -72,8 +72,21 @@ def decimate_to(obj, target_tris):
     mod.decimate_type = 'COLLAPSE'
     mod.ratio = ratio
     mod.use_collapse_triangulate = True
-    bpy.context.view_layer.objects.active = obj
-    bpy.ops.object.modifier_apply(modifier=mod.name)
+
+    # Bake it off the dependency graph rather than through modifier_apply.
+    # The operator needs the right selection, mode and context to be in place,
+    # and after the welding pass it quietly did nothing — 133,574 triangles came
+    # out as 115,844 instead of the 20,000 that was asked for, with no error.
+    # Reading the evaluated mesh cannot fail that way.
+    bpy.context.view_layer.update()          # let the graph see the modifier 
+    dg = bpy.context.evaluated_depsgraph_get()
+    baked = bpy.data.meshes.new_from_object(obj.evaluated_get(dg))
+    obj.modifiers.clear()
+    stale = obj.data
+    obj.data = baked
+    if stale.users == 0:
+        bpy.data.meshes.remove(stale)
+    bpy.context.view_layer.update()
     return before, triangle_count()
 
 
@@ -115,6 +128,96 @@ def turn_upright(obj, rx, ry, rz):
     obj.data.transform(obj.matrix_world.inverted() @ m @ obj.matrix_world)
     obj.data.update()
     bpy.context.view_layer.update()
+
+
+def weld_the_scan(obj, size):
+    """Sew the surface together before anything else touches it.
+
+    A photogrammetry mesh is not one surface: it is stitched from separate
+    captures and arrives full of split vertices, coincident-but-unwelded seams
+    and loose scraps. That matters because making normals consistent works by
+    walking from face to neighbouring face — and across a split seam there IS no
+    neighbour, so the walk stops and every island beyond it keeps whatever
+    winding it happened to have. Recalculating normals on an unwelded scan does
+    almost nothing, which is exactly what happened here: Drusius came out
+    covered in bright shards where individual islands faced the wrong way.
+
+    So: weld the seams, throw away the scraps, and only then decimate.
+    """
+    bpy.ops.object.select_all(action='DESELECT')
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+    before = len(obj.data.vertices)
+
+    bpy.ops.object.mode_set(mode='EDIT')
+    bpy.ops.mesh.select_all(action='SELECT')
+    # 0.4% of the model's own size. At 0.06% the seams did not close — the
+    # shards survived every recalculation, because across an unclosed seam
+    # there is still no neighbour to walk to. On a 32mm miniature this is about
+    # a tenth of a millimetre, which welds the stitching without touching
+    # anything you would call detail.
+    bpy.ops.mesh.remove_doubles(threshold=max(1e-6, size * 0.0015))
+    bpy.ops.mesh.delete_loose()
+    bpy.ops.mesh.select_all(action='SELECT')
+    bpy.ops.mesh.normals_make_consistent(inside=False)
+    bpy.ops.object.mode_set(mode='OBJECT')
+    return before, len(obj.data.vertices)
+
+
+def face_the_right_way(obj):
+    """Turn the inside-out triangles back the right way.
+
+    A photogrammetry mesh is stitched from separate captures and its winding is
+    not consistent to begin with; collapsing 147,000 triangles down to 20,000
+    makes more of a mess of it. The faces do not vanish, because the material is
+    double-sided — but a triangle whose normal points into the model is lit as
+    though the sun were inside him, and you get dark patches crawling over the
+    armour that move when the camera does.
+
+    Two steps, and the order matters. The glTF importer brings CUSTOM SPLIT
+    NORMALS along with the mesh, and those override anything recalculated —
+    clear them first or the recalculation is thrown away. Then make the winding
+    consistent, outward.
+    """
+    bpy.ops.object.select_all(action='DESELECT')
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+
+    if obj.data.has_custom_normals:
+        bpy.ops.mesh.customdata_custom_splitnormals_clear()
+
+    bpy.ops.object.mode_set(mode='EDIT')
+    bpy.ops.mesh.select_all(action='SELECT')
+    bpy.ops.mesh.normals_make_consistent(inside=False)
+    bpy.ops.object.mode_set(mode='OBJECT')
+
+    # FLAT, not smooth. Smooth shading interpolates a normal across each face
+    # from its neighbours, which on a surface with gaps in it spreads the
+    # damage — every hole grows a halo of wrongly-lit triangles around it. Flat
+    # shading confines a bad face to itself.
+    bpy.ops.object.shade_flat()
+
+
+def signed_volume(obj):
+    """The volume the winding implies, by the divergence theorem.
+
+    Positive means the faces are wound outward, negative means the whole mesh is
+    inside out. This is the measurement that means something.
+
+    The obvious check — count faces whose normal points back toward the middle —
+    does NOT: a miniature is deeply concave, between the legs, under the arms,
+    inside a cloak, and thousands of its faces point inward perfectly correctly.
+    That count said 6562 before and 7443 after and neither number described
+    anything real.
+    """
+    me = obj.data
+    me.calc_loop_triangles()
+    v = me.vertices
+    total = 0.0
+    for tri in me.loop_triangles:
+        a, b, c = (v[i].co for i in tri.vertices)
+        total += a.dot(b.cross(c)) / 6.0
+    return total
 
 
 def lift_exposure(target=0.40):
@@ -296,7 +399,40 @@ def main():
         sys.exit(1)
 
     turn_upright(obj, rx, ry, rz)
+
+    # Sew it up BEFORE decimating. The order is the whole point: welding gives
+    # the surface neighbours to walk across, decimating a welded mesh keeps them,
+    # and normals recalculated at the end therefore actually propagate.
+    me0 = obj.data
+    span = max((max(v.co[i] for v in me0.vertices) - min(v.co[i] for v in me0.vertices))
+               for i in range(3)) if len(me0.vertices) else 1.0
+    if obj.data.has_custom_normals:
+        bpy.ops.object.select_all(action='DESELECT')
+        obj.select_set(True)
+        bpy.context.view_layer.objects.active = obj
+        bpy.ops.mesh.customdata_custom_splitnormals_clear()
     before, after = decimate_to(obj, target_tris)
+
+    # Weld AFTER decimating, not before. Welding first sews the surface
+    # together beautifully and then the collapse decimator will not touch the
+    # result — 133,574 triangles came out as 115,844 with no error and no
+    # reduction. Decimating first and sewing the 20,000 that survive gives both:
+    # the budget is met, and the normals have neighbours to propagate across.
+    welded_from, welded_to = weld_the_scan(obj, span)
+
+    vol_before = signed_volume(obj)
+    face_the_right_way(obj)
+    vol_after = signed_volume(obj)
+    if vol_after < 0:
+        # consistent, but consistently the wrong way round: turn the lot
+        bpy.ops.object.select_all(action='DESELECT')
+        obj.select_set(True)
+        bpy.context.view_layer.objects.active = obj
+        bpy.ops.object.mode_set(mode='EDIT')
+        bpy.ops.mesh.select_all(action='SELECT')
+        bpy.ops.mesh.flip_normals()
+        bpy.ops.object.mode_set(mode='OBJECT')
+        vol_after = signed_volume(obj)
     shrunk = shrink_textures(max_px)
     lifted = lift_exposure() if lift else []
     stand_on_the_ground(obj)
@@ -307,6 +443,8 @@ def main():
     print('')
     print('  ' + os.path.basename(src) + '  ->  ' + os.path.basename(dst))
     print('  triangles   %d -> %d' % (before, after))
+    print('  normals     signed volume %+.4f -> %+.4f (positive is outward)'
+          % (vol_before, vol_after))
     for line in shrunk:
         print('  texture     ' + line)
     for line in lifted:
