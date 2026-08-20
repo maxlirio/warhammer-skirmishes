@@ -50,6 +50,10 @@ const Render3D = (function () {
      the player's, because somebody painted them. Ownership is the base ring. */
   const SCANNED = { 'Brother Drusius': 'drusius' };
 
+  /* How tall a base stands. Taken from a real one — the scanner's base on
+     Drusius measured 13.7% of his total height. */
+  const BASE_H = 0.23;
+
   /* ------------------------------------------------------------ the camera */
 
   const cam = { az: -Math.PI / 2, el: 0.78, dist: 46, target: new THREE.Vector3() };
@@ -1784,18 +1788,37 @@ const Render3D = (function () {
     const colour = u.owner === 0 ? COL.p0 : COL.p1;
     const g = new THREE.Group();
 
-    const base = new THREE.Mesh(
-      new THREE.CylinderGeometry(u.radius, u.radius * 1.05, 0.12, 30),
-      new THREE.MeshStandardMaterial({ color: 0x15120f, roughness: 0.85, metalness: 0.35 }));
-    base.position.y = 0.06;
-    base.receiveShadow = true; base.castShadow = true;
-    g.add(base);
+    /* ONE BASE, FOR EVERYBODY.
+
+       A miniature is scanned standing on its base, and the base is the worst
+       part of every scan: a flat disc the photographs only ever see edge-on,
+       so it comes back lumpy and no two of them come back lumpy in the same
+       way. The pipeline cuts it off; this is what goes in its place. Same
+       black disc under every model on the table, scanned or placeholder, so
+       they line up like a squad instead of like a shelf of oddments.
+
+       BASE_H is what a real one comes to: Drusius's own was 13.7% of his
+       height, which is where the trim was measured. */
+    const shell = new THREE.MeshStandardMaterial({
+      color: 0x0e0d0c, roughness: 0.62, metalness: 0.12 });
+    const plinth = new THREE.Mesh(
+      new THREE.CylinderGeometry(u.radius * 0.97, u.radius, BASE_H * 0.72, 34), shell);
+    plinth.position.y = BASE_H * 0.36;
+    plinth.receiveShadow = true; plinth.castShadow = true;
+    g.add(plinth);
+    /* a chamfer on the top edge, which is what stops a cylinder reading as a
+       cylinder and starts it reading as a base */
+    const lip = new THREE.Mesh(
+      new THREE.CylinderGeometry(u.radius * 0.9, u.radius * 0.97, BASE_H * 0.28, 34), shell);
+    lip.position.y = BASE_H * 0.86;
+    lip.receiveShadow = true; lip.castShadow = true;
+    g.add(lip);
 
     const rim = new THREE.Mesh(new THREE.TorusGeometry(u.radius, 0.045, 8, 30),
       new THREE.MeshStandardMaterial({ color: colour, emissive: colour,
                                        emissiveIntensity: 0.5, roughness: 0.5 }));
     rim.rotation.x = -Math.PI / 2;
-    rim.position.y = 0.13;
+    rim.position.y = BASE_H * 0.72;
     g.add(rim);
 
     const body = new THREE.Group();
@@ -1803,8 +1826,9 @@ const Render3D = (function () {
     const name = (scan && Assets.has(scan)) ? scan : (MODEL[faction] || 'astronautA');
     const isScan = name === scan;
     if (Assets.has(name)) {
-      const fig = isScan ? Assets.grown(name, 1.7, 1.5)
-                         : Assets.fitted(name, 0.95, 0.95, 1.6);
+      /* the figure alone, standing ON the base rather than including one */
+      const fig = isScan ? Assets.grown(name, 1.7 - BASE_H, 1.5)
+                         : Assets.fitted(name, 0.95, 0.95, 1.7 - BASE_H);
       fig.traverse(function (o) {
         if (!o.isMesh) return;
         o.material = o.material.clone();
@@ -1813,7 +1837,7 @@ const Render3D = (function () {
       });
       body.add(fig);
     }
-    body.position.y = 0.12;
+    body.position.y = BASE_H;
     g.add(body);
     g.userData.body = body;
 

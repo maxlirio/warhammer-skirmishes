@@ -130,6 +130,61 @@ def turn_upright(obj, rx, ry, rz):
     bpy.context.view_layer.update()
 
 
+def cut_the_base_off(obj):
+    """Take the scanner's base off, so the game can put its own on.
+
+    A miniature is scanned standing on its base, and the base is always the
+    worst part of the result: it is a flat disc that the photographs see almost
+    edge-on, so it comes back lumpy, and every model ends up standing on a
+    different lumpy disc. The game already draws a base ring; it may as well
+    draw the whole base, the same one for everybody.
+
+    Finding the top of it: a base is FLAT, and nothing else on a miniature is
+    flat and horizontal and that big. Measuring upward-facing area by height
+    band, Drusius's base top holds 34% of all the upward-facing area on the
+    model — it is not a subtle peak. Cut just above the highest of those faces.
+    """
+    me = obj.data
+    me.calc_loop_triangles()
+    zs = [v.co.z for v in me.vertices]
+    z0, z1 = min(zs), max(zs)
+    span = z1 - z0
+    if span <= 0:
+        return None
+
+    N = 60
+    area = [0.0] * N
+    top_z = [z0] * N
+    for p in me.polygons:
+        if p.normal.z <= 0.85:
+            continue
+        band = min(N - 1, int(((p.center.z - z0) / span) * N))
+        area[band] += p.area
+        if p.center.z > top_z[band]:
+            top_z[band] = p.center.z
+
+    # only look in the bottom third — a shoulder pad is flat too
+    limit = int(N / 3)
+    best = max(range(limit), key=lambda i: area[i])
+    if area[best] <= 0:
+        return None
+    share = area[best] / (sum(area) or 1.0)
+    cut = top_z[best] + span * 0.004
+
+    bpy.ops.object.select_all(action='DESELECT')
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+    bpy.ops.object.mode_set(mode='EDIT')
+    bpy.ops.mesh.select_all(action='SELECT')
+    bpy.ops.mesh.bisect(plane_co=(0.0, 0.0, cut), plane_no=(0.0, 0.0, 1.0),
+                        clear_inner=True, use_fill=True)
+    bpy.ops.object.mode_set(mode='OBJECT')
+
+    left = [v.co.z for v in obj.data.vertices]
+    return {'height': span, 'cut': cut - z0, 'share': share,
+            'left': (max(left) - min(left)) if left else 0.0}
+
+
 def colour_from(target, src_path, tex_px, src_rot):
     """Take the geometry from one file and the colour from another.
 
@@ -672,6 +727,7 @@ def main():
     # that file needs to stand up.
     colour_src = os.environ.get('COLOUR_FROM', '')
     colour_rot = float(os.environ.get('COLOUR_ROT', '0'))
+    debase = os.environ.get('NO_DEBASE', '') == ''
 
     wipe()
     ext = os.path.splitext(src)[1].lower()
@@ -735,12 +791,21 @@ def main():
     if colour_src:
         stand_on_the_ground(obj)
         got = colour_from(obj, colour_src, max_px, colour_rot)
+        # AFTER the bake, never before: the colour source still has its own
+        # base, and the two are aligned by their bounding boxes. Trim one of
+        # them first and they no longer describe the same object.
+        trimmed = cut_the_base_off(obj) if debase else None
         lifted = lift_exposure() if (lift and got) else []
         print('')
         print('  ' + os.path.basename(src) + '  ->  ' + os.path.basename(dst))
         print('  triangles   %d -> %d' % (before, after))
         print('  colour      from ' + os.path.basename(colour_src) +
               ('' if got else '  (FAILED — no colour)'))
+        if trimmed:
+            print('  base        cut at %.1f%% of height (%.0f%% of the flat area '
+                  'was there); %.1f%% of the model left'
+                  % (100.0 * trimmed['cut'] / trimmed['height'], 100.0 * trimmed['share'],
+                     100.0 * trimmed['left'] / trimmed['height']))
         for line in lifted:
             print('  exposure    ' + line)
         stand_on_the_ground(obj)
