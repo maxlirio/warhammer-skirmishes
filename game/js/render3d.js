@@ -41,6 +41,15 @@ const Render3D = (function () {
 
   const MODEL = { astra: 'astronautA', greyknights: 'astronautB', orks: 'alien' };
 
+  /* SCANNED MODELS — the real miniature, by the unit it IS.
+
+     A placeholder stands in for a whole faction; a scan stands for one man.
+     These are photogrammetry off the actual model, so they are scaled evenly
+     rather than stretched to fill a box — a mini squashed to 0.95 × 0.95 is not
+     the mini — and they keep their own colour instead of being tinted toward
+     the player's, because somebody painted them. Ownership is the base ring. */
+  const SCANNED = { 'Brother Drusius': 'drusius' };
+
   /* ------------------------------------------------------------ the camera */
 
   const cam = { az: -Math.PI / 2, el: 0.78, dist: 46, target: new THREE.Vector3() };
@@ -1790,13 +1799,16 @@ const Render3D = (function () {
     g.add(rim);
 
     const body = new THREE.Group();
-    const name = MODEL[faction] || 'astronautA';
+    const scan = SCANNED[u.name];
+    const name = (scan && Assets.has(scan)) ? scan : (MODEL[faction] || 'astronautA');
+    const isScan = name === scan;
     if (Assets.has(name)) {
-      const fig = Assets.fitted(name, 0.95, 0.95, 1.6);
+      const fig = isScan ? Assets.grown(name, 1.7, 1.5)
+                         : Assets.fitted(name, 0.95, 0.95, 1.6);
       fig.traverse(function (o) {
         if (!o.isMesh) return;
         o.material = o.material.clone();
-        o.material.color.lerp(new THREE.Color(colour), 0.4);
+        if (!isScan) o.material.color.lerp(new THREE.Color(colour), 0.4);
         o.castShadow = true;
       });
       body.add(fig);

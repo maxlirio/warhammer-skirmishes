@@ -21,6 +21,8 @@ const Assets = (function () {
      assets/kit/ — add a model there and to this list, then re-run
      tools/buildkit.js. */
   const KIT = [
+    /* scans of real miniatures come first, so they are obvious */
+    'drusius',
     'alien', 'astronautA', 'astronautB', 'barrel', 'barrels', 'barrels_rail',
     'box', 'box_large', 'cactus_short', 'cactus_tall', 'chimney',
     'chimney_detailed', 'cliff_block_rock', 'cliff_large_rock',
@@ -72,7 +74,22 @@ const Assets = (function () {
             /* the kit ships flat-lit colours; give them something to catch */
             if (o.material) {
               const mats = Array.isArray(o.material) ? o.material : [o.material];
+              const scanned = SCANS.indexOf(name) >= 0;
               mats.forEach(function (m) {
+                /* A SCAN IS LEFT ALONE.
+
+                   grimdark() exists to take the cheerfulness out of a toy
+                   kit's flat colours, and a scan of a real miniature already
+                   has whatever colour somebody put on it. The metalness
+                   matters even more: there is no environment map in this
+                   scene, so anything metallic has nothing to reflect and
+                   renders very nearly black — which is exactly what happened
+                   to Brother Drusius the first time he stood on the table. */
+                if (scanned) {
+                  m.metalness = 0;
+                  m.roughness = m.roughness === undefined ? 0.72 : m.roughness;
+                  return;
+                }
                 m.roughness = m.roughness === undefined ? 0.82 : Math.min(1, m.roughness + 0.25);
                 m.metalness = 0.3;
                 grimdark(m);
@@ -109,6 +126,10 @@ const Assets = (function () {
     m.color.lerp(IRON, 0.12);
     if (m.emissive) m.emissive.multiplyScalar(0.4);
   }
+
+  /* Models that are photogrammetry off a real miniature rather than kit art.
+     They keep their own colour and their own proportions. */
+  const SCANS = ['drusius'];
 
   const has = name => !!cache[name];
   const size = name => cache[name] ? cache[name].size : new THREE.Vector3(1, 1, 1);

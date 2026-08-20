@@ -94,6 +94,74 @@ def shrink_textures(max_px):
     return touched
 
 
+def turn_upright(obj, rx, ry, rz):
+    """A scan comes out of the scanner in whatever attitude it was scanned in.
+    This one arrived on its back — base toward +Y, head toward -Y — and no
+    amount of standing it on the ground helps a model that is lying down. So
+    the rotation is given explicitly, in degrees, and baked in before anything
+    else measures it. Photogrammetry has no idea which way is up and guessing
+    from the bounding box is how you end up with a miniature on its face."""
+    if not (rx or ry or rz):
+        return
+    print('  upright     rotating %.0f, %.0f, %.0f degrees' % (rx, ry, rz))
+    # Straight onto the mesh data. Going through the object's rotation and
+    # transform_apply looked right and did nothing: the glTF importer parents
+    # everything under a root empty, and applying a transform to a parented
+    # object does not land where you expect. Moving the vertices is not
+    # ambiguous.
+    m = (mathutils.Matrix.Rotation(math.radians(rx), 4, 'X') @
+         mathutils.Matrix.Rotation(math.radians(ry), 4, 'Y') @
+         mathutils.Matrix.Rotation(math.radians(rz), 4, 'Z'))
+    obj.data.transform(obj.matrix_world.inverted() @ m @ obj.matrix_world)
+    obj.data.update()
+    bpy.context.view_layer.update()
+
+
+def lift_exposure(target=0.40):
+    """Bring an underexposed scan back up.
+
+    Photogrammetry of a dark miniature comes out dark: the first Grey Knight
+    scanned here had a baseColour texture with a mean luminance of about 0.06,
+    which is very nearly black, and on the table he read as a silhouette. The
+    geometry was perfect — it was the photographs.
+
+    So the albedo is levelled: measure the mean, and if it is well under what a
+    lit surface should sit at, apply a gamma that lands it there. Gamma rather
+    than a straight multiply, because a multiply blows out the few highlights a
+    dark scan does have and loses the only shape information in it.
+    """
+    notes = []
+    for img in bpy.data.images:
+        if img.source == 'VIEWER' or img.size[0] == 0:
+            continue
+        px = list(img.pixels)
+        n = img.size[0] * img.size[1]
+        if n == 0:
+            continue
+        # mean luminance, sampled — every pixel of a 1K image is four million
+        # floats and we only need to know roughly how dark it is
+        step = max(1, n // 40000)
+        tot, cnt = 0.0, 0
+        for i in range(0, n, step):
+            j = i * 4
+            tot += 0.2126 * px[j] + 0.7152 * px[j + 1] + 0.0722 * px[j + 2]
+            cnt += 1
+        mean = tot / max(1, cnt)
+        if mean >= target * 0.82 or mean <= 0.0005:
+            notes.append('%s mean %.3f — left alone' % (img.name, mean))
+            continue
+        gamma = math.log(target) / math.log(mean)
+        for i in range(n):
+            j = i * 4
+            for k in range(3):
+                v = px[j + k]
+                px[j + k] = v ** gamma if v > 0 else 0.0
+        img.pixels[:] = px
+        img.update()
+        notes.append('%s mean %.3f -> %.2f (gamma %.2f)' % (img.name, mean, target, gamma))
+    return notes
+
+
 def stand_on_the_ground(obj):
     """Put the origin at the middle of the footprint, on the floor. The game
     sets a model down on a base ring at y=0 and expects its feet there, not its
@@ -194,12 +262,17 @@ def sit_it_down(obj, dst, tries=4):
 def main():
     args = argv_after_dashes()
     if len(args) < 2:
-        print('usage: blender --background --python tools/decimate.py -- IN.glb OUT.glb [tris] [tex]')
+        print('usage: blender --background --python tools/decimate.py -- '
+              'IN.glb OUT.glb [tris] [tex] [rotX rotY rotZ, degrees]')
         sys.exit(1)
 
     src, dst = args[0], args[1]
     target_tris = int(args[2]) if len(args) > 2 else 20000
     max_px = int(args[3]) if len(args) > 3 else 1024
+    rx = float(args[4]) if len(args) > 4 else 0.0
+    ry = float(args[5]) if len(args) > 5 else 0.0
+    rz = float(args[6]) if len(args) > 6 else 0.0
+    lift = (args[7].lower() not in ('0', 'no', 'off')) if len(args) > 7 else True
 
     wipe()
     ext = os.path.splitext(src)[1].lower()
@@ -222,8 +295,10 @@ def main():
         print('no mesh in ' + src)
         sys.exit(1)
 
+    turn_upright(obj, rx, ry, rz)
     before, after = decimate_to(obj, target_tris)
     shrunk = shrink_textures(max_px)
+    lifted = lift_exposure() if lift else []
     stand_on_the_ground(obj)
     size = sit_it_down(obj, dst)
 
@@ -234,6 +309,8 @@ def main():
     print('  triangles   %d -> %d' % (before, after))
     for line in shrunk:
         print('  texture     ' + line)
+    for line in lifted:
+        print('  exposure    ' + line)
     if size:
         print('  bounds      %.2f wide, %.2f deep, %.2f tall' % (size[0], size[1], size[2]))
     print('  file        %.2f MB -> %.2f MB' % (in_mb, out_mb))
