@@ -168,7 +168,18 @@ MAPS.list.forEach(function (m) {
 /* ------------------------------------------------------------------ geometry */
 
 console.log('\n== measuring');
-const tl = Board.build(MAPS.byId('supply'));
+/* These test the GEOMETRY, not any particular battlefield — they were just
+   borrowing a real table as a convenient surface, with hard-coded coordinates
+   that assumed a given patch of it was bare. The moment the tables were built
+   out properly, a building stood on that patch and three of these failed for
+   reasons that had nothing to do with what they were checking. So they get
+   their own board: one wall, in the middle of nothing. */
+const tl = Board.build({
+  id: 'testbench', name: 'TEST BENCH', biome: 'rockcrete', w: 40, h: 30,
+  deploy: [{ x: 0, y: 0, w: 6, h: 30 }, { x: 34, y: 0, w: 6, h: 30 }],
+  terrain: [{ x: 17, y: 13, w: 6, h: 2, top: 3.6, blocks: true, kind: 'wall' }],
+  objectives: []
+});
 ok(Math.abs(Board.dist({ x: 0, y: 0 }, { x: 3, y: 4 }) - 5) < 1e-9,
    'distance is the straight line, not a count of squares (3,4 → 5")');
 

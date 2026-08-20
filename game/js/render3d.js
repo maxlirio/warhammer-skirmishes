@@ -2174,8 +2174,31 @@ const Render3D = (function () {
      overlapping discs into one canvas — which unions them cleanly instead of
      stacking alpha — and that canvas is laid on the table as a single plane.
      So a 6" move reads as a 6" curve and the overwatch arc is a real circle. */
+  /* The shaded ground you may move to, drawn AT the height of the ground.
+
+     It was one flat quad laid across the whole reachable area, so the moment
+     that area included a gantry or a roof the shading stayed down on the table
+     and the part of it you could actually stand on was somewhere above it.
+     Split by level and draw one for each: a move onto a four-inch deck is
+     shaded four inches up, where the model will be standing. */
   function areaMesh(points, colour, opacity, cell, lift) {
     if (!points.length) return new THREE.Group();
+    if (lift === undefined && board) {
+      const levels = {};
+      points.forEach(function (p) {
+        const y = Math.round(Board.heightAt(board, p) * 20) / 20;
+        (levels[y] = levels[y] || []).push(p);
+      });
+      const keys = Object.keys(levels);
+      if (keys.length > 1) {
+        const g = new THREE.Group();
+        keys.forEach(function (k) {
+          g.add(areaMesh(levels[k], colour, opacity, cell, Number(k) + 0.06));
+        });
+        return g;
+      }
+      if (keys.length === 1) lift = Number(keys[0]) + 0.06;
+    }
     let minx = Infinity, maxx = -Infinity, miny = Infinity, maxy = -Infinity;
     points.forEach(function (p) {
       if (p.x < minx) minx = p.x;
@@ -2415,14 +2438,38 @@ const Render3D = (function () {
         }
         shake = Math.max(shake, k.melee ? 0.1 : 0.2);
       }
-      if (c.t >= T.FIRE) { c.stage = 'flight'; c.t = 0; }
+      if (c.t >= T.FIRE) {
+        c.stage = 'flight'; c.t = 0;
+        /* the tallest thing the round has to get over on its way */
+        c.clear = 0;
+        if (board && !k.melee) {
+          const a2 = { x: c.muzzlePos.x, y: c.muzzlePos.z };
+          const b2 = { x: c.impact.x, y: c.impact.z };
+          let top = 0;
+          board.terrain.forEach(function (t2) {
+            if (Board.segHitsBox(t2, a2, b2)) top = Math.max(top, t2.top);
+          });
+          const lineY = Math.min(c.muzzlePos.y, c.impact.y);
+          if (top > lineY) c.clear = (top - lineY) + 0.45;
+        }
+      }
       return;
     }
 
     if (c.stage === 'flight') {
       const span = k.melee ? 0.16 : T.FLIGHT;
       const p = Math.min(1, c.t / span);
-      if (c.bolt) c.bolt.position.copy(c.muzzlePos).lerp(c.impact, p);
+      if (c.bolt) {
+        c.bolt.position.copy(c.muzzlePos).lerp(c.impact, p);
+        /* OVER the wall, not through it.
+
+           Line of sight is judged from the higher of the two models, so a
+           shooter up on a gantry may legally shoot a man on the floor across
+           the top of a wall between them — and the round, flying a straight
+           line between two model-height points, went through the middle of it.
+           Arch the shot over whatever it has to clear. */
+        if (c.clear > 0) c.bolt.position.y += Math.sin(p * Math.PI) * c.clear;
+      }
       a.userData.body.rotation.x *= 0.85;
       if (p >= 1) {
         if (c.bolt) { fxGroup.remove(c.bolt); c.bolt = null; }
@@ -2509,6 +2556,8 @@ const Render3D = (function () {
   }
 
   function particles(at, n, colour, size, speed, gravity, spread) {
+    /* what these settle onto — the deck they are on, not the table below it */
+    const floor = board ? Board.heightAt(board, { x: at.x, y: at.z }) + 0.02 : 0.02;
     const pos = new Float32Array(n * 3);
     const vel = [];
     for (let i = 0; i < n; i++) {
@@ -2525,6 +2574,7 @@ const Render3D = (function () {
       color: colour, size: size, transparent: true, opacity: 1, depthWrite: false }));
     pts.userData.vel = vel;
     pts.userData.gravity = gravity;
+    pts.userData.floor = floor;
     fxGroup.add(pts);
     return pts;
   }
@@ -2623,13 +2673,23 @@ const Render3D = (function () {
     fxGroup.add(mist);
     fx.push({ kind: 'puff', node: mist, t: 0, life: 0.5 });
 
-    /* and the mark it leaves, which stays */
-    stain({ x: at.x, y: at.y, z: at.z }, 1.7 * scale);
+    /* and the mark it leaves, which stays.
+
+       Each blob snaps to whatever is underneath it, and the spatter throws
+       nearly three inches — so a blob landing on a four-inch blockhouse was
+       drawn on its ROOF, hanging in the air over the man who had just died on
+       the floor beside it. Blood goes where the floor is, and if the floor
+       under a blob is at a different level from the body, it hit a wall on the
+       way and there is no mark to draw. */
+    const floorHere = Board.heightAt(board, { x: at.x, y: at.z });
+    stain({ x: at.x, y: at.y, z: at.z }, 1.7 * scale, floorHere);
     for (let i = 0; i < Math.round(2 + scale * 3); i++) {
       const a = Assets.seeded(stainSeq * 7 + i) * 6.28;
       const d = 0.6 + Assets.seeded(stainSeq * 11 + i) * 2.4 * scale;
-      stain({ x: at.x + Math.cos(a) * d, y: 0, z: at.z + Math.sin(a) * d },
-            (0.5 + Assets.seeded(stainSeq * 3 + i) * 1.1) * scale);
+      const p = { x: at.x + Math.cos(a) * d, z: at.z + Math.sin(a) * d };
+      if (Math.abs(Board.heightAt(board, { x: p.x, y: p.z }) - floorHere) > 0.3) continue;
+      stain({ x: p.x, y: 0, z: p.z },
+            (0.5 + Assets.seeded(stainSeq * 3 + i) * 1.1) * scale, floorHere);
     }
   }
 
@@ -2752,9 +2812,10 @@ const Render3D = (function () {
       if (e.kind === 'parts') {
         const pos = e.node.geometry.attributes.position;
         const g = e.node.userData.gravity;
+        const floor = e.node.userData.floor === undefined ? 0.02 : e.node.userData.floor;
         e.node.userData.vel.forEach(function (v, j) {
           v.y -= g * dt;
-          pos.setXYZ(j, pos.getX(j) + v.x * dt, Math.max(0.02, pos.getY(j) + v.y * dt),
+          pos.setXYZ(j, pos.getX(j) + v.x * dt, Math.max(floor, pos.getY(j) + v.y * dt),
                      pos.getZ(j) + v.z * dt);
         });
         pos.needsUpdate = true;

@@ -1424,6 +1424,7 @@ const Battle = (function () {
   function walk(u, points, climb, done) {
     if (typeof climb === 'function') { done = climb; climb = null; }
     u.movedTurn = S.turn.number;
+    alive().forEach(function (x) { delete x.__saidQuiet; });
     if (u.overwatch) { u.overwatch = null; log(u.name + ' gives up its overwatch by moving.', 'muted'); }
     const STEP = 0.5;
     const legs = [];
@@ -1462,6 +1463,7 @@ const Battle = (function () {
       if (S.relic && S.relic.carrier === u.id) { S.relic.x = u.x; S.relic.y = u.y; }
       const watchers = triggeredWatchers(u);
       if (watchers.length) { openOverwatch(u, watchers, step); return; }
+      explainQuietWatchers(u);
       step();
     })();
   }
@@ -1477,6 +1479,33 @@ const Battle = (function () {
       /* or a card that does the same job — Fred's Snap Shot, once a game */
       return abilitiesOf(w).some(ab => ab.trigger === 'overwatch' && !ab.spent &&
                                        rangeTo(w, mover) <= 6);
+    });
+  }
+
+  /* Why a watched arc stayed quiet.
+
+     Crossing an overwatch token does not by itself draw a shot: the watcher
+     also has to SEE you and have a gun that reaches. When it does not, nothing
+     happened and nothing was said, which from the table looks exactly like the
+     overwatch being broken. Now it says so. */
+  function explainQuietWatchers(mover) {
+    alive().forEach(function (w) {
+      if (w.owner === mover.owner || !w.overwatch) return;
+      if (rangeTo(mover, w.overwatch) > 3) return;          /* not in the arc */
+      const d = rangeTo(w, mover) - w.radius - mover.radius;
+      const guns = weaponsOf(w, 'ranged');
+      let why = null;
+      if (!Board.canSee(S.board, w, mover)) why = 'cannot see them';
+      else if (!guns.length) why = 'has nothing to shoot with';
+      else if (!guns.some(g => d <= (g.range || 0))) {
+        why = 'is ' + d.toFixed(1) + '" away and their ' +
+              guns.sort((a, b) => (b.range || 0) - (a.range || 0))[0].name +
+              ' reaches ' + (guns[0].range || 0) + '"';
+      }
+      if (why && !w.__saidQuiet) {
+        w.__saidQuiet = true;
+        log(w.name + ' holds fire — ' + why + '.', 'muted');
+      }
     });
   }
 

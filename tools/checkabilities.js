@@ -465,6 +465,12 @@ console.log('\n== the small print');
      unit NOW is in the line of fire, that unit is targeted instead." */
   const G = scene('orks', 'astra');
   const S = G.Battle.get();
+  /* This is about the CLAUSES on the card, not about the battlefield: it puts
+     three models on exact coordinates and asks whether stepping into the line
+     of fire redirects the shot. Now the tables are built out, those
+     coordinates can land inside a building — so the ground is cleared and the
+     card is tested on its own. */
+  S.board.terrain.length = 0;
   const mika = find(G, 'Mikaaaaghhh'), fred = find(G, 'Fred');
   face(G, fred, mika, 9);
   /* a mate stood beside him, deliberately NOT in the line of fire */

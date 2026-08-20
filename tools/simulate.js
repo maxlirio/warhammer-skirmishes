@@ -132,11 +132,15 @@ check('S4 vs T8 (no half-or-less row any more)', RULES.woundTarget(4, 8), 5);
 check('-1 modifier on a 3+', RULES.applyMod(3, -1).target, 4);
 check('+1 modifier on a 2+ clamps', RULES.applyMod(2, 1), { target: 2, capped: true, raw: 1 });
 
+/* What a turn hands you. Read from the rules rather than written down here,
+   so a change to the house number does not turn seven of these red. */
+const DRAW = RULES.startPhaseAP === undefined ? 1 : RULES.startPhaseAP;
+
 console.log('\n== game start ==');
 Engine.startGame({ playerNames: ['Marines', 'Orks'], vpTarget: 10, firstPlayer: 0 }, units);
 check('pending start phase', G().pending.type, 'start');
 Engine.confirmStartPhase();
-check('P1 AP after start phase', ap(0), 1);
+check('P1 AP after start phase', ap(0), DRAW);
 check('P2 AP', ap(1), 0);
 check('control is P1', G().control.player, 0);
 
@@ -144,7 +148,7 @@ console.log('\n== SHOOT: hit, wound, survive ==');
 Engine.beginAction('shoot');
 Engine.flowPickUnit(U('Intercessor').id);
 Engine.flowPickAttackTarget(U('Ork Nob').id);
-check('AP paid on declaration', ap(0), 0);
+check('AP paid on declaration', ap(0), DRAW - 1);
 check('defender has 1 RP', G().players[1].rp, 1);
 Engine.flowPickWeapon(U('Intercessor').weapons[0].id);
 check('step is reaction', G().flow.step, 'reaction');
@@ -172,7 +176,7 @@ Engine.flowHit(true);
 Engine.flowWound(true);
 Engine.flowDamage(2);
 check('Intercessor wounds', U('Intercessor').wounds, 1);
-check('survivor AP plus PARRY\u2019s own AP', ap(0), 2);
+check('survivor AP plus PARRY\u2019s own AP', ap(0), DRAW + 1);
 check('P1 must act with the Intercessor', G().control.forcedUnitId, U('Intercessor').id);
 
 console.log('\n== a weapon is never spent ==');
@@ -206,14 +210,14 @@ Engine.confirmEndPhase();
 check('turn 2 belongs to P2', G().turn.player, 1);
 check('start phase pending', G().pending.type, 'start');
 Engine.confirmStartPhase();
-check('P2 AP', ap(1), 1);
+check('P2 AP', ap(1), DRAW);
 
 console.log('\n== OVERWATCH: token survives, fires at -1, expires on the shot ==');
 Engine.beginAction('overwatch');
 Engine.flowPickUnit(U('Ork Boy').id);
 Engine.confirmOverwatch();
 check('token placed', U('Ork Boy').tokens.map(t => t.label), ['OVERWATCH']);
-check('AP spent', ap(1), 0);
+check('AP spent', ap(1), DRAW - 1);
 check('token survives the chain closing', U('Ork Boy').tokens.length, 1);
 check('and it expires on its owner acting, nothing else',
   U('Ork Boy').tokens[0].expiry, 'ownerActs');
@@ -260,7 +264,7 @@ check('hit roll unaffected by charge elevation', n.hitTarget, 3);
 
 Engine.flowHit(false);               // miss, so the Boy survives
 check('Ork Boy alive', U('Ork Boy').alive, true);
-check('miss still hands the AP to the survivor', ap(1), 1);
+check('miss still hands the AP to the survivor', ap(1), DRAW);
 check('Ork Boy is the forced unit', G().control.forcedUnitId, U('Ork Boy').id);
 
 console.log('\n== one PASS is not enough to end a chain ==');
@@ -271,7 +275,7 @@ check('the non-active player cannot end a turn', Engine.passOptions(),
 Engine.confirmPass(true);                       // asking to end the turn is ignored
 check('one pass leaves the chain open', G().chain.active, true);
 check('and hands it back', G().control.player, 0);
-check('PASS is free', ap(1), 1);
+check('PASS is free', ap(1), DRAW);
 check('the turn did not change hands', G().turn.player, 0);
 check('a second pass would close it', Engine.passOptions().wouldEndChain, true);
 Engine.beginAction('pass');

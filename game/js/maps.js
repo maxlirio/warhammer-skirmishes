@@ -137,15 +137,31 @@ const MAPS = (function () {
              'and a gantry north and south that shoots down into everything.',
       w: w, h: h,
       deploy: [{ x: 0, y: 0, w: 7, h: h }, { x: w - 7, y: 0, w: 7, h: h }],
+      /* A STREET, with a manufactory either side of it. Two ranks of buildings
+         separated by cross-alleys, a gantry bridging the road, and the road
+         itself choked with what came off the roofs. The middle lane stays
+         open, because the card puts three markers down it. */
       terrain: mirrored([
-        { x: 17, y: 3,  w: 10, h: 6, top: 1.6, blocks: false, kind: 'gantry' },
-        { x: 17, y: 21, w: 10, h: 6, top: 1.6, blocks: false, kind: 'gantry' },
-        { x: 12, y: 4,  w: 4, h: 5, top: 4.5, blocks: true, kind: 'blockhouse' },
-        { x: 12, y: 21, w: 4, h: 5, top: 4.5, blocks: true, kind: 'blockhouse' },
-        { x: 6,  y: 9,  w: 2, h: 4, top: 3.2, blocks: true, kind: 'slab' },
-        { x: 6,  y: 17, w: 2, h: 4, top: 3.2, blocks: true, kind: 'slab' },
-        { x: 19, y: 12,   w: 6, h: 1.5, top: 1.1, blocks: false, kind: 'rubble' },
-        { x: 19, y: 16.5, w: 6, h: 1.5, top: 1.1, blocks: false, kind: 'rubble' }
+        /* the north terrace: a block of works with an alley through it */
+        { x: 9,  y: 2,  w: 6, h: 5,   top: 4.6, blocks: true,  kind: 'blockhouse' },
+        { x: 9,  y: 8,  w: 6, h: 3.5, top: 3.0, blocks: true,  kind: 'annexe' },
+        { x: 16, y: 2,  w: 5, h: 4,   top: 5.2, blocks: true,  kind: 'blockhouse' },
+        { x: 16, y: 7,  w: 5, h: 3,   top: 2.2, blocks: false, kind: 'gantry' },
+        /* the south terrace mirrors it across the street */
+        { x: 9,  y: 23, w: 6, h: 5,   top: 4.6, blocks: true,  kind: 'blockhouse' },
+        { x: 9,  y: 18.5, w: 6, h: 3.5, top: 3.0, blocks: true, kind: 'annexe' },
+        { x: 16, y: 24, w: 5, h: 4,   top: 5.2, blocks: true,  kind: 'blockhouse' },
+        { x: 16, y: 20, w: 5, h: 3,   top: 2.2, blocks: false, kind: 'gantry' },
+        /* the gatehouse pillars where the street narrows */
+        { x: 6,  y: 9,  w: 2, h: 4,   top: 3.2, blocks: true,  kind: 'pillar' },
+        { x: 6,  y: 17, w: 2, h: 4,   top: 3.2, blocks: true,  kind: 'pillar' },
+        /* a walkway across the road, high enough to shoot down it */
+        { x: 20, y: 12, w: 2.5, h: 6, top: 3.4, blocks: false, kind: 'gantry' },
+        /* and the roadway itself, half blocked with fallen masonry */
+        { x: 12, y: 12.5, w: 5, h: 1.6, top: 1.1, blocks: false, kind: 'rubble' },
+        { x: 12, y: 15.9, w: 5, h: 1.6, top: 1.1, blocks: false, kind: 'rubble' },
+        { x: 17, y: 11,   w: 2, h: 2,   top: 1.4, blocks: false, kind: 'rubble' },
+        { x: 17, y: 17,   w: 2, h: 2,   top: 1.4, blocks: false, kind: 'rubble' }
       ], w),
       objectives: [{ x: 9, y: 15 }, { x: 35, y: 15 }, { x: 22, y: 15 },
                    { x: 22, y: 6 }, { x: 22, y: 24 }]
@@ -165,18 +181,28 @@ const MAPS = (function () {
              'quick way to their objective and a way you might survive.',
       w: w, h: h,
       deploy: [{ x: 0, y: 0, w: 7, h: h }, { x: w - 7, y: 0, w: 7, h: h }],
+      /* A RAIL YARD. A control bunker at each end with the target behind it,
+         loading platforms down both flanks to move under, ranks of containers
+         to weave between — and a bare marshalling yard through the middle
+         that anybody in a hurry has to cross in the open. */
       terrain: mirrored([
-        /* the blockhouse each objective sits behind */
-        { x: 8,  y: 11, w: 4, h: 8, top: 4.6, blocks: true, kind: 'bunker' },
-        /* the flank lanes: staggered walls you weave between */
-        { x: 13, y: 3,  w: 7, h: 2, top: 3.6, blocks: true, kind: 'wall' },
-        { x: 13, y: 25, w: 7, h: 2, top: 3.6, blocks: true, kind: 'wall' },
-        { x: 22, y: 6,  w: 6, h: 2, top: 3.6, blocks: true, kind: 'wall' },
-        { x: 22, y: 22, w: 6, h: 2, top: 3.6, blocks: true, kind: 'wall' },
-        /* a gantry over each lane, for whoever wants to shoot down it */
-        { x: 14, y: 7,  w: 5, h: 4, top: 2.0, blocks: false, kind: 'gantry' },
-        { x: 14, y: 19, w: 5, h: 4, top: 2.0, blocks: false, kind: 'gantry' },
-        /* and almost nothing in the middle */
+        { x: 8,  y: 11, w: 4, h: 8,   top: 4.6, blocks: true,  kind: 'bunker' },
+        { x: 7,  y: 4,  w: 5, h: 4,   top: 3.4, blocks: true,  kind: 'annexe' },
+        { x: 7,  y: 22, w: 5, h: 4,   top: 3.4, blocks: true,  kind: 'annexe' },
+        /* loading platforms, long and low, running with the tracks */
+        { x: 13, y: 2.5, w: 9, h: 3,  top: 2.0, blocks: false, kind: 'gantry' },
+        { x: 13, y: 24.5, w: 9, h: 3, top: 2.0, blocks: false, kind: 'gantry' },
+        /* container ranks — staggered, so a lane is never straight */
+        { x: 14, y: 6.5, w: 6, h: 2,  top: 3.6, blocks: true,  kind: 'wall' },
+        { x: 14, y: 21.5, w: 6, h: 2, top: 3.6, blocks: true,  kind: 'wall' },
+        { x: 21, y: 9,   w: 5, h: 2,  top: 3.6, blocks: true,  kind: 'wall' },
+        { x: 21, y: 19,  w: 5, h: 2,  top: 3.6, blocks: true,  kind: 'wall' },
+        { x: 16, y: 11,  w: 2, h: 3,  top: 3.0, blocks: true,  kind: 'pillar' },
+        { x: 16, y: 16,  w: 2, h: 3,  top: 3.0, blocks: true,  kind: 'pillar' },
+        /* a signal gantry over the yard */
+        { x: 20.5, y: 3.5, w: 3, h: 3, top: 4.0, blocks: false, kind: 'gantry' },
+        { x: 20.5, y: 23.5, w: 3, h: 3, top: 4.0, blocks: false, kind: 'gantry' },
+        /* and almost nothing in the middle of it */
         { x: 21, y: 13.5, w: 4, h: 3, top: 1.1, blocks: false, kind: 'rubble' }
       ], w),
       objectives: []
@@ -195,16 +221,26 @@ const MAPS = (function () {
              'with three ways up it and nowhere to hide at its foot.',
       w: w, h: h,
       deploy: [{ x: 0, y: 0, w: 6, h: h }, { x: w - 6, y: 0, w: 6, h: h }],
+      /* A BASTION on three terraces, with a village of outbuildings round its
+         foot. The massif still towers over everything — the card needs that to
+         be unmistakable — but the ground at the bottom is now a place you fight
+         through rather than a field you walk across. */
       terrain: mirrored([
-        /* the hill itself, in two steps so it can be climbed twice */
-        { x: 14, y: 9,  w: 14, h: 12, top: 2.4, blocks: false, kind: 'nave' },
-        { x: 17, y: 11, w: 8,  h: 8,  top: 5.2, blocks: false, kind: 'sanctum' },
-        /* cover at its foot, which is lower than the hill by a long way */
-        { x: 10, y: 5,  w: 4, h: 3, top: 3.2, blocks: true, kind: 'slab' },
-        { x: 10, y: 22, w: 4, h: 3, top: 3.2, blocks: true, kind: 'slab' },
-        { x: 8,  y: 13, w: 2.5, h: 4, top: 2.8, blocks: true, kind: 'pillar' },
-        { x: 19, y: 3,  w: 4, h: 2, top: 2.6, blocks: true, kind: 'wall' },
-        { x: 19, y: 25, w: 4, h: 2, top: 2.6, blocks: true, kind: 'wall' }
+        { x: 13, y: 8,  w: 16, h: 14, top: 1.6, blocks: false, kind: 'nave' },
+        { x: 15, y: 9.5, w: 12, h: 11, top: 3.0, blocks: false, kind: 'nave' },
+        { x: 17.5, y: 11, w: 7, h: 8,  top: 5.4, blocks: false, kind: 'sanctum' },
+        /* the outbuildings at its foot */
+        { x: 8,  y: 3,  w: 4.5, h: 4, top: 4.0, blocks: true,  kind: 'blockhouse' },
+        { x: 8,  y: 23, w: 4.5, h: 4, top: 4.0, blocks: true,  kind: 'blockhouse' },
+        { x: 7,  y: 9,  w: 3, h: 3,   top: 3.2, blocks: true,  kind: 'annexe' },
+        { x: 7,  y: 18, w: 3, h: 3,   top: 3.2, blocks: true,  kind: 'annexe' },
+        { x: 8,  y: 13.5, w: 2.5, h: 3, top: 2.8, blocks: true, kind: 'pillar' },
+        /* a walled approach on each side of the hill */
+        { x: 14, y: 3,  w: 6, h: 2, top: 2.6, blocks: true,  kind: 'wall' },
+        { x: 14, y: 25, w: 6, h: 2, top: 2.6, blocks: true,  kind: 'wall' },
+        { x: 12, y: 5,  w: 2, h: 2.5, top: 2.2, blocks: false, kind: 'step' },
+        { x: 12, y: 22.5, w: 2, h: 2.5, top: 2.2, blocks: false, kind: 'step' },
+        { x: 11.5, y: 12.5, w: 2, h: 5, top: 1.2, blocks: false, kind: 'rubble' }
       ], w),
       objectives: []
     };
@@ -222,15 +258,22 @@ const MAPS = (function () {
              'between. Whoever crosses first is the one in the open.',
       w: w, h: h,
       deploy: [{ x: 0, y: 0, w: 8, h: h }, { x: w - 8, y: 0, w: 8, h: h }],
+      /* A DEFILE. Both ends are a warren of dug-in positions and the road
+         between them runs bare down the middle — the card is about who has to
+         cross it. The ridges are stepped, so a firing position on one is worth
+         holding and can be taken off you. */
       terrain: mirrored([
-        { x: 5,  y: 4,  w: 4, h: 4, top: 4.2, blocks: true, kind: 'bunker' },
-        { x: 5,  y: 20, w: 4, h: 4, top: 4.2, blocks: true, kind: 'bunker' },
-        { x: 9,  y: 12, w: 3, h: 4, top: 3.4, blocks: true, kind: 'wall' },
-        { x: 12, y: 5,  w: 5, h: 3, top: 2.0, blocks: false, kind: 'gantry' },
-        { x: 12, y: 20, w: 5, h: 3, top: 2.0, blocks: false, kind: 'gantry' },
+        { x: 4,  y: 3,  w: 4.5, h: 4.5, top: 4.2, blocks: true,  kind: 'bunker' },
+        { x: 4,  y: 20.5, w: 4.5, h: 4.5, top: 4.2, blocks: true, kind: 'bunker' },
+        { x: 9.5, y: 2,  w: 5, h: 3,   top: 3.6, blocks: true,  kind: 'wall' },
+        { x: 9.5, y: 23, w: 5, h: 3,   top: 3.6, blocks: true,  kind: 'wall' },
+        { x: 9,  y: 11, w: 3, h: 6,   top: 3.4, blocks: true,  kind: 'wall' },
+        { x: 12.5, y: 6,  w: 5, h: 3, top: 2.2, blocks: false, kind: 'gantry' },
+        { x: 12.5, y: 19, w: 5, h: 3, top: 2.2, blocks: false, kind: 'gantry' },
+        { x: 13, y: 12,  w: 3, h: 4,  top: 4.6, blocks: true,  kind: 'blockhouse' },
         /* the crossing: two thin things and a great deal of nothing */
-        { x: 20, y: 2,  w: 2, h: 5, top: 3.0, blocks: true, kind: 'pillar' },
-        { x: 20, y: 21, w: 2, h: 5, top: 3.0, blocks: true, kind: 'pillar' },
+        { x: 19.5, y: 2,  w: 2, h: 5, top: 3.0, blocks: true,  kind: 'pillar' },
+        { x: 19.5, y: 21, w: 2, h: 5, top: 3.0, blocks: true,  kind: 'pillar' },
         { x: 21.5, y: 12.5, w: 3, h: 3, top: 1.1, blocks: false, kind: 'rubble' }
       ], w),
       objectives: []
@@ -249,12 +292,22 @@ const MAPS = (function () {
              'deep enough to keep a name out of sight.',
       w: w, h: h,
       deploy: [{ x: 0, y: 0, w: 6, h: h }, { x: w - 6, y: 0, w: 6, h: h }],
+      /* A CROSSROADS with a shrine at the junction. Four corner holdings deep
+         enough to keep a named head out of sight, walled yards behind them,
+         and four clear lanes running onto the marker in the middle. */
       terrain: mirrored([
-        { x: 8,  y: 3,  w: 6, h: 6, top: 4.4, blocks: true, kind: 'blockhouse' },
-        { x: 8,  y: 19, w: 6, h: 6, top: 4.4, blocks: true, kind: 'blockhouse' },
-        { x: 16, y: 9,  w: 3, h: 3, top: 2.2, blocks: false, kind: 'step' },
-        { x: 16, y: 16, w: 3, h: 3, top: 2.2, blocks: false, kind: 'step' },
-        { x: 7,  y: 12, w: 2, h: 4, top: 3.0, blocks: true, kind: 'pillar' }
+        { x: 8,  y: 2,  w: 6, h: 6,   top: 4.4, blocks: true,  kind: 'blockhouse' },
+        { x: 8,  y: 20, w: 6, h: 6,   top: 4.4, blocks: true,  kind: 'blockhouse' },
+        { x: 14.5, y: 3, w: 3, h: 3.5, top: 3.0, blocks: true, kind: 'annexe' },
+        { x: 14.5, y: 21.5, w: 3, h: 3.5, top: 3.0, blocks: true, kind: 'annexe' },
+        /* the yard walls, which make the corners into places */
+        { x: 8,  y: 8.5, w: 6, h: 1.6, top: 2.4, blocks: true,  kind: 'wall' },
+        { x: 8,  y: 17.9, w: 6, h: 1.6, top: 2.4, blocks: true, kind: 'wall' },
+        { x: 7,  y: 12, w: 2, h: 4,   top: 3.0, blocks: true,  kind: 'pillar' },
+        /* the steps up onto the junction itself */
+        { x: 16, y: 9,  w: 3, h: 3,   top: 2.2, blocks: false, kind: 'step' },
+        { x: 16, y: 16, w: 3, h: 3,   top: 2.2, blocks: false, kind: 'step' },
+        { x: 16.5, y: 12.5, w: 3, h: 3, top: 1.2, blocks: false, kind: 'rubble' }
       ], w),
       objectives: [{ x: 20, y: 14 }]
     };
@@ -271,16 +324,25 @@ const MAPS = (function () {
              'Holding two means standing where the third can see you.',
       w: w, h: h,
       deploy: [{ x: 0, y: 0, w: 6, h: h }, { x: w - 6, y: 0, w: 6, h: h }],
+      /* THREE WALLED COMPOUNDS. Each station is a raised court inside its own
+         wall, with a mausoleum at the corner and a gate you have to come
+         through — holding one is standing somewhere, not on a spot of floor. */
       terrain: mirrored([
-        /* the flank stations */
-        { x: 9,  y: 10, w: 7, h: 8, top: 2.2, blocks: false, kind: 'redoubt' },
-        /* the middle one, higher, so it overlooks both */
-        { x: 19, y: 10, w: 8, h: 8, top: 3.2, blocks: false, kind: 'nave' },
-        /* cover on the way between them */
-        { x: 8,  y: 3,  w: 5, h: 2, top: 3.4, blocks: true, kind: 'wall' },
-        { x: 8,  y: 23, w: 5, h: 2, top: 3.4, blocks: true, kind: 'wall' },
-        { x: 17, y: 4,  w: 3, h: 3, top: 3.8, blocks: true, kind: 'blockhouse' },
-        { x: 17, y: 21, w: 3, h: 3, top: 3.8, blocks: true, kind: 'blockhouse' }
+        { x: 9,  y: 10, w: 7, h: 8,   top: 2.2, blocks: false, kind: 'redoubt' },
+        { x: 8,  y: 8.4, w: 9, h: 1.4, top: 3.0, blocks: true, kind: 'wall' },
+        { x: 8,  y: 18.2, w: 9, h: 1.4, top: 3.0, blocks: true, kind: 'wall' },
+        { x: 7,  y: 11, w: 1.6, h: 3, top: 3.4, blocks: true,  kind: 'pillar' },
+        { x: 7,  y: 16, w: 1.6, h: 3, top: 3.4, blocks: true,  kind: 'pillar' },
+        /* the middle station, higher, so it overlooks both */
+        { x: 19, y: 10, w: 8, h: 8,   top: 3.2, blocks: false, kind: 'nave' },
+        { x: 18.5, y: 8.2, w: 9, h: 1.5, top: 4.0, blocks: true, kind: 'wall' },
+        { x: 18.5, y: 18.3, w: 9, h: 1.5, top: 4.0, blocks: true, kind: 'wall' },
+        /* mausolea between the compounds */
+        { x: 8,  y: 3,  w: 5, h: 3,   top: 3.8, blocks: true,  kind: 'blockhouse' },
+        { x: 8,  y: 22, w: 5, h: 3,   top: 3.8, blocks: true,  kind: 'blockhouse' },
+        { x: 16, y: 3.5, w: 3, h: 3,  top: 3.4, blocks: true,  kind: 'annexe' },
+        { x: 16, y: 21.5, w: 3, h: 3, top: 3.4, blocks: true,  kind: 'annexe' },
+        { x: 15, y: 12.5, w: 2.5, h: 3, top: 1.2, blocks: false, kind: 'rubble' }
       ], w),
       objectives: [{ x: 12.5, y: 14 }, { x: 33.5, y: 14 }, { x: 23, y: 14 }]
     };
@@ -297,17 +359,27 @@ const MAPS = (function () {
              'half-cover between it and either end. Carrying it is the hard part.',
       w: w, h: h,
       deploy: [{ x: 0, y: 0, w: 7, h: h }, { x: w - 7, y: 0, w: 7, h: h }],
+      /* A PROCESSIONAL WAY. The reliquary stands on a plaza at the centre; a
+         colonnade runs down each side of the avenue, with side chapels behind
+         it, and there are galleries overlooking the whole run. Carrying it
+         home means going the length of that under everybody's guns. */
       terrain: mirrored([
-        /* the plaza the relic sits on */
-        { x: 19, y: 11, w: 8, h: 8, top: 1.8, blocks: false, kind: 'redoubt' },
-        /* the gauntlet: staggered walls, none of them long enough to hide behind */
-        { x: 9,  y: 7,  w: 6, h: 2, top: 3.6, blocks: true, kind: 'wall' },
-        { x: 9,  y: 21, w: 6, h: 2, top: 3.6, blocks: true, kind: 'wall' },
-        { x: 14, y: 13, w: 3, h: 4, top: 3.2, blocks: true, kind: 'slab' },
-        { x: 8,  y: 13, w: 2, h: 4, top: 2.6, blocks: true, kind: 'pillar' },
-        /* somewhere to shoot the carrier from */
-        { x: 15, y: 2,  w: 5, h: 3, top: 2.4, blocks: false, kind: 'gantry' },
-        { x: 15, y: 25, w: 5, h: 3, top: 2.4, blocks: false, kind: 'gantry' }
+        { x: 19, y: 11, w: 8, h: 8,   top: 1.8, blocks: false, kind: 'redoubt' },
+        /* the colonnade: a rank of piers each side of the avenue */
+        { x: 12, y: 9,  w: 1.8, h: 3, top: 3.4, blocks: true,  kind: 'pillar' },
+        { x: 12, y: 18, w: 1.8, h: 3, top: 3.4, blocks: true,  kind: 'pillar' },
+        { x: 16, y: 6.5, w: 1.8, h: 3, top: 3.4, blocks: true, kind: 'pillar' },
+        { x: 16, y: 20.5, w: 1.8, h: 3, top: 3.4, blocks: true, kind: 'pillar' },
+        /* side chapels behind the colonnade */
+        { x: 8,  y: 5,  w: 5, h: 4,   top: 4.2, blocks: true,  kind: 'blockhouse' },
+        { x: 8,  y: 21, w: 5, h: 4,   top: 4.2, blocks: true,  kind: 'blockhouse' },
+        { x: 8,  y: 13, w: 2, h: 4,   top: 2.6, blocks: true,  kind: 'pillar' },
+        { x: 13.5, y: 13, w: 3, h: 4, top: 3.2, blocks: true,  kind: 'slab' },
+        /* galleries over the walk */
+        { x: 14, y: 2,  w: 6, h: 3,   top: 2.6, blocks: false, kind: 'gantry' },
+        { x: 14, y: 25, w: 6, h: 3,   top: 2.6, blocks: false, kind: 'gantry' },
+        { x: 21, y: 4,  w: 4, h: 3,   top: 3.6, blocks: false, kind: 'gantry' },
+        { x: 21, y: 23, w: 4, h: 3,   top: 3.6, blocks: false, kind: 'gantry' }
       ], w),
       objectives: []
     };

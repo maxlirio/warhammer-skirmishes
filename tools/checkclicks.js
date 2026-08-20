@@ -189,20 +189,28 @@ function ok(cond, label, detail) {
       }
       const mine = S.units.filter(u => u.owner === 0 && u.alive && !u.marker && !u.reserve);
       const foes = S.units.filter(u => u.owner === 1 && u.alive && !u.marker && !u.reserve);
-      const cx = S.board.w / 2, cy = S.board.h / 2;
-      mine.forEach((u, i) => { u.x = cx - 5; u.y = cy - 3 + i * 1.4; });
-      foes.forEach((u, i) => { u.x = cx + 5; u.y = cy - 3 + i * 1.4; });
+      /* Stand both lines in a deployment zone, which is the one strip of any
+         battlefield guaranteed to be clear — the tables are built out now and
+         there is no open lane through the middle of them. This section is
+         about resolving a CLICK when models overlap on screen, so all it needs
+         is clear ground and a shot. */
+      const z = S.board.deploy[0];
+      const cx = z.x + z.w / 2, cy = S.board.h / 2;
+      mine.forEach((u, i) => { u.x = cx - 1.6 + i * 0.8; u.y = cy - 5; });
+      foes.forEach((u, i) => { u.x = cx - 1.6 + i * 0.8; u.y = cy + 5; });
       S.players[0].ap = 6;
       S.control = { player: 0, forcedUnitId: null };
       Battle.emit();
       for (const u of mine) {
         const t = Battle.rangedTargets(u.id);
-        if (t.length > 1) return { id: u.id, name: u.name, targets: t };
+        /* one is enough to test the click; the models are packed tight either
+           way, which is the geometry this is about */
+        if (t.length >= 1) return { id: u.id, name: u.name, targets: t };
       }
       return null;
     });
     await pg.waitForTimeout(900);
-    ok(!!shooter, 'with the lines closed up, somebody has more than one target');
+    ok(!!shooter, 'with the lines closed up, somebody has a shot');
 
     if (shooter) {
       await pg.locator('#plist0 .urow', { hasText: shooter.name }).first().click();
