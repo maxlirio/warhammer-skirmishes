@@ -448,6 +448,106 @@ const RULES = (function () {
     return { headline: headline, lines: lines };
   }
 
+  /* =====================================================  TACTIC CARDS
+
+     A deck of eighteen: two each of the nine generic cards. You draw three at
+     setup and one at the top of every turn, and each turn you may lay ONE face
+     down in front of you. It stays face down until its trigger happens; then
+     you flip it and take what it gives you. A card you laid down and never
+     flipped is discarded at the end of the turn and pays you 1 AP for the
+     bluff.
+
+     `when` is the trigger, and it is the whole design: these are not cards you
+     play, they are bets you place. `kind` says what flipping it does —
+     'gain' resolves immediately, 'reaction' adds a line to the reaction list
+     while it is face down, 'grant' hands the unit an ability to spend AP on,
+     'modify' changes the attack that is already being resolved. */
+  const tactics = [
+    { id: 'retribution', name: 'RETRIBUTION', copies: 2,
+      when: 'friendlyDamaged', kind: 'gain',
+      text: 'Flip over after a friendly unit is dealt damage as the result of an '
+          + 'enemy unit\'s SHOOT or FIGHT sequence.\n\nGain 2 AP.',
+      flavour: 'Hatred can topple the greatest enemies.',
+      effects: [{ kind: 'ap_self', value: 2 }] },
+
+    { id: 'takecover', name: 'TAKE COVER', copies: 2,
+      when: 'enemyDeclaresShoot', kind: 'reaction', cost: 1, reactRange: 'ranged',
+      text: 'Flip after an enemy unit resolves step 1 of the SHOOT sequence.\n\n'
+          + '1 RP \u2014 Your opponent has -2 to hit for this attack.\n\n[RANGED REACTION]',
+      flavour: 'Don\'t get shot out there.',
+      effects: [{ kind: 'hitMod', value: -2, scope: 'attack' }] },
+
+    { id: 'grenade', name: 'GRENADE', copies: 2,
+      when: 'start', kind: 'grant', cost: 1,
+      text: 'START: Flip this card.\n\n1 AP \u2014 Grenade: Place a Grenade token within '
+          + 'D6" of this unit.\n\nAt the end of this action chain, roll a D6 for each '
+          + 'unit within 3" of it. For each 5+, that unit takes 1 damage.\n\n'
+          + '[PASSIVE ACTION]',
+      flavour: 'GET DOWN!',
+      effects: [{ kind: 'token', label: 'GRENADE', scatter: 'D6', radius: 3,
+                  expiry: 'chain',
+                  tokenEffects: [{ kind: 'damage', value: 1, roll: 5, pick: 'multi' }] }] },
+
+    { id: 'shift', name: 'SHIFT', copies: 2,
+      when: 'chainOpened', kind: 'gain',
+      text: 'Flip over after step 1 of the action chain.\n\nMove the selected '
+          + 'friendly unit 3".',
+      flavour: 'Never stay still.',
+      effects: [{ kind: 'move', value: 3, who: 'selected' }] },
+
+    { id: 'syncfire', name: 'SYNCHRONIZED FIRE', copies: 2,
+      when: 'friendlyShotResolved', kind: 'gain',
+      text: 'Flip over after a friendly unit\'s SHOOT sequence resolves.\n\nIf the '
+          + 'Targeted Unit is an eligible ranged target for another friendly unit, '
+          + 'immediately resolve the SHOOT sequence against the Targeted Unit with '
+          + 'that friendly unit.',
+      flavour: 'Bring him down.',
+      effects: [{ kind: 'extraShot', at: 'lastTarget' }] },
+
+    { id: 'headshot', name: 'HEADSHOT', copies: 2,
+      when: 'friendlyRangedWound', kind: 'modify',
+      text: 'Flip over when a friendly unit makes a ranged attack and the wound roll '
+          + 'is a SUCCESS.\n\nRoll a D6. On a 4+, its weapon\'s damage characteristic '
+          + 'is improved by 1.',
+      flavour: 'There\'s no such thing as perfect armor.',
+      effects: [{ kind: 'damageMod', value: 1, roll: 4 }] },
+
+    { id: 'lockedloaded', name: 'LOCKED AND LOADED', copies: 2,
+      when: 'friendlySpentTargeted', kind: 'modify',
+      text: 'Flip over when a friendly unit with 1 or more ranged weapons that were '
+          + 'used in this action chain is targeted by an enemy unit\'s SHOOT action.'
+          + '\n\nUntil the end of this action chain, you may choose that unit\'s '
+          + 'ranged weapons in step 1 of the SHOOT sequence even if those weapons were '
+          + 'already selected this action chain.',
+      flavour: 'Click. Click.',
+      effects: [{ kind: 'reload', until: 'chain' }] },
+
+    { id: 'takeaim', name: 'TAKE AIM', copies: 2,
+      when: 'friendlyDeclaresShootUnmoved', kind: 'modify',
+      text: 'Flip over after a friendly unit that has not moved this turn resolves '
+          + 'step 1 of the SHOOT sequence.\n\nYour unit has +1 to hit for this attack.',
+      flavour: 'Make every shot count.',
+      effects: [{ kind: 'hitMod', value: 1, scope: 'attack', side: 'attacker' }] },
+
+    { id: 'feint', name: 'FEINT', copies: 2,
+      when: 'friendlyDeclaresFight', kind: 'modify',
+      text: 'Flip over after a friendly unit resolves step 1 of the FIGHT sequence.'
+          + '\n\nThe enemy unit may not PARRY or EVADE this unit\'s attack.',
+      flavour: 'Deception wins wars.',
+      effects: [{ kind: 'blockReactions', ids: ['parry', 'evade'] }] }
+  ];
+
+  const tacticById = id => tactics.find(t => t.id === id) || null;
+
+  /* The eighteen, as a list of ids ready to be shuffled. */
+  function tacticDeck() {
+    const out = [];
+    tactics.forEach(function (t) {
+      for (let i = 0; i < (t.copies || 1); i++) out.push(t.id);
+    });
+    return out;
+  }
+
   const actionById = id => actions.find(a => a.id === id) || null;
   const reactionById = (id, range) =>
     (range === 'melee' ? meleeReactions : rangedReactions).find(r => r.id === id) || null;
@@ -458,9 +558,14 @@ const RULES = (function () {
        the only place it is written down — the game and the companion both
        read it from here so they cannot drift apart. */
     startPhaseAP: 2,
-    build: '2026-08-19a',
+    /* Tactic cards: how many you start holding, and how many you draw at the
+       top of your own turn. */
+    tacticsOpeningHand: 3,
+    tacticsDrawPerTurn: 1,
+    build: '2026-08-21a',
     defaultVPTarget: 10,
     actions, rangedReactions, meleeReactions, missions,
+    tactics, tacticById, tacticDeck,
     woundTarget, woundLabel, applyMod, actionById, reactionById, missionById, epitaph,
 
     /* Ability trigger slots offered by the unit editor. */

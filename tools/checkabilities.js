@@ -37,9 +37,13 @@ function ok(cond, label, detail) {
 function scene(f0, f1, opts) {
   opts = opts || {};
   const G = makeGame();
+  /* Tactic Cards are off in here unless a scene asks for them. These checks
+     are about UNIT abilities, and a face-down card that flips mid-scene is a
+     second thing happening in a test that is meant to isolate one. */
   G.Battle.start({ mapId: opts.map || 'trenchline', factions: [f0, f1],
                    names: ['P1', 'P2'], seed: opts.seed || 12345,
-                   missionId: opts.missionId || null });
+                   missionId: opts.missionId || null,
+                   tactics: opts.tactics === true });
   const S = G.Battle.get();
   S.players[0].ap = 40; S.players[1].ap = 40;
   /* a card may open the game by asking its owner something (Da Hunta picks a
@@ -48,6 +52,7 @@ function scene(f0, f1, opts) {
   while (S.pending && guard++ < 40) {
     if (S.pending.kind === 'deploy') G.Battle.placeDeploy(S.pending.spots[0]);
     else if (S.pending.kind === 'pick') G.Battle.choosePick(S.pending.options[0]);
+    else if (S.pending.kind === 'tactic') G.Battle.chooseTactic(null);
     else break;
   }
   return G;
@@ -188,6 +193,11 @@ console.log('\n== Astra Militarum');
   for (let n = 0; n < 40 && rik.alive; n++) {
     rik.wounds = 1;
     G2.Battle.get().control.player = 0;
+    /* A ranged weapon fires ONCE per action chain, so forty shots means forty
+       chains. Without this the loop fires the Lasgun once, finds it spent, and
+       Riksnik walks away untouched — which is the rule working, not the
+       ability failing. */
+    al2.spentChain = [];
     G2.Battle.doShoot(al2.id, rik.id, 'Lasgun');
     if (G2.Battle.get().pending) G2.Battle.chooseReaction('none');
   }

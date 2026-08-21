@@ -121,6 +121,38 @@ function ok(cond, label, detail) {
     }
   }
 
+  console.log('\n== laying a Tactic Card face down, by clicking');
+  {
+    const asked = await pg.evaluate(() => {
+      const S = Battle.get();
+      return S.pending && S.pending.kind === 'tactic'
+        ? { player: S.pending.player, options: S.pending.options.length } : null;
+    });
+    ok(!!asked, 'the turn opens by asking both sides to lay one face down',
+       asked ? '' : 'no tactic question');
+    if (asked) {
+      ok(await pg.locator('#modal .mopt').count() > 0,
+         'and the modal offers the cards in hand');
+      /* both players answer — the second question replaces the first */
+      for (let i = 0; i < 2; i++) {
+        const opt = pg.locator('#modal .mopt').first();
+        if (!await opt.count()) break;
+        await opt.click();
+        await pg.waitForTimeout(400);
+      }
+      const after = await pg.evaluate(() => {
+        const S = Battle.get();
+        return { pending: S.pending ? S.pending.kind : null,
+                 placed: S.tactics.map(t => t.placed) };
+      });
+      ok(after.pending !== 'tactic', 'answering both closes the question',
+         after.pending || 'nothing pending');
+      ok(after.placed.filter(Boolean).length === 2,
+         'and a card is face down in front of each player',
+         JSON.stringify(after.placed));
+    }
+  }
+
   console.log('\n== a card that asks you to place something');
   {
     await pg.evaluate(() => {
@@ -210,6 +242,15 @@ function ok(cond, label, detail) {
       return null;
     });
     await pg.waitForTimeout(900);
+    /* this section reloaded the page, so both sides are asked to lay a Tactic
+       Card again — answer it, or the modal sits over the unit list */
+    for (let i = 0; i < 3; i++) {
+      const still = await pg.evaluate(() =>
+        Battle.get().pending && Battle.get().pending.kind === 'tactic');
+      if (!still) break;
+      await pg.evaluate(() => Battle.chooseTactic(null));
+      await pg.waitForTimeout(300);
+    }
     ok(!!shooter, 'with the lines closed up, somebody has a shot');
 
     if (shooter) {

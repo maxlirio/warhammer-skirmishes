@@ -75,6 +75,9 @@ const Battle = (function () {
       control: { player: 0, forcedUnitId: null },
       pending: null,
       log: [], strikes: [], dice: [], tokens: [], buffs: [[], []], cards: [null, null],
+      /* TACTIC CARDS — a deck, a hand, and the one you have laid face down.
+         `placed` is the bet: it sits there until its trigger happens. */
+      tactics: [null, null], useTactics: cfg.tactics !== false,
       setupAsks: [], seq: 0,
       winner: null,
       mission: null, flags: {}, control: { player: 0, forcedUnitId: null },
@@ -82,6 +85,7 @@ const Battle = (function () {
       vpTarget: cfg.vpTarget || 10
     };
     S.control = { player: 0, forcedUnitId: null };
+    S.tacticsPending = [];
 
     /* The card being played, and everything it puts on the table. */
     const mission = cfg.missionId ? RULES.missionById(cfg.missionId) : null;
@@ -135,6 +139,7 @@ const Battle = (function () {
 
     log('— ' + map.name + ' —', 'big');
     S.setupAsks = [];
+    dealTactics();
     beginDeployment();
     emit();
   }
@@ -354,6 +359,19 @@ const Battle = (function () {
     S.players[player].ap += draw;
     log(S.players[player].name + ' gains ' + draw + ' AP for the Start Phase (now ' +
         S.players[player].ap + ').', 'ap');
+
+    /* The active player draws; then BOTH sides lay one face down, because the
+       bet is made before anybody knows what the turn will look like. */
+    if (S.useTactics && S.tactics && S.tactics[player]) {
+      const n = RULES.tacticsDrawPerTurn === undefined ? 1 : RULES.tacticsDrawPerTurn;
+      for (let i = 0; i < n; i++) drawTactic(player);
+      log(S.players[player].name + ' draws ' + n + ' Tactic Card.', 'note');
+      S.tacticsPending = [player, other(player)].filter(function (q) {
+        return S.tactics[q] && S.tactics[q].hand.length;
+      });
+      askTactic();
+      tacticFires('start', { player: player });
+    }
   }
 
   function endTurn() {
@@ -362,6 +380,7 @@ const Battle = (function () {
     if (S.chain.active) closeChain('the turn ended');
     /* END: whatever the cards do before the turn is scored */
     runEndPhase(p, function () {
+      closeTactics();
       scoreEndOfTurn(p);
       checkVictory();
       if (S.winner === null) beginTurn(other(p));
@@ -532,12 +551,279 @@ const Battle = (function () {
     }
   }
 
+  /* ===================================================== TACTIC CARDS
+
+     Eighteen cards, two of each of the nine. Three in hand at setup, one drawn
+     at the top of your own turn, and each turn you may lay ONE face down. It
+     stays there until its trigger fires; then it flips and you take what it
+     gives you. Laid down and never flipped, it is discarded at the end of the
+     turn and pays 1 AP for the bluff.
+
+     The deck is shuffled off the same seeded generator as the dice, so two
+     players in a networked game hold the same cards in the same order. */
+  function shuffled(list) {
+    const a = list.slice();
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(rng() * (i + 1));
+      const t = a[i]; a[i] = a[j]; a[j] = t;
+    }
+    return a;
+  }
+
+  function dealTactics() {
+    if (!S.useTactics || !RULES.tacticDeck) return;
+    const hand = RULES.tacticsOpeningHand === undefined ? 3 : RULES.tacticsOpeningHand;
+    S.tactics = [0, 1].map(function () {
+      return { deck: shuffled(RULES.tacticDeck()), hand: [], discard: [],
+               placed: null, flipped: null };
+    });
+    [0, 1].forEach(function (p) {
+      for (let i = 0; i < hand; i++) drawTactic(p);
+    });
+    log('Each side shuffles eighteen Tactic Cards and draws ' + hand + '.', 'note');
+  }
+
+  function drawTactic(p) {
+    const t = S.tactics[p];
+    if (!t) return null;
+    if (!t.deck.length) {
+      /* run out: the discards are shuffled back, which is the only sane way to
+         keep a long game running */
+      t.deck = shuffled(t.discard);
+      t.discard = [];
+    }
+    const id = t.deck.shift();
+    if (id) t.hand.push(id);
+    return id;
+  }
+
+  /* What this player may lay face down right now. */
+  function tacticHand(p) {
+    const t = S.tactics && S.tactics[p];
+    if (!t) return [];
+    return t.hand.map(function (id, i) {
+      const card = RULES.tacticById(id);
+      return { index: i, id: id, name: card ? card.name : id,
+               text: card ? card.text : '', flavour: card ? card.flavour : '',
+               when: card ? card.when : null };
+    });
+  }
+
+  /* Lay one face down. Passing null lays nothing, which is a real choice. */
+  function placeTactic(p, index) {
+    const t = S.tactics && S.tactics[p];
+    if (!t || t.placed) return;
+    if (index === null || index === undefined) { t.placed = null; t.declined = true; return; }
+    const id = t.hand[index];
+    if (!id) return;
+    t.hand.splice(index, 1);
+    t.placed = id;
+    t.flipped = null;
+    log(S.players[p].name + ' lays a Tactic Card face down.', 'note');
+  }
+
+  /* Every trigger the nine cards listen for. Called from wherever the thing
+     they are waiting for actually happens — the whole point of these cards is
+     the timing, so a trigger that fires in roughly the right place is a card
+     that does roughly the wrong thing. */
+  function tacticFires(trigger, ctx) {
+    if (!S.useTactics || !S.tactics) return null;
+    for (let p = 0; p < 2; p++) {
+      const t = S.tactics[p];
+      if (!t || !t.placed) continue;
+      const card = RULES.tacticById(t.placed);
+      if (!card || card.when !== trigger) continue;
+      if (!tacticApplies(card, p, ctx)) continue;
+      /* it flips */
+      t.flipped = t.placed;
+      t.discard.push(t.placed);
+      t.placed = null;
+      log(S.players[p].name + ' flips ' + card.name + '.', 'chain');
+      if (card.flavour) log('“' + card.flavour + '”', 'note');
+      return { player: p, card: card };
+    }
+    return null;
+  }
+
+  /* Whether the situation is actually this card's situation. */
+  function tacticApplies(card, p, ctx) {
+    ctx = ctx || {};
+    switch (card.when) {
+      case 'friendlyDamaged':
+        return ctx.victim && ctx.victim.owner === p && ctx.damage > 0;
+      case 'chainOpened':
+        return ctx.actor === p;
+      case 'friendlyShotResolved':
+        return ctx.attacker && ctx.attacker.owner === p;
+      case 'friendlyRangedWound':
+        return ctx.attacker && ctx.attacker.owner === p && ctx.range === 'ranged';
+      case 'friendlyDeclaresShootUnmoved':
+        return ctx.attacker && ctx.attacker.owner === p &&
+               ctx.attacker.movedTurn !== S.turn.number;
+      case 'friendlyDeclaresFight':
+        return ctx.attacker && ctx.attacker.owner === p;
+      case 'enemyDeclaresShoot':
+        return ctx.target && ctx.target.owner === p;
+      case 'friendlySpentTargeted':
+        return ctx.target && ctx.target.owner === p && spentWeapons(ctx.target).length > 0;
+      case 'start':
+        return ctx.player === p;
+      default:
+        return false;
+    }
+  }
+
+  /* What flipping it actually does. Anything that changes an attack already
+     in flight writes onto `atk`, because that is the object the resolution
+     reads; anything else happens here and now. */
+  function resolveTactic(fired, ctx) {
+    if (!fired) return;
+    const p = fired.player, card = fired.card;
+    (card.effects || []).forEach(function (e) {
+      switch (e.kind) {
+        case 'ap_self':
+          S.players[p].ap += Number(e.value) || 1;
+          log(S.players[p].name + ' gains ' + (e.value || 1) + ' AP.', 'ap');
+          break;
+
+        case 'hitMod':
+          if (ctx && ctx.atk) {
+            ctx.atk.hitMod = (ctx.atk.hitMod || 0) + (Number(e.value) || 0);
+            log(card.name + ': ' + (e.value > 0 ? '+' : '') + e.value + ' to hit.', 'note');
+          }
+          break;
+
+        case 'damageMod':
+          /* HEADSHOT rolls for it rather than simply granting it */
+          if (ctx && ctx.atk) {
+            const r = roll();
+            announce(r, e.roll || 4, card.name);
+            if (r !== 1 && r >= (e.roll || 4)) {
+              ctx.atk.damageMod = (ctx.atk.damageMod || 0) + (Number(e.value) || 1);
+              log(card.name + ': +' + (e.value || 1) + ' damage.', 'note');
+            } else {
+              log(card.name + ': no improvement.', 'muted');
+            }
+          }
+          break;
+
+        case 'blockReactions':
+          if (ctx && ctx.atk) {
+            ctx.atk.tacticBlocks = (ctx.atk.tacticBlocks || []).concat(e.ids || []);
+            log(card.name + ': ' + (e.ids || []).join(' and ').toUpperCase() +
+                ' are not available.', 'note');
+          }
+          break;
+
+        case 'reload':
+          if (ctx && ctx.target) {
+            ctx.target.reloaded = true;
+            log(ctx.target.name + ' may fire again this chain.', 'note');
+          }
+          break;
+
+        case 'move': {
+          const who = ctx && ctx.mover;
+          if (!who || !who.alive) break;
+          pendingTactic = { unit: who, inches: Number(e.value) || 3, name: card.name };
+          break;
+        }
+
+        case 'extraShot': {
+          const t2 = ctx && ctx.victim;
+          if (!t2 || !t2.alive) break;
+          const mate = alive().find(function (u) {
+            return u.owner === p && !isMarker(u) && !u.reserve &&
+                   u !== (ctx.attacker || null) &&
+                   rangedTargets(u.id).indexOf(t2.id) >= 0;
+          });
+          if (!mate) { log('Nobody else can see ' + t2.name + '.', 'muted'); break; }
+          pendingTactic = { extra: { from: mate, at: t2 }, name: card.name };
+          break;
+        }
+
+        default:
+          break;
+      }
+    });
+  }
+
+  /* Something a flipped card wants to do that cannot happen mid-resolution —
+     a move to be placed, a second shot to be fired. Drained once the attack it
+     interrupted has finished. */
+  let pendingTactic = null;
+
+  function drainTactic(then) {
+    const job = pendingTactic;
+    pendingTactic = null;
+    if (!job) { then(); return; }
+    if (job.extra) {
+      log(job.name + ': ' + job.extra.from.name + ' fires as well.', 'action');
+      doShoot(job.extra.from.id, job.extra.at.id, null, true);
+      then();
+      return;
+    }
+    if (job.unit) {
+      askMove(job.unit, job.inches, null, job.name + ' — MOVE ' + job.inches + '"',
+              'Move ' + job.unit.name + ' up to ' + job.inches + '".',
+              function () { then(); }, then);
+      return;
+    }
+    then();
+  }
+
+  /* Ask whoever still owes a decision. Both players lay one face down at the
+     top of every turn, active or not — the bet is made before anybody knows
+     what the turn will look like, which is the whole point of them. */
+  function askTactic() {
+    if (!S.useTactics || !S.tacticsPending || !S.tacticsPending.length) return false;
+    const p = S.tacticsPending[0];
+    S.pending = { kind: 'tactic', player: p, options: tacticHand(p),
+                  label: 'TACTIC CARD',
+                  hint: 'Lay one face down, or none. It flips when its moment comes; ' +
+                        'if it never does, discard it at the end of the turn for 1 AP.' };
+    emit();
+    return true;
+  }
+
+  function chooseTactic(index) {
+    const pend = S.pending;
+    if (!pend || pend.kind !== 'tactic') return;
+    placeTactic(pend.player, index);
+    S.tacticsPending = (S.tacticsPending || []).filter(q => q !== pend.player);
+    S.pending = null;
+    if (!askTactic()) emit();
+  }
+
+  /* Discard whatever is still face down, and pay for the bluff. */
+  function closeTactics() {
+    if (!S.useTactics || !S.tactics) return;
+    [0, 1].forEach(function (p) {
+      const t = S.tactics[p];
+      if (!t) return;
+      if (t.placed) {
+        const card = RULES.tacticById(t.placed);
+        t.discard.push(t.placed);
+        t.placed = null;
+        S.players[p].ap += 1;
+        log(S.players[p].name + ' discards ' + (card ? card.name : 'a Tactic Card') +
+            ' unflipped and gains 1 AP.', 'ap');
+      }
+      t.flipped = null;
+      t.declined = false;
+    });
+  }
+
   /* ------------------------------------------------------------- the chain */
 
-  function openChain(actor) {
+  function openChain(actor, u) {
     if (!S.chain.active) {
       S.chain = { active: true, initiator: actor, passes: 0 };
       log('— action chain opens —', 'chain');
+      /* SHIFT flips here and moves the unit that opened it — "the selected
+         friendly unit" is whoever the first action of the chain was spent on,
+         so openChain has to be told who that was. */
+      resolveTactic(tacticFires('chainOpened', { actor: actor }), { mover: u || null });
     }
   }
 
@@ -557,7 +843,11 @@ const Battle = (function () {
 
   /* Anything a card asks its owner before the first turn. */
   function nextSetupAsk() {
-    if (!S.setupAsks || !S.setupAsks.length) return;
+    /* When the setup questions run out, whatever is waiting behind them gets
+       the table. On turn one that is the Tactic Card choice, which beginTurn
+       queued before these were asked — asking it first and then letting a
+       setup question overwrite the pending is how it vanished. */
+    if (!S.setupAsks || !S.setupAsks.length) { askTactic(); return; }
     const q = S.setupAsks.shift();
     const foes = alive().filter(x => x.owner !== q.owner && !x.marker);
     askPick(foes, q.src.name + ' — ' + q.ab.name,
@@ -577,6 +867,7 @@ const Battle = (function () {
     if (!S.chain.active) return;
     S.chain.active = false;
     S.chain.passes = 0;
+    reloadEveryone();
     S.control = { player: S.turn.player, forcedUnitId: null };
     S.units.forEach(u => { u.effects = u.effects.filter(e => e.until !== 'chain'); });
     detonate('chain');
@@ -696,7 +987,7 @@ const Battle = (function () {
     if (!u || u.owner !== p || S.players[p].ap < 1) return;
     const o = nearestObjective(u);
     if (!o || holderOf(o) !== p) return;
-    openChain(p);
+    openChain(p, u);
     spend(p, 1);
     S.secured[o.id] = p;
     log(S.players[p].name + ': ' + u.name + ' SECURES the objective — it stays theirs until ' +
@@ -708,7 +999,7 @@ const Battle = (function () {
     const u = unit(unitId), p = S.control.player;
     if (!u || u.owner !== p || S.players[p].ap < 1 || !S.relic || S.relic.carrier) return;
     if (rangeTo(u, S.relic) > 3) return;
-    openChain(p);
+    openChain(p, u);
     spend(p, 1);
     S.relic.carrier = u.id;
     u.carryingRelic = true;
@@ -718,6 +1009,27 @@ const Battle = (function () {
   }
 
   const weaponsOf = (u, type) => u.weapons.filter(w => w.type === type && w.hit != null);
+
+  /* THE UNUSED RANGED WEAPON RULE.
+
+     A ranged weapon may be chosen only ONCE per action chain — a melee weapon
+     may be used every time. This was never implemented: a unit could fire the
+     same gun at every step of a chain, which is most of what made shooting
+     dominate. LOCKED AND LOADED exists specifically to lift it, so it has to
+     exist first. */
+  const spentWeapons = u => (u.spentChain || []);
+  const weaponSpent = (u, w) => !u.reloaded && spentWeapons(u).indexOf(w.name) >= 0;
+  const readyGuns = u => weaponsOf(u, 'ranged').filter(w => !weaponSpent(u, w));
+
+  function spendWeapon(u, w) {
+    if (!w || w.type !== 'ranged') return;
+    if (!u.spentChain) u.spentChain = [];
+    if (u.spentChain.indexOf(w.name) < 0) u.spentChain.push(w.name);
+  }
+
+  function reloadEveryone() {
+    S.units.forEach(function (u) { u.spentChain = []; delete u.reloaded; });
+  }
   const reachOf = u => {
     const blades = weaponsOf(u, 'melee');
     return blades.length ? Math.max.apply(null, blades.map(w => w.range || 1)) : 0;
@@ -728,8 +1040,8 @@ const Battle = (function () {
   function rangedTargets(unitId) {
     const u = unit(unitId);
     if (!u) return [];
-    const guns = weaponsOf(u, 'ranged');
-    if (!guns.length) return [];
+    const guns = readyGuns(u);
+    if (!guns.length) return [];        /* every gun already fired this chain */
     return alive().filter(function (t) {
       if (t.owner === u.owner) return false;
       const d = rangeTo(u, t) - u.radius - t.radius;
@@ -1071,7 +1383,7 @@ const Battle = (function () {
       return;
     }
 
-    openChain(p);
+    openChain(p, u);
     spend(p, cost);
     if (a.usesPerTurn) a.usedTurn = S.turn.number;
     if (a.usesPerGame) a.usedGame = true;
@@ -1436,7 +1748,7 @@ const Battle = (function () {
     }
     if (!path) return;
 
-    openChain(p);
+    openChain(p, u);
     spend(p, 1);
     log(S.players[p].name + ': ' + u.name + ' → MOVE (' +
         (climb ? climb.cost : path.length).toFixed(1) + '").', 'action');
@@ -1603,20 +1915,33 @@ const Battle = (function () {
 
   function faceTo(a, t) { a.facing = Math.atan2(t.y - a.y, t.x - a.x); }
 
-  function doShoot(attackerId, targetId, weaponName) {
+  function doShoot(attackerId, targetId, weaponName, freeShot) {
     const a = unit(attackerId), t = unit(targetId), p = S.control.player;
-    if (!a || !t || a.owner !== p || S.players[p].ap < 1) return;
-    const gun = a.weapons.find(w => w.name === weaponName) ||
-                weaponsOf(a, 'ranged').sort((x, y) => x.hit - y.hit)[0];
-    openChain(p);
-    spend(p, 1);
+    /* a shot granted by a card is not paid for and is not the player's action */
+    if (!a || !t) return;
+    if (!freeShot && (a.owner !== p || S.players[p].ap < 1)) return;
+    const ready = readyGuns(a);
+    const named = a.weapons.find(w => w.name === weaponName);
+    const gun = (named && !weaponSpent(a, named)) ? named
+              : ready.slice().sort((x, y) => x.hit - y.hit)[0];
+    if (!gun) return;                   /* nothing left to fire this chain */
+    spendWeapon(a, gun);
+    if (!freeShot) { openChain(p, a); spend(p, 1); }
     faceTo(a, t);
     const high = elevation(a, t) > 0;
     log(S.players[p].name + ': ' + a.name + ' → SHOOT → ' + t.name +
         ' (' + gun.name + ', ' + rangeTo(a, t).toFixed(1) + '").', 'action');
     if (high) log('Firing down from the high ground: +1 to hit.', 'note');
-    offerReaction({ attacker: a, target: t, weapon: gun, range: 'ranged',
-                    hitMod: high ? 1 : 0, actor: p });
+
+    /* Step 1 of the SHOOT sequence has now resolved, which is where three of
+       the nine cards say they flip. */
+    const atk = { attacker: a, target: t, weapon: gun, range: 'ranged',
+                  hitMod: high ? 1 : 0, actor: p, tacticExtra: !!freeShot };
+    resolveTactic(tacticFires('friendlyDeclaresShootUnmoved',
+                              { attacker: a, target: t }), { atk: atk });
+    resolveTactic(tacticFires('friendlySpentTargeted',
+                              { attacker: a, target: t }), { atk: atk, target: t });
+    offerReaction(atk);
   }
 
   function doFight(attackerId, targetId, weaponName, fromCharge, chargeHigh) {
@@ -1627,20 +1952,23 @@ const Battle = (function () {
     faceTo(a, t);
     if (!fromCharge) {
       if (a.owner !== p || S.players[p].ap < 1) return;
-      openChain(p);
+      openChain(p, a);
       spend(p, 1);
       log(S.players[p].name + ': ' + a.name + ' → FIGHT → ' + t.name +
           ' (' + blade.name + ').', 'action');
     }
-    offerReaction({ attacker: a, target: t, weapon: blade, range: 'melee',
-                    hitMod: 0, woundMod: chargeHigh ? 1 : 0,
-                    damageMod: chargeHigh ? 1 : 0, actor: p });
+    const atk = { attacker: a, target: t, weapon: blade, range: 'melee',
+                  hitMod: 0, woundMod: chargeHigh ? 1 : 0,
+                  damageMod: chargeHigh ? 1 : 0, actor: p };
+    resolveTactic(tacticFires('friendlyDeclaresFight', { attacker: a, target: t }),
+                  { atk: atk, target: t });
+    offerReaction(atk);
   }
 
   function doCharge(attackerId, targetId) {
     const a = unit(attackerId), t = unit(targetId), p = S.control.player;
     if (!a || !t || a.owner !== p || S.players[p].ap < 2) return;
-    openChain(p);
+    openChain(p, a);
     spend(p, 2);
     const rolled = roll();
     announce(rolled, null, 'CHARGE');
@@ -1699,6 +2027,7 @@ const Battle = (function () {
       .map(function (r) {
         let why = null;
         if (blocked[r.id]) why = blocked[r.id] + ' takes this away';
+        if ((atk.tacticBlocks || []).indexOf(r.id) >= 0) why = 'a Tactic Card takes this away';
         if (r.id === 'dive' && !why && !diveEscapes(atk).length) why = 'nowhere to dive that ends the attack';
         if (r.id === 'dodge' && !why && !dodgeSpots(atk).length) why = 'nowhere to step';
         /* DUCK is never refused: it always subtracts 1 from the wound roll.
@@ -1706,6 +2035,19 @@ const Battle = (function () {
            to get behind, and that is answered when it is taken. */
         return { id: r.id, name: r.name, text: r.text, cost: r.cost, ok: !why, why: why };
       });
+    /* A TACTIC CARD can be a reaction too. TAKE COVER sits face down until an
+       enemy declares a shot at you, and then it is simply another line on the
+       list — bought with RP like the rest. */
+    if (S.useTactics && S.tactics && S.tactics[t.owner] && S.tactics[t.owner].placed) {
+      const held = RULES.tacticById(S.tactics[t.owner].placed);
+      if (held && held.kind === 'reaction' &&
+          (held.reactRange || 'ranged') === atk.range) {
+        list.push({ id: 'tactic:' + held.id, name: held.name, text: held.text,
+                    cost: held.cost === undefined ? 1 : held.cost, ok: true,
+                    tactic: held.id });
+      }
+    }
+
     /* and whatever the defender's own card lets them do for RP */
     (t.abilities || []).forEach(function (ab, i) {
       if (ab.trigger !== 'rp') return;
@@ -1883,6 +2225,18 @@ const Battle = (function () {
       const offered = pend.options.find(o => o.id === id);
       if (!offered || !offered.ok) return;
       if (offered.cost > S.players[pend.atk.target.owner].rp) return;
+      /* a Tactic Card taken as a reaction */
+      if (offered.tactic) {
+        const t3 = pend.atk.target, atk3 = pend.atk;
+        S.pending = null;
+        S.players[t3.owner].rp = 0;
+        const fired = tacticFires('enemyDeclaresShoot',
+                                  { attacker: atk3.attacker, target: t3 });
+        resolveTactic(fired, { atk: atk3, target: t3 });
+        resolveAttack(atk3);
+        return;
+      }
+
       /* the defender's own card, spent as a reaction */
       if (offered.ability !== undefined) {
         const t2 = pend.atk.target, ab = abilityOf(t2, offered.ability);
@@ -2200,6 +2554,12 @@ const Battle = (function () {
       finish(atk, { hit: true }, done);
       return;
     }
+    /* HEADSHOT flips here — after the wound roll succeeded and before the
+       damage is worked out, which is the only place its "improve the weapon's
+       damage characteristic by 1" can mean anything. */
+    resolveTactic(tacticFires('friendlyRangedWound',
+                              { attacker: a, target: t, range: atk.range }), { atk: atk });
+
     const per = weaponDamage(w) + mods.damage + (atk.damageMod || 0);
     const dmg = per * wounds;
     log('Wound rolls ' + woundRolls.join(', ') + ' against ' + wTarget + '+ — ' +
@@ -2242,6 +2602,8 @@ const Battle = (function () {
 
     if (result.damage) {
       t.wounds = Math.max(0, t.wounds - result.damage);
+      resolveTactic(tacticFires('friendlyDamaged',
+                                { victim: t, damage: result.damage }), { atk: atk });
       if (t.wounds > 0) dropRelicFrom(t, false);
       log(t.name + ' takes ' + result.damage + ' — ' + t.wounds + '/' + t.maxWounds + ' W.', 'damage');
       if (t.wounds <= 0) {
@@ -2271,6 +2633,24 @@ const Battle = (function () {
     function wrapUp() {
       checkVictory();
       if (S.winner !== null) { emit(); return; }
+
+      /* SYNCHRONIZED FIRE flips once the SHOOT sequence has resolved, and it
+         fires a second unit — so it is drained here, after the attack is
+         finished and before the chain moves on. Anything a card queued (a
+         move to place, a shot to take) waits for this moment for the same
+         reason: it cannot happen inside the resolution it interrupted. */
+      if (atk.range === 'ranged' && !atk.tacticExtra) {
+        resolveTactic(tacticFires('friendlyShotResolved',
+                                  { attacker: a, victim: t }), { attacker: a, victim: t });
+      }
+      if (pendingTactic) {
+        drainTactic(function () { finishChain(); });
+        return;
+      }
+      finishChain();
+    }
+
+    function finishChain() {
       afterAction(atk.actor === undefined ? S.turn.player : atk.actor, {
         endsChain: (killed && !atk.chainLives) || atk.endsChainAfter,
         reason: killed ? 'a unit was destroyed' : 'WITHDRAW',
@@ -2301,7 +2681,7 @@ const Battle = (function () {
     if (!u || u.owner !== p || S.players[p].ap < 1) return;
     if (rangeTo(u, at) > 12) return;
     if (!Board.inside(S.board, at)) return;
-    openChain(p);
+    openChain(p, u);
     spend(p, 1);
     u.overwatch = { x: at.x, y: at.y };
     u.facing = Math.atan2(at.y - u.y, at.x - u.x);
@@ -2348,7 +2728,9 @@ const Battle = (function () {
     actionsFor, rangedTargets, meleeTargets, chargeTargets, moveField, weaponsOf, reachOf,
     doMove, doShoot, doFight, doCharge, doOverwatch, doPass, doSecure, doRelic,
     abilityActions, useAbility, confirmAbility, arrivalSpots, abilityOf, moveOf,
-    cardPowers, useCardPower, holderOf, attackMods, diceFor, blockedReactions,
+    cardPowers, useCardPower, holderOf,
+    tacticHand, placeTactic, chooseTactic,
+    tacticsWaiting: () => (S.tacticsPending || []).slice(), attackMods, diceFor, blockedReactions,
     chooseReaction, chooseRedirect, toggleWatcher, fireOverwatch, endTurn, placeMove,
     placePut, choosePick, answerEndAbility, placeDeploy,
     mustPass, elevation, diveEscapes, spotsWithin, fieldFor, snapMove

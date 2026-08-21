@@ -155,6 +155,13 @@ const ANSWERS = {
     }
     B.confirmAbility(pick(rand, mine).id);
   },
+  /* Lay a Tactic Card face down, or decline — declining is a real choice, so
+     the harness makes it sometimes. */
+  tactic: function (B, S, rand) {
+    const opts = S.pending.options || [];
+    if (!opts.length) { B.chooseTactic(null); return; }
+    B.chooseTactic(rand() < 0.15 ? null : Math.floor(rand() * opts.length) % opts.length);
+  },
   endability: function (B, S, rand) { B.answerEndAbility(rand() < 0.5); },
   reaction: function (B, S, rand) {
     const ok = (S.pending.options || []).filter(o => o.ok);

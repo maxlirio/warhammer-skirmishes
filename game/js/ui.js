@@ -503,6 +503,11 @@ const GameUI = (function () {
       bar.appendChild(el('div', 'prompt resolving', 'the shot is still in the air…'));
       return;
     }
+    if (pend && pend.kind === 'tactic') {
+      bar.appendChild(el('div', 'prompt',
+        S.players[pend.player].name + ' is laying a Tactic Card face down…'));
+      return;
+    }
     if (pend && pend.kind === 'redirect') {
       bar.appendChild(el('div', 'prompt', 'choosing who steps into it…'));
       return;
@@ -906,9 +911,33 @@ const GameUI = (function () {
         S.pending.kind === 'card' || S.pending.kind === 'put' ||
         S.pending.kind === 'pick' || S.pending.kind === 'endability' ||
         S.pending.kind === 'deploy') { closeModal(); return; }
+    if (S.pending.kind === 'tactic') return tacticModal(S);
     if (S.pending.kind === 'redirect') return redirectModal(S);
     if (S.pending.kind === 'reaction') return reactionModal(S);
     if (S.pending.kind === 'overwatch') return overwatchModal(S);
+  }
+
+  /* LAYING ONE FACE DOWN.
+
+     Both players do this at the top of every turn, active or not, before
+     anybody knows what the turn will look like — so it is a modal, addressed
+     to whoever owes the decision. Declining is a real option and it is on the
+     list, because a hand you are saving is a hand you are saving. */
+  function tacticModal(S) {
+    const p = S.pending.player;
+    if (window.Net && Net.active() && Net.seat() !== p) {
+      modal('TACTIC CARD', 'Waiting for ' + S.players[p].name + ' to lay one face down.',
+            [], p, true);
+      return;
+    }
+    const rows = (S.pending.options || []).map(function (o) {
+      return { label: o.name, sub: o.text.split('\n')[0],
+               on: () => act(() => Battle.chooseTactic(o.index),
+                             { t: 'tactic', i: o.index }) };
+    });
+    rows.push({ label: 'LAY NOTHING', sub: 'keep your hand and take the turn as it comes',
+                on: () => act(() => Battle.chooseTactic(null), { t: 'tactic', i: null }) });
+    modal('TACTIC CARD', S.pending.hint, rows, p, true);
   }
 
   function reactionModal(S) {
@@ -1046,6 +1075,7 @@ const GameUI = (function () {
     if (msg.t === 'charge') Battle.doCharge(msg.id, msg.tid);
     if (msg.t === 'ow')     Battle.doOverwatch(msg.id, msg.at);
     if (msg.t === 'place')  Battle.placeMove(msg.at);
+    if (msg.t === 'tactic') Battle.chooseTactic(msg.i);
     if (msg.t === 'react')  Battle.chooseReaction(msg.r);
     if (msg.t === 'watch')  Battle.toggleWatcher(msg.id);
     if (msg.t === 'fire')   Battle.fireOverwatch();
