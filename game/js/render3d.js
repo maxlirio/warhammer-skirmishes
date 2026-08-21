@@ -363,14 +363,8 @@ const Render3D = (function () {
   const rolls = [];             // waiting to be thrown
   let rolling = null;
 
-  const DIE_FACE = [null,
-    { axis: 'z', a: Math.PI / 2 },    /* 1 is +X */
-    { axis: 'x', a: 0 },              /* 2 is +Y */
-    { axis: 'x', a: -Math.PI / 2 },   /* 3 is +Z */
-    { axis: 'x', a: Math.PI / 2 },    /* 4 is -Z */
-    { axis: 'x', a: Math.PI },        /* 5 is -Y */
-    { axis: 'z', a: -Math.PI / 2 }    /* 6 is -X */
-  ];
+  /* Which face points which way lives in js/dice.js now — the physics decides
+     the die's orientation, so there is no target rotation to look up. */
 
   function pipTexture(n) {
     const c = document.createElement('canvas');
@@ -480,14 +474,17 @@ const Render3D = (function () {
       rolling.t = 0;
       tray.visible = true;
       trayDie.visible = true;
-      trayDie.position.set((Math.random() - 0.5) * 0.5, 2.6, (Math.random() - 0.5) * 0.5);
-      trayDie.rotation.set(Math.random() * 6, Math.random() * 6, Math.random() * 6);
-      rolling.spin = new THREE.Vector3(Math.random() * 16 - 8, Math.random() * 16 - 8,
-                                       Math.random() * 16 - 8);
-      const f = DIE_FACE[rolling.value];
-      rolling.rest = new THREE.Quaternion().setFromEuler(new THREE.Euler(
-        f.axis === 'x' ? f.a : 0, Math.random() * Math.PI * 2, f.axis === 'z' ? f.a : 0, 'YZX'));
-      rolling.from = trayDie.position.clone();
+
+      /* A REAL THROW. See js/dice.js: the cube is simulated as a rigid body —
+         gravity, angular momentum, impulses at whichever corners are touching,
+         restitution, friction, the wall of the bowl — and the throw played
+         here is one that genuinely settled on the number the game rolled.
+         Nothing is nudged in flight and nothing is snapped at the end. */
+      rolling.sim = (typeof Dice !== 'undefined')
+        ? Dice.throwFor(rolling.value, { size: 0.62, floor: 0.03, wall: 1.18 })
+        : null;
+      rolling.clackAt = 0;
+
       trayLabel.material.map = trayText(rolling.label,
         rolling.target ? 'NEEDS ' + rolling.target + '+' : '');
       trayLabel.material.needsUpdate = true;
@@ -496,45 +493,30 @@ const Render3D = (function () {
     if (!rolling) return;
     rolling.t += dt;
 
-    /* IT HAS TO LOOK LIKE A ROLL.
+    const sim = rolling.sim;
+    const RATE = 240;                       /* the simulation's own step rate */
+    const flight = sim ? sim.frames.length / RATE : 0.7;
 
-       It used to tumble for half a second and then snap to its face, which the
-       eye reads as a number appearing rather than a die being thrown. Now it
-       falls, bounces twice — losing height each time, the way a die does —
-       tumbling the whole while, and only settles onto its face after the last
-       bounce. The number arrives when the die stops, not before. */
-    const TUMBLE = 0.95;
-    const drop = Math.min(1, rolling.t / TUMBLE);
-    const e = 1 - Math.pow(1 - drop, 2);
-    trayDie.position.lerpVectors(rolling.from, new THREE.Vector3(0, 0.34, 0), e);
-    if (rolling.t < TUMBLE) {
-      /* two bounces off the bottom of the bowl, decaying */
-      const b1 = 0.42, b2 = 0.72;
-      let lift = 0;
-      if (rolling.t > b1 && rolling.t < b2) {
-        lift = Math.sin((rolling.t - b1) / (b2 - b1) * Math.PI) * 0.42;
-        if (!rolling.clacked) { rolling.clacked = true; Sfx.clang(0.3); }
-      } else if (rolling.t >= b2) {
-        lift = Math.sin((rolling.t - b2) / (TUMBLE - b2) * Math.PI) * 0.16;
-        if (!rolling.clacked2) { rolling.clacked2 = true; Sfx.clang(0.18); }
-      }
-      trayDie.position.y += lift;
-      /* spin fast at first and slow as it loses energy */
-      const k = 1 - rolling.t / TUMBLE;
-      trayDie.rotation.x += rolling.spin.x * dt * (0.3 + k * 1.6);
-      trayDie.rotation.y += rolling.spin.y * dt * (0.3 + k * 1.6);
-      trayDie.rotation.z += rolling.spin.z * dt * (0.3 + k * 1.6);
-    } else {
-      trayDie.quaternion.slerp(rolling.rest, Math.min(1, dt * 9));
-      if (!rolling.said && rolling.t > TUMBLE + 0.12) {
-        rolling.said = true;
-        const ok = rolling.target ? (rolling.value !== 1 && rolling.value >= rolling.target) : null;
-        trayLabel.material.map = trayText(rolling.label,
-          ok === null ? rolling.value + '"' : (ok ? 'PASSED' : 'FAILED'));
-        trayLabel.material.needsUpdate = true;
+    if (sim && sim.frames.length) {
+      const i = Math.min(sim.frames.length - 1, Math.floor(rolling.t * RATE));
+      const f = sim.frames[i];
+      trayDie.position.set(f[0], f[1], f[2]);
+      trayDie.quaternion.set(f[3], f[4], f[5], f[6]);
+      /* every corner that struck hard enough to be heard */
+      while (rolling.clackAt < sim.clacks.length && sim.clacks[rolling.clackAt][0] <= i) {
+        Sfx.clang(0.14 + sim.clacks[rolling.clackAt][1] * 0.3);
+        rolling.clackAt++;
       }
     }
-    if (rolling.t > TUMBLE + 0.85) rolling = null;
+
+    if (!rolling.said && rolling.t > flight + 0.1) {
+      rolling.said = true;
+      const ok = rolling.target ? (rolling.value !== 1 && rolling.value >= rolling.target) : null;
+      trayLabel.material.map = trayText(rolling.label,
+        ok === null ? rolling.value + '"' : (ok ? 'PASSED' : 'FAILED'));
+      trayLabel.material.needsUpdate = true;
+    }
+    if (rolling.t > flight + 0.8) rolling = null;
   }
 
   function skyTexture(biome) {
