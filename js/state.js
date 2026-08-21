@@ -501,7 +501,7 @@ const PRESETS = [
       weapons: [
         { name: 'Storm Bolter', type: 'ranged', range: 12, hit: 2, strength: 3, damage: 1 },
         { name: 'Smite', type: 'ranged', range: 18, hit: 3, strength: 4, damage: 1 },
-        { name: 'Nemesis Sword', type: 'melee', range: 1, hit: 2, strength: 5, damage: 2 }
+        { name: 'Nemesis Sword', type: 'melee', range: 1, hit: 2, strength: 5, damage: 1 }
       ],
       abilities: [
         { name: 'Warpstride', trigger: 'end', cost: 0, usesPerGame: 1, moves: true,
